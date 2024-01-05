@@ -1,0 +1,13 @@
+.{
+    .name = "zig-kdblint",
+    .version = "0.1.0",
+    .dependencies = .{
+        .@"zig-lsp" = .{
+            .url = "https://github.com/dstrachan/zig-lsp/archive/main.tar.gz",
+            .hash = "1220a9053371cba313c1923cfaa5e7b247592f3d7b5a82cdacfa46cb6204478d29b7",
+        },
+    },
+    .paths = .{
+        "",
+    },
+}

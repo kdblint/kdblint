@@ -1,0 +1,17 @@
+{
+  "name": "@kdblint/kdblint",
+  "version": "0.1.0",
+  "description": "A code linter and static analyzer for kdb+",
+  "scripts": {
+    "build": "zig build && cp -R zig-out/bin dist"
+  },
+  "author": {
+    "name": "David Strachan",
+    "email": "david@kdblint.com"
+  },
+  "license": "SEE LICENSE IN EULA.md",
+  "files": [
+    "EULA.md",
+    "dist"
+  ]
+}
