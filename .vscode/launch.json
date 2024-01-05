@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "(lldb) Attach",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${workspaceRoot}/zig-out/bin/macos/aarch64/kdblint",
+      "MIMode": "lldb"
+    }
+  ]
+}
