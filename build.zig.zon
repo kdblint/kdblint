@@ -3,8 +3,8 @@
     .version = "0.1.0",
     .dependencies = .{
         .@"zig-lsp" = .{
-            .url = "https://github.com/dstrachan/zig-lsp/archive/main.tar.gz",
-            .hash = "1220a9053371cba313c1923cfaa5e7b247592f3d7b5a82cdacfa46cb6204478d29b7",
+            .url = "https://github.com/dstrachan/zig-lsp/archive/dc6470f5ef41b3412a9e4ca0125a0863e27661ec.tar.gz",
+            .hash = "12208ee1853d29313cda2c26d79022157a0a3b66fc379405036103683063876449b5",
         },
     },
     .paths = .{

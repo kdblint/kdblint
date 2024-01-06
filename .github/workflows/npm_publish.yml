@@ -1,0 +1,35 @@
+name: Publish npm package
+on:
+  push:
+    branches: main
+jobs:
+  npm_publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+      - name: Get package versions
+        id: version
+        run: |
+          echo "current=$(cat package.json | jq -r .version)" >> "$GITHUB_OUTPUT"
+          echo "latest=$(npm view @kdblint/kdblint dist-tags.latest)" >> "$GITHUB_OUTPUT"
+          echo "dev=$(npm view @kdblint/kdblint dist-tags.dev)" >> "$GITHUB_OUTPUT"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: goto-bus-stop/setup-zig@v2
+      - name: Build
+        run: zig build -Dfull
+      - name: Publish latest
+        if: ${{ steps.version.outputs.current != steps.version.outputs.latest }}
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bump version
+        run: npm version --no-git-tag-version $(npx semver $(npx semver -i prerelease ${{ steps.version.outputs.dev }}) ${{ steps.version.outputs.current }}-dev.0 | tail -n 1)
+      - name: Publish dev
+        run: npm publish --tag dev
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
