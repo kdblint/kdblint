@@ -112,9 +112,7 @@ pub fn @"textDocument/didOpen"(server: *Server, notification: types.DidOpenTextD
 
 pub fn @"textDocument/didChange"(server: *Server, notification: types.DidChangeTextDocumentParams) !void {
     const handle = server.document_store.getHandle(notification.textDocument.uri) orelse return;
-    log.debug("Existing text:\n==========\n{s}\n==========", .{handle.tree.source});
     const new_text = try diff.applyContentChanges(server.allocator, handle.tree.source, notification.contentChanges, server.position_encoding);
-    log.debug("New text:\n==========\n{s}\n==========", .{new_text});
 
     if (new_text.len > DocumentStore.max_document_size) {
         log.err("textDocument/didChange {s} failed: text size ({d}) is greater than maximum length ({d})", .{
@@ -137,4 +135,8 @@ pub fn @"textDocument/didSave"(server: *Server, notification: types.DidSaveTextD
 
 pub fn @"textDocument/didClose"(server: *Server, notification: types.DidCloseTextDocumentParams) !void {
     server.document_store.closeDocument(notification.textDocument.uri);
+}
+
+test {
+    @import("std").testing.refAllDecls(@This());
 }

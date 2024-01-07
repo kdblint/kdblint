@@ -35,3 +35,7 @@ pub fn applyContentChanges(
 
     return try text_array.toOwnedSliceSentinel(allocator, 0);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
