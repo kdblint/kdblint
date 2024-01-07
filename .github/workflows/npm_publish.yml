@@ -21,7 +21,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: goto-bus-stop/setup-zig@v2
       - name: Build
-        run: zig build -Dfull
+        run: zig build -Dfull -Doptimize=ReleaseSmall
       - name: Publish latest
         if: ${{ steps.version.outputs.current != steps.version.outputs.latest }}
         run: npm publish
