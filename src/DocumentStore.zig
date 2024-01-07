@@ -1,4 +1,5 @@
 const std = @import("std");
+const kdb = @import("kdb.zig");
 
 const log = std.log.scoped(.kdbLint_Store);
 
@@ -10,7 +11,7 @@ pub const max_document_size = std.math.maxInt(u32);
 
 pub const Handle = struct {
     uri: Uri,
-    tree: std.zig.Ast, // TODO: Replace with kdb+ AST
+    tree: kdb.Ast,
 
     /// private field
     impl: struct {
@@ -66,8 +67,8 @@ pub const Handle = struct {
         }
     }
 
-    fn parseTree(allocator: std.mem.Allocator, new_text: [:0]const u8) error{OutOfMemory}!std.zig.Ast {
-        var tree = try std.zig.Ast.parse(allocator, new_text, .zig);
+    fn parseTree(allocator: std.mem.Allocator, new_text: [:0]const u8) error{OutOfMemory}!kdb.Ast {
+        var tree = try kdb.Ast.parse(allocator, new_text, .q);
         errdefer tree.deinit(allocator);
 
         // remove unused capacity
@@ -197,4 +198,8 @@ fn createAndStoreDocument(self: *DocumentStore, uri: Uri, text: [:0]const u8, op
     }
 
     return gop.value_ptr.*;
+}
+
+test {
+    @import("std").testing.refAllDecls(@This());
 }

@@ -52,3 +52,7 @@ pub fn getNCodeUnitByteCount(text: []const u8, n: usize, encoding: Encoding) usi
         },
     }
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

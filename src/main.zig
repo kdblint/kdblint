@@ -83,3 +83,7 @@ const Context = struct {
         try conn.context.server.@"textDocument/didClose"(value);
     }
 };
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
