@@ -761,12 +761,8 @@ fn testTokenizeMode(mode: Mode, source: [:0]const u8, expected: []const Token) !
 }
 
 test "tokenize blocks" {
-    try testTokenize("1", &.{
-        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-    });
-    try testTokenize("1\n", &.{
-        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-    });
+    try testTokenize("1", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true }});
+    try testTokenize("1\n", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true }});
     try testTokenize("1\n2", &.{
         .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
         .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 3 }, .eob = true },
@@ -1005,8 +1001,35 @@ test "tokenize symbol list" {
 }
 
 test "tokenize identifier" {
-    if (true) return error.SkipZigTest;
-    try std.testing.expect(false);
+    try testTokenize("a", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 1 }, .eob = true }});
+    try testTokenize("identifier", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = true }});
+    try testTokenize("test1", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 5 }, .eob = true }});
+    try testTokenize("UPPERCASE", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 9 }, .eob = true }});
+    try testTokenize("identifier.with.dot", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 19 }, .eob = true }});
+    try testTokenize(".identifier.with.leading.dot", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 28 }, .eob = true }});
+
+    try testTokenizeMode(.k, "identifier_with_underscore", &.{
+        .{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 10, .end = 11 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 11, .end = 15 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 15, .end = 16 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 16, .end = 26 }, .eob = true },
+    });
+    try testTokenizeMode(.q, "identifier_with_underscore", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 26 }, .eob = true }});
+    try testTokenizeMode(.k, "_identifier_with_leading_underscore", &.{
+        .{ .tag = .underscore, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 1, .end = 11 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 11, .end = 12 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 12, .end = 16 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 16, .end = 17 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 17, .end = 24 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 24, .end = 25 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 25, .end = 35 }, .eob = true },
+    });
+    try testTokenizeMode(.q, "_identifier_with_leading_underscore", &.{
+        .{ .tag = .underscore, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 1, .end = 35 }, .eob = true },
+    });
 }
 
 test {
