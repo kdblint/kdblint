@@ -10,7 +10,51 @@ pub const Token = struct {
         end: usize,
     };
 
-    pub const keywords = std.ComptimeStringMap(Tag, .{});
+    pub const keywords = std.ComptimeStringMap(Tag, .{
+        .{ "abs", .keyword_abs },
+        .{ "acos", .keyword_acos },
+        .{ "asin", .keyword_asin },
+        .{ "atan", .keyword_atan },
+        .{ "avg", .keyword_avg },
+        .{ "bin", .keyword_bin },
+        .{ "binr", .keyword_binr },
+        .{ "cor", .keyword_cor },
+        .{ "cos", .keyword_cos },
+        .{ "cov", .keyword_cov },
+        .{ "delete", .keyword_delete },
+        .{ "dev", .keyword_dev },
+        .{ "div", .keyword_div },
+        .{ "do", .keyword_do },
+        .{ "enlist", .keyword_enlist },
+        .{ "exec", .keyword_exec },
+        .{ "exit", .keyword_exit },
+        .{ "exp", .keyword_exp },
+        .{ "getenv", .keyword_getenv },
+        .{ "hopen", .keyword_hopen },
+        .{ "if", .keyword_if },
+        .{ "in", .keyword_in },
+        .{ "insert", .keyword_insert },
+        .{ "last", .keyword_last },
+        .{ "like", .keyword_like },
+        .{ "log", .keyword_log },
+        .{ "max", .keyword_max },
+        .{ "min", .keyword_min },
+        .{ "prd", .keyword_prd },
+        .{ "select", .keyword_select },
+        .{ "setenv", .keyword_setenv },
+        .{ "sin", .keyword_sin },
+        .{ "sqrt", .keyword_sqrt },
+        .{ "ss", .keyword_ss },
+        .{ "sum", .keyword_sum },
+        .{ "tan", .keyword_tan },
+        .{ "update", .keyword_update },
+        .{ "var", .keyword_var },
+        .{ "wavg", .keyword_wavg },
+        .{ "while", .keyword_while },
+        .{ "within", .keyword_within },
+        .{ "wsum", .keyword_wsum },
+        .{ "xexp", .keyword_xexp },
+    });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
         return keywords.get(bytes);
@@ -44,9 +88,9 @@ pub const Token = struct {
         pipe,
         pipe_colon,
         angle_bracket_left,
-        angle_bracket_left_angle_bracket_right,
         angle_bracket_left_colon,
         angle_bracket_left_equal,
+        angle_bracket_left_right,
         angle_bracket_right,
         angle_bracket_right_colon,
         angle_bracket_right_equal,
@@ -154,7 +198,6 @@ pub const Token = struct {
                 .comment,
                 .system,
                 .invalid,
-                .eob,
                 .eof,
                 => null,
 
@@ -182,9 +225,9 @@ pub const Token = struct {
                 .pipe => "|",
                 .pipe_colon => "|:",
                 .angle_bracket_left => "<",
-                .angle_bracket_left_angle_bracket_right => "<>",
                 .angle_bracket_left_colon => "<:",
                 .angle_bracket_left_equal => "<=",
+                .angle_bracket_left_right => "<>",
                 .angle_bracket_right => ">",
                 .angle_bracket_right_colon => ">:",
                 .angle_bracket_right_equal => ">=",
@@ -277,7 +320,6 @@ pub const Token = struct {
                 .comment => "a comment",
                 .system => "a system command",
                 .invalid => "invalid bytes",
-                .eob => "end of block",
                 .eof => "EOF",
                 else => unreachable,
             };
@@ -309,10 +351,22 @@ pub const Tokenizer = struct {
 
     const State = enum {
         start,
+        dot,
+        operator,
+        angle_bracket_left,
+        angle_bracket_right,
+        zero,
+        one,
+        two,
+        number,
+        symbol_start,
+        symbol,
+        symbol_handle,
+        identifier,
     };
 
     pub fn next(self: *Tokenizer) Token {
-        const state: State = .start;
+        var state: State = .start;
         var result = Token{
             .tag = .eof,
             .loc = .{
@@ -378,9 +432,269 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+
+                    ':' => {
+                        result.tag = .colon;
+                        state = .operator;
+                    },
+                    '+' => {
+                        result.tag = .plus;
+                        state = .operator;
+                    },
+                    '-' => {
+                        result.tag = .minus;
+                        state = .operator;
+                    },
+                    '*' => {
+                        result.tag = .asterisk;
+                        state = .operator;
+                    },
+                    '%' => {
+                        result.tag = .percent;
+                        state = .operator;
+                    },
+                    '!' => {
+                        result.tag = .bang;
+                        state = .operator;
+                    },
+                    '&' => {
+                        result.tag = .ampersand;
+                        state = .operator;
+                    },
+                    '|' => {
+                        result.tag = .pipe;
+                        state = .operator;
+                    },
+                    '<' => {
+                        result.tag = .angle_bracket_left;
+                        state = .angle_bracket_left;
+                    },
+                    '>' => {
+                        result.tag = .angle_bracket_right;
+                        state = .angle_bracket_right;
+                    },
+                    '=' => {
+                        result.tag = .equal;
+                        state = .operator;
+                    },
+                    '~' => {
+                        result.tag = .tilde;
+                        state = .operator;
+                    },
+                    ',' => {
+                        result.tag = .comma;
+                        state = .operator;
+                    },
+                    '^' => {
+                        result.tag = .caret;
+                        state = .operator;
+                    },
+                    '#' => {
+                        result.tag = .hash;
+                        state = .operator;
+                    },
+                    '_' => {
+                        result.tag = .underscore;
+                        state = .operator;
+                    },
+                    '$' => {
+                        result.tag = .dollar;
+                        state = .operator;
+                    },
+                    '?' => {
+                        result.tag = .question_mark;
+                        state = .operator;
+                    },
+                    '@' => {
+                        result.tag = .at;
+                        state = .operator;
+                    },
+                    '.' => {
+                        result.tag = .dot;
+                        state = .dot;
+                    },
+                    '\'' => {
+                        result.tag = .apostrophe;
+                        state = .operator;
+                    },
+                    '/' => {
+                        result.tag = .slash;
+                        state = .operator;
+                    },
+                    '\\' => {
+                        result.tag = .backslash;
+                        state = .operator;
+                    },
+                    '0' => {
+                        result.tag = .number_literal;
+                        state = .zero;
+                    },
+                    '1' => {
+                        result.tag = .number_literal;
+                        state = .one;
+                    },
+                    '2' => {
+                        result.tag = .number_literal;
+                        state = .two;
+                    },
+
+                    '3'...'9' => {
+                        result.tag = .number_literal;
+                        state = .number;
+                    },
+
+                    '`' => {
+                        result.tag = .symbol_literal;
+                        state = .symbol_start;
+                    },
+
+                    'a'...'z', 'A'...'Z' => {
+                        result.tag = .identifier;
+                        state = .identifier;
+                    },
+
                     else => {
                         result.tag = .invalid;
                         self.index += 1;
+                        break;
+                    },
+                },
+
+                .dot => switch (c) {
+                    ':' => {
+                        result.tag = .dot_colon;
+                        self.index += 1;
+                        break;
+                    },
+                    '0'...'9' => {
+                        result.tag = .number_literal;
+                        state = .number;
+                    },
+                    'a'...'z', 'A'...'Z' => {
+                        result.tag = .identifier;
+                        state = .identifier;
+                    },
+                    else => break,
+                },
+
+                .operator => switch (c) {
+                    ':' => {
+                        result.tag = @enumFromInt(@intFromEnum(result.tag) + 1);
+                        self.index += 1;
+                        break;
+                    },
+                    else => break,
+                },
+                .angle_bracket_left => switch (c) {
+                    ':' => {
+                        result.tag = .angle_bracket_left_colon;
+                        self.index += 1;
+                        break;
+                    },
+                    '=' => {
+                        result.tag = .angle_bracket_left_equal;
+                        self.index += 1;
+                        break;
+                    },
+                    '>' => {
+                        result.tag = .angle_bracket_left_right;
+                        self.index += 1;
+                        break;
+                    },
+                    else => break,
+                },
+                .angle_bracket_right => switch (c) {
+                    ':' => {
+                        result.tag = .angle_bracket_right_colon;
+                        self.index += 1;
+                        break;
+                    },
+                    '=' => {
+                        result.tag = .angle_bracket_right_equal;
+                        self.index += 1;
+                        break;
+                    },
+                    else => break,
+                },
+
+                .zero => switch (c) {
+                    ':' => {
+                        result.tag = .zero_colon;
+                        state = .operator;
+                    },
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => {
+                        state = .number;
+                    },
+                    else => break,
+                },
+                .one => switch (c) {
+                    ':' => {
+                        result.tag = .one_colon;
+                        state = .operator;
+                    },
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => {
+                        state = .number;
+                    },
+                    else => break,
+                },
+                .two => switch (c) {
+                    ':' => {
+                        result.tag = .two_colon;
+                        self.index += 1;
+                        break;
+                    },
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => {
+                        state = .number;
+                    },
+                    else => break,
+                },
+
+                .number => switch (c) {
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => {},
+                    else => break,
+                },
+
+                .symbol_start => switch (c) {
+                    '`' => {
+                        result.tag = .symbol_list_literal;
+                    },
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => {
+                        state = .symbol;
+                    },
+                    ':' => {
+                        state = .symbol_handle;
+                    },
+                    else => break,
+                },
+                .symbol => switch (c) {
+                    '`' => {
+                        result.tag = .symbol_list_literal;
+                        state = .symbol_start;
+                    },
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => {},
+                    '_' => {}, // TODO: Ignore '_' in k-mode.
+                    ':' => {
+                        state = .symbol_handle;
+                    },
+                    else => break,
+                },
+                .symbol_handle => switch (c) {
+                    '`' => {
+                        result.tag = .symbol_list_literal;
+                        state = .symbol_start;
+                    },
+                    'a'...'z', 'A'...'Z', '0'...'9', '.', ':', '/' => {},
+                    '_' => {}, // TODO: Ignore '_' in k-mode.
+                    else => break,
+                },
+
+                .identifier => switch (c) {
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => {},
+                    '_' => {}, // TODO: Ignore '_' in k-mode.
+                    else => {
+                        if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
+                            result.tag = tag;
+                        }
                         break;
                     },
                 },
@@ -430,168 +744,191 @@ fn testTokenize(source: [:0]const u8, expected: []const Token) !void {
 
 test "tokenize blocks" {
     try testTokenize("1", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
     });
     try testTokenize("1\n", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
     });
     try testTokenize("1\n2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 3 }, .eob = true },
     });
     try testTokenize("1\n 2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
     });
     try testTokenize("1 \n2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
     });
     try testTokenize("1 \n 2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
     try testTokenize("1 \n2 ", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
     });
     try testTokenize("1 \n 2 ", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
 
     try testTokenize("1;", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 1, .end = 2 }, .eob = true },
     });
     try testTokenize("1 ;", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
     });
     try testTokenize("1;2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 1, .end = 2 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 3 }, .eob = true },
     });
     try testTokenize("1 ;2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
     });
     try testTokenize("1; 2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 1, .end = 2 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
     });
     try testTokenize("1 ; 2", &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
 
     try testTokenize("(1;2)", &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
     try testTokenize("((1;2);3)", &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .l_paren, .loc = .{ .start = 1, .end = 2 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 3 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 3, .end = 4 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 5 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 5, .end = 6 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 7, .end = 8 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 8, .end = 9 }, .eob = true },
     });
     try testTokenize("{1;2}", &.{
         .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = false },
         .{ .tag = .r_brace, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
     try testTokenize("{{1;2};3}", &.{
         .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .l_brace, .loc = .{ .start = 1, .end = 2 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 3 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 3, .end = 4 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 5 }, .eob = false },
         .{ .tag = .r_brace, .loc = .{ .start = 5, .end = 6 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 7, .end = 8 }, .eob = false },
         .{ .tag = .r_brace, .loc = .{ .start = 8, .end = 9 }, .eob = true },
     });
     try testTokenize("[1;2]", &.{
         .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = false },
         .{ .tag = .r_bracket, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
     try testTokenize("[[1;2];3]", &.{
         .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .l_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 3 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 3, .end = 4 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 5 }, .eob = false },
         .{ .tag = .r_bracket, .loc = .{ .start = 5, .end = 6 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 7, .end = 8 }, .eob = false },
         .{ .tag = .r_bracket, .loc = .{ .start = 8, .end = 9 }, .eob = true },
     });
 
     try testTokenize("(1;\n2;3)", &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 5 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 5, .end = 6 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 6, .end = 7 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 7, .end = 8 }, .eob = true },
     });
     try testTokenize("(1; \n2;3)", &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 5, .end = 6 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 7, .end = 8 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 8, .end = 9 }, .eob = true },
     });
     try testTokenize("(1;\n 2;3)", &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 5, .end = 6 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 7, .end = 8 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 8, .end = 9 }, .eob = true },
     });
     try testTokenize("(1; \n 2;3)", &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 6, .end = 7 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 7, .end = 8 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 8, .end = 9 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 9 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 9, .end = 10 }, .eob = true },
     });
 }
 
-test "bracket counting overflow" {
-    try testTokenize(")", &.{
-        .{ .tag = .r_paren, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-    });
-    try testTokenize("}", &.{
-        .{ .tag = .r_brace, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-    });
-    try testTokenize("]", &.{
-        .{ .tag = .r_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-    });
+test "Token tags" {
+    inline for (@typeInfo(Token.Tag).Enum.fields) |field| {
+        const tag: Token.Tag = @enumFromInt(field.value);
+        if (tag.lexeme()) |lexeme| {
+            const source = try std.testing.allocator.dupeZ(u8, lexeme);
+            defer std.testing.allocator.free(source);
+            try testTokenize(source, &.{.{ .tag = tag, .loc = .{ .start = 0, .end = source.len }, .eob = true }});
+        }
+    }
+}
+
+test "tokenize number" {
+    try std.testing.expect(false);
+}
+
+test "tokenize number list" {
+    try std.testing.expect(false);
+}
+
+test "tokenize string" {
+    try std.testing.expect(false);
+}
+
+test "tokenize symbol" {
+    try std.testing.expect(false);
+}
+
+test "tokenize symbol list" {
+    try std.testing.expect(false);
+}
+
+test "tokenize identifier" {
+    try std.testing.expect(false);
 }
 
 test {
