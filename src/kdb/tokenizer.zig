@@ -363,6 +363,8 @@ pub const Tokenizer = struct {
         one,
         two,
         number,
+        string,
+        escaped_string,
         symbol_start,
         symbol,
         symbol_handle,
@@ -547,6 +549,11 @@ pub const Tokenizer = struct {
                         state = .number;
                     },
 
+                    '"' => {
+                        result.tag = .string_literal;
+                        state = .string;
+                    },
+
                     '`' => {
                         result.tag = .symbol_literal;
                         state = .symbol_start;
@@ -688,6 +695,48 @@ pub const Tokenizer = struct {
                 .number => switch (c) {
                     '0'...'9', 'a'...'z', 'A'...'Z', '.' => {},
                     else => break,
+                },
+
+                .string => switch (c) {
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
+                    '"' => {
+                        self.index += 1;
+                        break;
+                    },
+                    '\\' => {
+                        state = .escaped_string;
+                    },
+                    '\n' => {
+                        if (!std.ascii.isWhitespace(self.buffer[self.index + 1])) {
+                            result.tag = .invalid;
+                            break;
+                        }
+                    },
+                    else => {},
+                },
+                .escaped_string => switch (c) {
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
+                    '"', '\\', 'n', 'r', 't' => {
+                        state = .string;
+                    },
+                    '0'...'9' => {
+                        state = .string;
+                        if (std.ascii.isDigit(self.buffer[self.index + 1]) and std.ascii.isDigit(self.buffer[self.index + 2])) {
+                            self.index += 2;
+                        } else {
+                            result.tag = .invalid;
+                        }
+                    },
+                    else => {
+                        result.tag = .invalid;
+                        state = .string;
+                    },
                 },
 
                 .symbol_start => switch (c) {
@@ -1098,16 +1147,16 @@ test "tokenize negative number" {
         .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 5 }, .eob = true },
     });
-    // try testTokenize("\"string\"-1", &.{
-    //     .{ .tag = .string_literal, .loc = .{ .start = 0, .end = 10 }, .eob = false },
-    //     .{ .tag = .minus, .loc = .{ .start = 10, .end = 11 }, .eob = false },
-    //     .{ .tag = .number_literal, .loc = .{ .start = 11, .end = 12 }, .eob = true },
-    // });
-    // try testTokenize("\"string\"-.1", &.{
-    //     .{ .tag = .string_literal, .loc = .{ .start = 0, .end = 10 }, .eob = false },
-    //     .{ .tag = .minus, .loc = .{ .start = 10, .end = 11 }, .eob = false },
-    //     .{ .tag = .number_literal, .loc = .{ .start = 11, .end = 13 }, .eob = true },
-    // });
+    try testTokenize("\"string\"-1", &.{
+        .{ .tag = .string_literal, .loc = .{ .start = 0, .end = 8 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 8, .end = 9 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 9, .end = 10 }, .eob = true },
+    });
+    try testTokenize("\"string\"-.1", &.{
+        .{ .tag = .string_literal, .loc = .{ .start = 0, .end = 8 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 8, .end = 9 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 9, .end = 11 }, .eob = true },
+    });
     try testTokenize("`symbol-1", &.{
         .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = false },
         .{ .tag = .minus, .loc = .{ .start = 7, .end = 8 }, .eob = false },
@@ -1141,8 +1190,48 @@ test "tokenize negative number" {
 }
 
 test "tokenize string" {
-    if (true) return error.SkipZigTest;
-    try std.testing.expect(false);
+    try testTokenize(
+        \\"this is a string"
+    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 18 }, .eob = true }});
+    try testTokenize(
+        \\"this is a string\"with\\embedded\nescape\rchars\t"
+    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 51 }, .eob = true }});
+    try testTokenize(
+        \\"this is \a string with bad ch\ars"
+    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 35 }, .eob = true }});
+    try testTokenize(
+        \\"\012"
+    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 6 }, .eob = true }});
+
+    try testTokenize(
+        \\"\
+    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
+    try testTokenize(
+        \\"\0
+    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 3 }, .eob = true }});
+    try testTokenize(
+        \\"\0"
+    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
+    try testTokenize(
+        \\"\01
+    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
+    try testTokenize(
+        \\"\01"
+    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 5 }, .eob = true }});
+
+    try testTokenize(
+        \\"this is a valid
+        \\ multiline string"
+    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 35 }, .eob = true }});
+    try testTokenize(
+        \\"this is an invalid
+        \\multiline string"
+    , &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 19 }, .eob = true },
+        .{ .tag = .identifier, .loc = .{ .start = 20, .end = 29 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 30, .end = 36 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 36, .end = 37 }, .eob = true },
+    });
 }
 
 test "tokenize symbol" {
