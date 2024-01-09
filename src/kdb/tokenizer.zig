@@ -738,7 +738,12 @@ pub const Tokenizer = struct {
 };
 
 fn testTokenize(source: [:0]const u8, expected: []const Token) !void {
-    var tokenizer = Tokenizer.init(source, .q);
+    try testTokenizeMode(.k, source, expected);
+    try testTokenizeMode(.q, source, expected);
+}
+
+fn testTokenizeMode(mode: Mode, source: [:0]const u8, expected: []const Token) !void {
+    var tokenizer = Tokenizer.init(source, mode);
 
     const actual = try std.testing.allocator.alloc(Token, expected.len);
     defer std.testing.allocator.free(actual);
@@ -921,22 +926,86 @@ test "Token tags" {
 }
 
 test "tokenize number" {
+    if (true) return error.SkipZigTest;
     try std.testing.expect(false);
 }
 
 test "tokenize string" {
+    if (true) return error.SkipZigTest;
     try std.testing.expect(false);
 }
 
 test "tokenize symbol" {
-    try std.testing.expect(false);
+    try testTokenize("`", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true }});
+    try testTokenize("`a", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
+    try testTokenize("`symbol", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = true }});
+    try testTokenize("`1", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
+    try testTokenize("`1test", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 6 }, .eob = true }});
+    try testTokenize("`UPPERCASE", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 10 }, .eob = true }});
+    try testTokenize("`symbol.with.dot", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 16 }, .eob = true }});
+    try testTokenize("`.symbol.with.leading.dot", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 25 }, .eob = true }});
+    try testTokenize("`symbol/with/slash", &.{
+        .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = false },
+        .{ .tag = .slash, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = false },
+        .{ .tag = .slash, .loc = .{ .start = 12, .end = 13 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 13, .end = 18 }, .eob = true },
+    });
+    try testTokenize("`:handle/with/slash", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 19 }, .eob = true }});
+    try testTokenize("`symbol:with/slash/after/colon", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 30 }, .eob = true }});
+    try testTokenize("`symbol/with/slash:before:colon", &.{
+        .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = false },
+        .{ .tag = .slash, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = false },
+        .{ .tag = .slash, .loc = .{ .start = 12, .end = 13 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 13, .end = 18 }, .eob = false },
+        .{ .tag = .colon, .loc = .{ .start = 18, .end = 19 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 19, .end = 25 }, .eob = false },
+        .{ .tag = .colon, .loc = .{ .start = 25, .end = 26 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 26, .end = 31 }, .eob = true },
+    });
+
+    try testTokenizeMode(.k, "`symbol_with_underscore", &.{
+        .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 12, .end = 13 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 13, .end = 23 }, .eob = true },
+    });
+    try testTokenizeMode(.q, "`symbol_with_underscore", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 23 }, .eob = true }});
+    try testTokenizeMode(.k, "`_symbol_with_leading_underscore", &.{
+        .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 2, .end = 8 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 8, .end = 9 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 9, .end = 13 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 13, .end = 14 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 14, .end = 21 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 21, .end = 22 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 22, .end = 32 }, .eob = true },
+    });
+    try testTokenizeMode(.q, "`_symbol_with_leading_underscore", &.{
+        .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .underscore, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 2, .end = 32 }, .eob = true },
+    });
 }
 
 test "tokenize symbol list" {
-    try std.testing.expect(false);
+    try testTokenize("``", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
+    try testTokenize("`a`a", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
+    try testTokenize("`symbol`symbol", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 14 }, .eob = true }});
+    try testTokenize("`1`1", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
+    try testTokenize("`1test`1test", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 12 }, .eob = true }});
+    try testTokenize("`UPPERCASE`UPPERCASE", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 20 }, .eob = true }});
+    try testTokenize("`symbol.with.dot`symbol.with.dot", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 32 }, .eob = true }});
+    try testTokenize("`.symbol.with.leading.dot`.symbol.with.leading.dot", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 50 }, .eob = true }});
+    try testTokenize("`:handle/with/slash`:handle/with/slash", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 38 }, .eob = true }});
+    try testTokenize("`symbol:with/slash/after/colon`symbol:with/slash/after/colon", &.{.{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 60 }, .eob = true }});
 }
 
 test "tokenize identifier" {
+    if (true) return error.SkipZigTest;
     try std.testing.expect(false);
 }
 
