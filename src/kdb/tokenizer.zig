@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Token = struct {
     tag: Tag,
     loc: Loc,
+    eob: bool,
 
     pub const Loc = struct {
         start: usize,
@@ -95,7 +96,6 @@ pub const Token = struct {
         comment,
         system,
         invalid,
-        eob,
         eof,
 
         // Keywords : -1","sv"keyword_",/:string .Q.res;
@@ -288,7 +288,10 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
     index: usize,
-    prev: ?u8,
+
+    parens_count: u32 = 0,
+    braces_count: u32 = 0,
+    brackets_count: u32 = 0,
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
@@ -301,45 +304,24 @@ pub const Tokenizer = struct {
         return Tokenizer{
             .buffer = buffer,
             .index = src_start,
-            .prev = null,
         };
     }
 
     const State = enum {
         start,
-        string_literal,
-        string_literal_backslash,
-        invalid_string_literal,
-        invalid_string_literal_backslash,
-        number_literal,
     };
 
     pub fn next(self: *Tokenizer) Token {
-        if (self.prev) |prev| {
-            if (prev == '\n' and !std.ascii.isWhitespace(self.buffer[self.index + 1])) {
-                self.prev = null;
-                return Token{
-                    .tag = .eob,
-                    .loc = .{
-                        .start = self.index - 1,
-                        .end = self.index,
-                    },
-                };
-            }
-        }
-
-        var state: State = .start;
+        const state: State = .start;
         var result = Token{
             .tag = .eof,
             .loc = .{
                 .start = self.index,
                 .end = undefined,
             },
+            .eob = true,
         };
-        const seen_escape_digits: usize = undefined;
-        _ = seen_escape_digits;
-        const remaining_code_units: usize = undefined;
-        _ = remaining_code_units;
+
         while (true) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
@@ -355,13 +337,41 @@ pub const Tokenizer = struct {
                     ' ', '\n', '\t', '\r' => {
                         result.loc.start = self.index + 1;
                     },
-                    '"' => {
-                        state = .string_literal;
-                        result.tag = .string_literal;
+                    '(' => {
+                        result.tag = .l_paren;
+                        self.index += 1;
+                        self.parens_count += 1;
+                        break;
                     },
-                    '0'...'9' => {
-                        state = .number_literal;
-                        result.tag = .number_literal;
+                    ')' => {
+                        result.tag = .r_paren;
+                        self.index += 1;
+                        self.parens_count = @max(0, @as(i32, @intCast(self.parens_count)) - 1);
+                        break;
+                    },
+                    '{' => {
+                        result.tag = .l_brace;
+                        self.index += 1;
+                        self.braces_count += 1;
+                        break;
+                    },
+                    '}' => {
+                        result.tag = .r_brace;
+                        self.index += 1;
+                        self.braces_count = @max(0, @as(i32, @intCast(self.braces_count)) - 1);
+                        break;
+                    },
+                    '[' => {
+                        result.tag = .l_bracket;
+                        self.index += 1;
+                        self.brackets_count += 1;
+                        break;
+                    },
+                    ']' => {
+                        result.tag = .r_bracket;
+                        self.index += 1;
+                        self.brackets_count = @max(0, @as(i32, @intCast(self.brackets_count)) - 1);
+                        break;
                     },
                     ';' => {
                         result.tag = .semicolon;
@@ -374,186 +384,214 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
-
-                .string_literal => switch (c) {
-                    0 => {
-                        if (self.index == self.buffer.len) {
-                            result.tag = .invalid;
-                            break;
-                        }
-                    },
-                    '\\' => {
-                        state = .string_literal_backslash;
-                    },
-                    '"' => {
-                        self.index += 1;
-                        break;
-                    },
-                    else => self.checkLiteralCharacter(),
-                },
-                .string_literal_backslash => switch (c) {
-                    0 => {
-                        result.tag = .invalid;
-                        if (self.index == self.buffer.len) {
-                            break;
-                        }
-                        state = .invalid_string_literal;
-                    },
-                    '"', '\\', 'n', 'r', 't' => {
-                        state = .string_literal;
-                    },
-                    '0'...'9' => {
-                        if (self.index + 2 < self.buffer.len and
-                            std.ascii.isDigit(self.buffer[self.index + 1]) and
-                            std.ascii.isDigit(self.buffer[self.index + 2]))
-                        {
-                            self.index += 2;
-                            state = .string_literal;
-                        } else {
-                            state = .invalid_string_literal;
-                            result.tag = .invalid;
-                        }
-                    },
-                    else => {
-                        state = .invalid_string_literal;
-                        result.tag = .invalid;
-                    },
-                },
-                .invalid_string_literal => switch (c) {
-                    0 => {
-                        if (self.index == self.buffer.len) break;
-                    },
-                    '\\' => {
-                        state = .invalid_string_literal_backslash;
-                    },
-                    '"' => {
-                        self.index += 1;
-                        break;
-                    },
-                    else => self.checkLiteralCharacter(),
-                },
-                .invalid_string_literal_backslash => {
-                    state = .invalid_string_literal;
-                },
-
-                .number_literal => switch (c) {
-                    '0'...'9' => {},
-                    else => break,
-                },
             }
-        }
-
-        if (result.tag == .eof) {
-            result.loc.start = self.index;
-        } else {
-            self.prev = self.buffer[self.index];
         }
 
         result.loc.end = self.index;
-        return result;
-    }
 
-    fn checkLiteralCharacter(self: *Tokenizer) void {
-        const c0 = self.buffer[self.index];
-        if (!std.ascii.isASCII(c0)) {
-            const length = std.unicode.utf8ByteSequenceLength(c0) catch return;
-            if (self.index + length > self.buffer.len) {
-                self.index = self.buffer.len - 1;
-            } else {
-                self.index += length - 1;
+        if (result.tag != .semicolon or self.parens_count != 0 or self.braces_count != 0 or self.brackets_count != 0) {
+            for (self.buffer[self.index..]) |c| {
+                if (!std.ascii.isWhitespace(c)) {
+                    result.eob = false;
+                    break;
+                }
+
+                self.index += 1;
+                if (c == '\n' and !std.ascii.isWhitespace(self.buffer[self.index])) {
+                    self.parens_count = 0;
+                    self.braces_count = 0;
+                    self.brackets_count = 0;
+                    break;
+                }
             }
         }
+
+        return result;
     }
 };
 
-fn testTokenize(source: [:0]const u8, expected: []const Token.Tag) !void {
+fn testTokenize(source: [:0]const u8, expected: []const Token) !void {
     var tokenizer = Tokenizer.init(source);
 
-    const actual = try std.testing.allocator.alloc(Token.Tag, expected.len);
+    const actual = try std.testing.allocator.alloc(Token, expected.len);
     defer std.testing.allocator.free(actual);
-    for (actual) |*tag| {
-        tag.* = tokenizer.next().tag;
+    for (actual) |*token| {
+        token.* = tokenizer.next();
     }
 
-    try std.testing.expectEqualSlices(Token.Tag, expected, actual);
+    try std.testing.expectEqualSlices(Token, expected, actual);
     const last_token = tokenizer.next();
-    try std.testing.expectEqual(.eof, last_token.tag);
-    try std.testing.expectEqual(source.len, last_token.loc.start);
-    try std.testing.expectEqual(source.len, last_token.loc.end);
+    try std.testing.expectEqual(Token{
+        .tag = .eof,
+        .loc = .{ .start = source.len, .end = source.len },
+        .eob = true,
+    }, last_token);
 }
 
 test "tokenize blocks" {
-    try testTokenize(
-        \\123
-    , &.{.number_literal});
-    // try testTokenize(
-    //     \\123
-    //     \\ 456
-    // , &.{.number_list_literal});
-    try testTokenize(
-        \\123
-        \\456
-    , &.{ .number_literal, .eob, .number_literal });
-    try testTokenize(
-        \\123;
-    , &.{ .number_literal, .semicolon });
-    // try testTokenize(
-    //     \\123
-    //     \\ 456;
-    // , &.{ .number_list_literal, .semicolon });
-    try testTokenize(
-        \\123;
-        \\456;
-    , &.{ .number_literal, .semicolon, .eob, .number_literal, .semicolon });
-    return error.SkipZigTest;
+    try testTokenize("1", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+    });
+    try testTokenize("1\n", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+    });
+    try testTokenize("1\n2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+    });
+    try testTokenize("1\n 2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1 \n2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1 \n 2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+    try testTokenize("1 \n2 ", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1 \n 2 ", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+
+    try testTokenize("1;", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 1, .end = 2 }, .eob = true },
+    });
+    try testTokenize("1 ;", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+    });
+    try testTokenize("1;2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 1, .end = 2 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+    });
+    try testTokenize("1 ;2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1; 2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 1, .end = 2 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1 ; 2", &.{
+        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+
+    try testTokenize("(1;2)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+    try testTokenize("((1;2);3)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .l_paren, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+    try testTokenize("{1;2}", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+    try testTokenize("{{1;2};3}", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .l_brace, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+    try testTokenize("[1;2]", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+    try testTokenize("[[1;2];3]", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+
+    try testTokenize("(1;\n2;3)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 5, .end = 6 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 7, .end = 8 }, .eob = true },
+    });
+    try testTokenize("(1; \n2;3)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+    try testTokenize("(1;\n 2;3)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+    try testTokenize("(1; \n 2;3)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 8, .end = 9 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 9, .end = 10 }, .eob = true },
+    });
 }
 
-test "tokenize string literals" {
-    try testTokenize(
-        \\"a"
-    , &.{.string_literal});
-    try testTokenize(
-        \\"\"test"
-    , &.{.string_literal});
-    try testTokenize(
-        \\"\012"
-    , &.{.string_literal});
-    try testTokenize(
-        \\"\0123"
-    , &.{.string_literal});
-    try testTokenize(
-        \\"\012test"
-    , &.{.string_literal});
-    try testTokenize(
-        \\"\
-    , &.{.invalid});
-    try testTokenize(
-        \\"\"
-    , &.{.invalid});
-    try testTokenize(
-        \\"\0
-    , &.{.invalid});
-    try testTokenize(
-        \\"\0"
-    , &.{.invalid});
-    try testTokenize(
-        \\"\01
-    , &.{.invalid});
-    try testTokenize(
-        \\"\01"
-    , &.{.invalid});
-    try testTokenize(
-        \\"\012
-    , &.{.invalid});
-    try testTokenize(
-        \\"\012
-        \\ "
-    , &.{.string_literal});
-    // try testTokenize(
-    //     \\"\012
-    //     \\"
-    // , &.{ .invalid, .eob, .invalid });
-    return error.SkipZigTest;
+test "bracket counting overflow" {
+    try testTokenize(")", &.{
+        .{ .tag = .r_paren, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+    });
+    try testTokenize("}", &.{
+        .{ .tag = .r_brace, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+    });
+    try testTokenize("]", &.{
+        .{ .tag = .r_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+    });
 }
 
 test {

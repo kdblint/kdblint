@@ -23,7 +23,7 @@ pub fn applyContentChanges(
 
     try text_array.appendSlice(allocator, if (last_full_text_change) |index| content_changes[index].literal_1.text else text);
 
-    // don't even both applying changes before a full text change
+    // don't even bother applying changes before a full text change
     const changes = content_changes[if (last_full_text_change) |index| index + 1 else 0..];
     for (changes) |item| {
         const range = item.literal_0.range;
