@@ -132,7 +132,6 @@ pub const Token = struct {
 
         // Literals
         number_literal,
-        number_list_literal,
         string_literal,
         symbol_literal,
         symbol_list_literal,
@@ -192,7 +191,6 @@ pub const Token = struct {
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
                 .number_literal,
-                .number_list_literal,
                 .string_literal,
                 .symbol_literal,
                 .symbol_list_literal,
@@ -314,7 +312,6 @@ pub const Token = struct {
         pub fn symbol(tag: Tag) []const u8 {
             return tag.lexeme() orelse switch (tag) {
                 .number_literal => "a number literal",
-                .number_list_literal => "a number list literal",
                 .string_literal => "a string literal",
                 .symbol_literal => "a symbol literal",
                 .symbol_list_literal => " a symbol list literal",
@@ -924,10 +921,6 @@ test "Token tags" {
 }
 
 test "tokenize number" {
-    try std.testing.expect(false);
-}
-
-test "tokenize number list" {
     try std.testing.expect(false);
 }
 
