@@ -329,6 +329,7 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
     index: usize,
+    prev_tag: ?Token.Tag = null,
 
     parens_count: u32 = 0,
     braces_count: u32 = 0,
@@ -353,6 +354,7 @@ pub const Tokenizer = struct {
 
     const State = enum {
         start,
+        minus,
         dot,
         operator,
         angle_bracket_left,
@@ -445,7 +447,7 @@ pub const Tokenizer = struct {
                     },
                     '-' => {
                         result.tag = .minus;
-                        state = .operator;
+                        state = .minus;
                     },
                     '*' => {
                         result.tag = .asterisk;
@@ -560,6 +562,38 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                },
+
+                .minus => switch (c) {
+                    ':' => {
+                        result.tag = .minus_colon;
+                        self.index += 1;
+                        break;
+                    },
+                    '.' => {
+                        if (!std.ascii.isDigit(self.buffer[self.index + 1])) {
+                            break;
+                        }
+
+                        if (self.prev_tag) |prev_tag| switch (prev_tag) {
+                            .l_paren, .l_brace, .l_bracket, .semicolon => {},
+                            else => break,
+                        };
+
+                        result.tag = .number_literal;
+                        state = .number;
+                        self.index += 1;
+                    },
+                    '0'...'9' => {
+                        if (self.prev_tag) |prev_tag| switch (prev_tag) {
+                            .l_paren, .l_brace, .l_bracket, .semicolon => {},
+                            else => break,
+                        };
+
+                        result.tag = .number_literal;
+                        state = .number;
+                    },
+                    else => break,
                 },
 
                 .dot => switch (c) {
@@ -715,6 +749,7 @@ pub const Tokenizer = struct {
         }
 
         result.loc.end = self.index;
+        self.prev_tag = result.tag;
 
         if (result.tag != .semicolon or self.parens_count != 0 or self.braces_count != 0 or self.brackets_count != 0) {
             for (self.buffer[self.index..]) |c| {
@@ -723,6 +758,7 @@ pub const Tokenizer = struct {
                     break;
                 }
 
+                self.prev_tag = null;
                 self.index += 1;
                 if (c == '\n' and !std.ascii.isWhitespace(self.buffer[self.index])) {
                     self.parens_count = 0;
@@ -922,8 +958,186 @@ test "Token tags" {
 }
 
 test "tokenize number" {
-    if (true) return error.SkipZigTest;
-    try std.testing.expect(false);
+    try testTokenize("0", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true }});
+    try testTokenize("1", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true }});
+    try testTokenize("-1", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
+    try testTokenize("123", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 3 }, .eob = true }});
+    try testTokenize("-123", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
+    try testTokenize(".1", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
+    try testTokenize("-.1", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 3 }, .eob = true }});
+    try testTokenize("1.1", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 3 }, .eob = true }});
+    try testTokenize("-1.1", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
+    try testTokenize("1.", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
+    try testTokenize("-1.", &.{.{ .tag = .number_literal, .loc = .{ .start = 0, .end = 3 }, .eob = true }});
+    try testTokenize("-.", &.{
+        .{ .tag = .minus, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .dot, .loc = .{ .start = 1, .end = 2 }, .eob = true },
+    });
+}
+
+test "tokenize negative number" {
+    try testTokenize("(-1)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 3 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("(-.1)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 4 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+    try testTokenize("()-1", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("()-.1", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = true },
+    });
+    try testTokenize("() -1", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = true },
+    });
+    try testTokenize("() -.1", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 6 }, .eob = true },
+    });
+    try testTokenize("{-1}", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 3 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("{-.1}", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 4 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+    try testTokenize("{}-1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("{}-.1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = true },
+    });
+    try testTokenize("{} -1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = true },
+    });
+    try testTokenize("{} -.1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 6 }, .eob = true },
+    });
+    try testTokenize("[-1]", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 3 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("[-.1]", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 4 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+    });
+    try testTokenize("[]-1", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 4 }, .eob = true },
+    });
+    try testTokenize("[]-.1", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = true },
+    });
+    try testTokenize("[] -1", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = true },
+    });
+    try testTokenize("[] -.1", &.{
+        .{ .tag = .l_bracket, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 6 }, .eob = true },
+    });
+    try testTokenize(";-1", &.{
+        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 3 }, .eob = true },
+    });
+    try testTokenize(";-.1", &.{
+        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1-1", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+    });
+    try testTokenize("1-.1", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1 -1", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 4 }, .eob = true },
+    });
+    try testTokenize("1 -.1", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 2, .end = 5 }, .eob = true },
+    });
+    // try testTokenize("\"string\"-1", &.{
+    //     .{ .tag = .string_literal, .loc = .{ .start = 0, .end = 10 }, .eob = false },
+    //     .{ .tag = .minus, .loc = .{ .start = 10, .end = 11 }, .eob = false },
+    //     .{ .tag = .number_literal, .loc = .{ .start = 11, .end = 12 }, .eob = true },
+    // });
+    // try testTokenize("\"string\"-.1", &.{
+    //     .{ .tag = .string_literal, .loc = .{ .start = 0, .end = 10 }, .eob = false },
+    //     .{ .tag = .minus, .loc = .{ .start = 10, .end = 11 }, .eob = false },
+    //     .{ .tag = .number_literal, .loc = .{ .start = 11, .end = 13 }, .eob = true },
+    // });
+    try testTokenize("`symbol-1", &.{
+        .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+    try testTokenize("`symbol-.1", &.{
+        .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 10 }, .eob = true },
+    });
+    try testTokenize("`symbol`list-1", &.{
+        .{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 12 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 12, .end = 13 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 13, .end = 14 }, .eob = true },
+    });
+    try testTokenize("`symbol`list-.1", &.{
+        .{ .tag = .symbol_list_literal, .loc = .{ .start = 0, .end = 12 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 12, .end = 13 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 13, .end = 15 }, .eob = true },
+    });
+    try testTokenize("identifier-1", &.{
+        .{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 10, .end = 11 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 11, .end = 12 }, .eob = true },
+    });
+    try testTokenize("identifier-.1", &.{
+        .{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 10, .end = 11 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 11, .end = 13 }, .eob = true },
+    });
 }
 
 test "tokenize string" {
