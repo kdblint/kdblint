@@ -54,7 +54,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     const estimated_token_count = source.len / 8;
     try tokens.ensureTotalCapacity(gpa, estimated_token_count);
 
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source, mode);
     while (true) {
         const token = tokenizer.next();
         try tokens.append(gpa, .{
