@@ -1,4 +1,6 @@
 const std = @import("std");
+const Ast = @import("Ast.zig");
+const Mode = Ast.Mode;
 
 pub const Token = struct {
     tag: Tag,
@@ -335,17 +337,20 @@ pub const Tokenizer = struct {
     braces_count: u32 = 0,
     brackets_count: u32 = 0,
 
+    mode: Mode,
+
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
         std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.loc.start..token.loc.end] });
     }
 
-    pub fn init(buffer: [:0]const u8) Tokenizer {
+    pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
         // Skip the UTF-8 BOM if present
         const src_start: usize = if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0;
         return Tokenizer{
             .buffer = buffer,
             .index = src_start,
+            .mode = mode,
         };
     }
 
@@ -672,9 +677,11 @@ pub const Tokenizer = struct {
                         state = .symbol_start;
                     },
                     'a'...'z', 'A'...'Z', '0'...'9', '.' => {},
-                    '_' => {}, // TODO: Ignore '_' in k-mode.
                     ':' => {
                         state = .symbol_handle;
+                    },
+                    '_' => {
+                        if (self.mode == .k) break;
                     },
                     else => break,
                 },
@@ -684,13 +691,22 @@ pub const Tokenizer = struct {
                         state = .symbol_start;
                     },
                     'a'...'z', 'A'...'Z', '0'...'9', '.', ':', '/' => {},
-                    '_' => {}, // TODO: Ignore '_' in k-mode.
+                    '_' => {
+                        if (self.mode == .k) break;
+                    },
                     else => break,
                 },
 
                 .identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '0'...'9', '.' => {},
-                    '_' => {}, // TODO: Ignore '_' in k-mode.
+                    '_' => {
+                        if (self.mode == .k) {
+                            if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
+                                result.tag = tag;
+                            }
+                            break;
+                        }
+                    },
                     else => {
                         if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
                             result.tag = tag;
@@ -725,7 +741,7 @@ pub const Tokenizer = struct {
 };
 
 fn testTokenize(source: [:0]const u8, expected: []const Token) !void {
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source, .q);
 
     const actual = try std.testing.allocator.alloc(Token, expected.len);
     defer std.testing.allocator.free(actual);
