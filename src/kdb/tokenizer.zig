@@ -328,14 +328,22 @@ pub const Token = struct {
 
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
-    index: usize,
     prev_tag: ?Token.Tag = null,
+
+    is_first: bool = true,
 
     parens_count: u32 = 0,
     braces_count: u32 = 0,
     brackets_count: u32 = 0,
 
     mode: Mode,
+
+    /// private field
+    impl: struct {
+        index: usize,
+        line: u32,
+        character: u32,
+    },
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
@@ -347,8 +355,12 @@ pub const Tokenizer = struct {
         const src_start: usize = if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0;
         return Tokenizer{
             .buffer = buffer,
-            .index = src_start,
             .mode = mode,
+            .impl = .{
+                .index = src_start,
+                .line = 0,
+                .character = 0,
+            },
         };
     }
 
@@ -369,73 +381,121 @@ pub const Tokenizer = struct {
         symbol,
         symbol_handle,
         identifier,
+
+        starting_comment,
+
+        maybe_trailing_comment,
+        start_trailing_comment,
+        trailing_comment,
+
+        maybe_block_comment,
+        block_comment,
+        end_block_comment,
+
+        skip_line,
     };
+
+    fn advance(self: *Tokenizer) void {
+        if (self.buffer[self.impl.index] == '\n') {
+            self.impl.line += 1;
+            self.impl.character = 0;
+        } else {
+            self.impl.character += 1;
+        }
+        self.impl.index += 1;
+    }
+
+    fn advanceN(self: *Tokenizer, comptime n: comptime_int) void {
+        inline for (0..n) |_| {
+            self.advance();
+        }
+    }
 
     pub fn next(self: *Tokenizer) Token {
         var state: State = .start;
         var result = Token{
             .tag = .eof,
             .loc = .{
-                .start = self.index,
+                .start = self.impl.index,
                 .end = undefined,
             },
             .eob = true,
         };
 
-        while (true) : (self.index += 1) {
-            const c = self.buffer[self.index];
+        if (self.is_first) {
+            self.is_first = false;
+            while (true) : (self.advance()) {
+                const c = self.buffer[self.impl.index];
+                switch (c) {
+                    ' ', '\t', '\n', '\r', '/' => {},
+                    else => {
+                        if (self.impl.character == 0) {
+                            if (self.impl.line > 0) {
+                                result.tag = .comment;
+                                state = .starting_comment;
+                            }
+                            break;
+                        }
+                    },
+                }
+            }
+        }
+
+        while (true) : (self.advance()) {
+            const c = self.buffer[self.impl.index];
             switch (state) {
                 .start => switch (c) {
                     0 => {
-                        if (self.index == self.buffer.len) {
+                        if (self.impl.index == self.buffer.len) {
                             break;
                         }
                         result.tag = .invalid;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
-                    ' ', '\n', '\t', '\r' => {
-                        result.loc.start = self.index + 1;
+                    ' ', '\t', '\n', '\r' => {
+                        result.loc.start = self.impl.index + 1;
                     },
+
                     '(' => {
                         result.tag = .l_paren;
-                        self.index += 1;
+                        self.advance();
                         self.parens_count += 1;
                         break;
                     },
                     ')' => {
                         result.tag = .r_paren;
-                        self.index += 1;
+                        self.advance();
                         self.parens_count = @max(0, @as(i32, @intCast(self.parens_count)) - 1);
                         break;
                     },
                     '{' => {
                         result.tag = .l_brace;
-                        self.index += 1;
+                        self.advance();
                         self.braces_count += 1;
                         break;
                     },
                     '}' => {
                         result.tag = .r_brace;
-                        self.index += 1;
+                        self.advance();
                         self.braces_count = @max(0, @as(i32, @intCast(self.braces_count)) - 1);
                         break;
                     },
                     '[' => {
                         result.tag = .l_bracket;
-                        self.index += 1;
+                        self.advance();
                         self.brackets_count += 1;
                         break;
                     },
                     ']' => {
                         result.tag = .r_bracket;
-                        self.index += 1;
+                        self.advance();
                         self.brackets_count = @max(0, @as(i32, @intCast(self.brackets_count)) - 1);
                         break;
                     },
                     ';' => {
                         result.tag = .semicolon;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
 
@@ -524,12 +584,25 @@ pub const Tokenizer = struct {
                         state = .operator;
                     },
                     '/' => {
-                        result.tag = .slash;
-                        state = .operator;
+                        if (self.impl.character == 0) {
+                            result.tag = .comment;
+                            state = .maybe_block_comment;
+                        } else if (std.ascii.isWhitespace(self.buffer[self.impl.index - 1])) {
+                            result.tag = .comment;
+                            state = .skip_line;
+                        } else {
+                            result.tag = .slash;
+                            state = .operator;
+                        }
                     },
                     '\\' => {
-                        result.tag = .backslash;
-                        state = .operator;
+                        if (self.impl.character == 0) {
+                            result.tag = .comment;
+                            state = .maybe_trailing_comment;
+                        } else {
+                            result.tag = .backslash;
+                            state = .operator;
+                        }
                     },
                     '0' => {
                         result.tag = .number_literal;
@@ -566,7 +639,7 @@ pub const Tokenizer = struct {
 
                     else => {
                         result.tag = .invalid;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                 },
@@ -574,11 +647,11 @@ pub const Tokenizer = struct {
                 .minus => switch (c) {
                     ':' => {
                         result.tag = .minus_colon;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     '.' => {
-                        if (!std.ascii.isDigit(self.buffer[self.index + 1])) {
+                        if (!std.ascii.isDigit(self.buffer[self.impl.index + 1])) {
                             break;
                         }
 
@@ -589,7 +662,7 @@ pub const Tokenizer = struct {
 
                         result.tag = .number_literal;
                         state = .number;
-                        self.index += 1;
+                        self.advance();
                     },
                     '0'...'9' => {
                         if (self.prev_tag) |prev_tag| switch (prev_tag) {
@@ -606,7 +679,7 @@ pub const Tokenizer = struct {
                 .dot => switch (c) {
                     ':' => {
                         result.tag = .dot_colon;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     '0'...'9' => {
@@ -623,7 +696,7 @@ pub const Tokenizer = struct {
                 .operator => switch (c) {
                     ':' => {
                         result.tag = @enumFromInt(@intFromEnum(result.tag) + 1);
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     else => break,
@@ -631,17 +704,17 @@ pub const Tokenizer = struct {
                 .angle_bracket_left => switch (c) {
                     ':' => {
                         result.tag = .angle_bracket_left_colon;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     '=' => {
                         result.tag = .angle_bracket_left_equal;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     '>' => {
                         result.tag = .angle_bracket_left_right;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     else => break,
@@ -649,12 +722,12 @@ pub const Tokenizer = struct {
                 .angle_bracket_right => switch (c) {
                     ':' => {
                         result.tag = .angle_bracket_right_colon;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     '=' => {
                         result.tag = .angle_bracket_right_equal;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     else => break,
@@ -683,7 +756,7 @@ pub const Tokenizer = struct {
                 .two => switch (c) {
                     ':' => {
                         result.tag = .two_colon;
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     '0'...'9', 'a'...'z', 'A'...'Z', '.' => {
@@ -703,14 +776,14 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '"' => {
-                        self.index += 1;
+                        self.advance();
                         break;
                     },
                     '\\' => {
                         state = .escaped_string;
                     },
                     '\n' => {
-                        if (!std.ascii.isWhitespace(self.buffer[self.index + 1])) {
+                        if (!std.ascii.isWhitespace(self.buffer[self.impl.index + 1])) {
                             result.tag = .invalid;
                             break;
                         }
@@ -727,8 +800,8 @@ pub const Tokenizer = struct {
                     },
                     '0'...'9' => {
                         state = .string;
-                        if (std.ascii.isDigit(self.buffer[self.index + 1]) and std.ascii.isDigit(self.buffer[self.index + 2])) {
-                            self.index += 2;
+                        if (std.ascii.isDigit(self.buffer[self.impl.index + 1]) and std.ascii.isDigit(self.buffer[self.impl.index + 2])) {
+                            self.advanceN(2);
                         } else {
                             result.tag = .invalid;
                         }
@@ -781,35 +854,99 @@ pub const Tokenizer = struct {
                     'a'...'z', 'A'...'Z', '0'...'9', '.' => {},
                     '_' => {
                         if (self.mode == .k) {
-                            if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
+                            if (Token.getKeyword(self.buffer[result.loc.start..self.impl.index])) |tag| {
                                 result.tag = tag;
                             }
                             break;
                         }
                     },
                     else => {
-                        if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
+                        if (Token.getKeyword(self.buffer[result.loc.start..self.impl.index])) |tag| {
                             result.tag = tag;
                         }
                         break;
                     },
                 },
+
+                .starting_comment => break,
+
+                .maybe_trailing_comment => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {
+                        state = .start_trailing_comment;
+                    },
+                    '\n' => {
+                        state = .trailing_comment;
+                    },
+                    else => {
+                        // TODO: Check if system should skip block rather than line
+                        result.tag = .system;
+                        state = .skip_line;
+                    },
+                },
+                .start_trailing_comment => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        state = .trailing_comment;
+                    },
+                    else => {
+                        result.tag = .invalid;
+                        state = .skip_line;
+                    },
+                },
+                .trailing_comment => switch (c) {
+                    0 => break,
+                    else => {},
+                },
+
+                .maybe_block_comment => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        state = .block_comment;
+                    },
+                    else => {
+                        state = .skip_line;
+                    },
+                },
+                .block_comment => switch (c) {
+                    0 => break,
+                    '\\' => {
+                        if (self.impl.character == 0) {
+                            state = .end_block_comment;
+                        }
+                    },
+                    else => {},
+                },
+                .end_block_comment => switch (c) {
+                    0, '\n' => break,
+                    ' ', '\t', '\r' => {},
+                    else => {
+                        state = .block_comment;
+                    },
+                },
+
+                .skip_line => switch (c) {
+                    0, '\n' => break,
+                    else => {},
+                },
             }
         }
 
-        result.loc.end = self.index;
+        result.loc.end = self.impl.index;
         self.prev_tag = result.tag;
 
         if (result.tag != .semicolon or self.parens_count != 0 or self.braces_count != 0 or self.brackets_count != 0) {
-            for (self.buffer[self.index..]) |c| {
+            for (self.buffer[self.impl.index..]) |c| {
                 if (!std.ascii.isWhitespace(c)) {
                     result.eob = false;
                     break;
                 }
 
                 self.prev_tag = null;
-                self.index += 1;
-                if (c == '\n' and !std.ascii.isWhitespace(self.buffer[self.index])) {
+                self.advance();
+                if (c == '\n' and !std.ascii.isWhitespace(self.buffer[self.impl.index])) {
                     self.parens_count = 0;
                     self.braces_count = 0;
                     self.brackets_count = 0;
@@ -999,9 +1136,16 @@ test "Token tags" {
     inline for (@typeInfo(Token.Tag).Enum.fields) |field| {
         const tag: Token.Tag = @enumFromInt(field.value);
         if (tag.lexeme()) |lexeme| {
-            const source = try std.testing.allocator.dupeZ(u8, lexeme);
+            const source = try std.testing.allocator.allocSentinel(u8, lexeme.len + 2, 0);
             defer std.testing.allocator.free(source);
-            try testTokenize(source, &.{.{ .tag = tag, .loc = .{ .start = 0, .end = source.len }, .eob = true }});
+            source[0] = '(';
+            @memcpy(source[1 .. lexeme.len + 1], lexeme);
+            source[lexeme.len + 1] = ')';
+            try testTokenize(source, &.{
+                .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+                .{ .tag = tag, .loc = .{ .start = 1, .end = lexeme.len + 1 }, .eob = false },
+                .{ .tag = .r_paren, .loc = .{ .start = lexeme.len + 1, .end = lexeme.len + 2 }, .eob = true },
+            });
         }
     }
 }
@@ -1333,6 +1477,27 @@ test "tokenize identifier" {
         .{ .tag = .underscore, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 1, .end = 35 }, .eob = true },
     });
+}
+
+// TODO: comments should never end blocks.
+// TODO: slash on character 0 does not end a block.
+// Need to peek-skip through the comment to see if
+// the next expression ends the block
+// TODO: store peeked-comment token to avoid backtracking
+test "tokenize starting comment" {
+    if (true) return error.SkipZigTest;
+}
+
+test "tokenize block comment" {
+    if (true) return error.SkipZigTest;
+}
+
+test "tokenize line comment" {
+    if (true) return error.SkipZigTest;
+}
+
+test "tokenize trailing comment" {
+    if (true) return error.SkipZigTest;
 }
 
 test {
