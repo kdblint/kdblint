@@ -328,7 +328,7 @@ pub const Token = struct {
 
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
-    prev_tag: ?Token.Tag = null,
+    pending_token: ?Token = null,
 
     is_first: bool = true,
 
@@ -353,7 +353,7 @@ pub const Tokenizer = struct {
     pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
         // Skip the UTF-8 BOM if present
         const src_start: usize = if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0;
-        return Tokenizer{
+        var tokenizer = Tokenizer{
             .buffer = buffer,
             .mode = mode,
             .impl = .{
@@ -362,7 +362,22 @@ pub const Tokenizer = struct {
                 .character = 0,
             },
         };
+        tokenizer.consumeStartingComment();
+        return tokenizer;
     }
+
+    const CommentState = enum {
+        start,
+
+        start_trailing,
+        trailing,
+
+        maybe_block,
+        block,
+        end_block,
+
+        line,
+    };
 
     const State = enum {
         start,
@@ -382,8 +397,6 @@ pub const Tokenizer = struct {
         symbol_handle,
         identifier,
 
-        starting_comment,
-
         maybe_trailing_comment,
         start_trailing_comment,
         trailing_comment,
@@ -394,6 +407,106 @@ pub const Tokenizer = struct {
 
         skip_line,
     };
+
+    fn consumeStartingComment(self: *Tokenizer) void {
+        var state: CommentState = .start;
+        const start_index = self.impl.index;
+
+        var backtrack: @TypeOf(self.impl) = undefined;
+        while (true) : (self.advance()) {
+            const c = self.buffer[self.impl.index];
+            switch (state) {
+                .start => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\n', '\r' => {},
+                    '/' => {
+                        if (self.impl.character == 0) {
+                            state = .maybe_block;
+                        }
+                    },
+                    '\\' => {
+                        if (self.impl.character == 0) {
+                            if (!std.ascii.isWhitespace(self.buffer[self.impl.index + 1])) {
+                                break;
+                            }
+                            backtrack = self.impl;
+                            state = .start_trailing;
+                        }
+                    },
+                    else => {
+                        if (self.impl.character == 0) {
+                            break;
+                        }
+                    },
+                },
+
+                .start_trailing => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        state = .trailing;
+                    },
+                    else => {
+                        self.impl = backtrack;
+                        break;
+                    },
+                },
+                .trailing => switch (c) {
+                    0 => break,
+                    else => {},
+                },
+
+                .maybe_block => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        state = .block;
+                    },
+                    else => {
+                        state = .line;
+                    },
+                },
+                .block => switch (c) {
+                    0 => break,
+                    '\\' => {
+                        if (self.impl.character == 0) {
+                            state = .end_block;
+                        }
+                    },
+                    else => {},
+                },
+                .end_block => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        state = .start;
+                    },
+                    else => {
+                        state = .block;
+                    },
+                },
+
+                .line => switch (c) {
+                    0 => break,
+                    '\n' => {
+                        state = .start;
+                    },
+                    else => {},
+                },
+            }
+        }
+
+        if (self.impl.index > start_index) {
+            self.pending_token = Token{
+                .tag = .comment,
+                .loc = .{
+                    .start = start_index,
+                    .end = self.impl.index,
+                },
+                .eob = false,
+            };
+        }
+    }
 
     fn advance(self: *Tokenizer) void {
         if (self.buffer[self.impl.index] == '\n') {
@@ -412,6 +525,11 @@ pub const Tokenizer = struct {
     }
 
     pub fn next(self: *Tokenizer) Token {
+        if (self.pending_token) |token| {
+            self.pending_token = null;
+            return token;
+        }
+
         var state: State = .start;
         var result = Token{
             .tag = .eof,
@@ -419,27 +537,8 @@ pub const Tokenizer = struct {
                 .start = self.impl.index,
                 .end = undefined,
             },
-            .eob = true,
+            .eob = false,
         };
-
-        if (self.is_first) {
-            self.is_first = false;
-            while (true) : (self.advance()) {
-                const c = self.buffer[self.impl.index];
-                switch (c) {
-                    ' ', '\t', '\n', '\r', '/' => {},
-                    else => {
-                        if (self.impl.character == 0) {
-                            if (self.impl.line > 0) {
-                                result.tag = .comment;
-                                state = .starting_comment;
-                            }
-                            break;
-                        }
-                    },
-                }
-            }
-        }
 
         while (true) : (self.advance()) {
             const c = self.buffer[self.impl.index];
@@ -655,8 +754,8 @@ pub const Tokenizer = struct {
                             break;
                         }
 
-                        if (self.prev_tag) |prev_tag| switch (prev_tag) {
-                            .l_paren, .l_brace, .l_bracket, .semicolon => {},
+                        if (self.impl.index >= 2) switch (self.buffer[self.impl.index - 2]) {
+                            ' ', '\t', '\n', '\r', '(', '{', '[', ';' => {},
                             else => break,
                         };
 
@@ -665,8 +764,8 @@ pub const Tokenizer = struct {
                         self.advance();
                     },
                     '0'...'9' => {
-                        if (self.prev_tag) |prev_tag| switch (prev_tag) {
-                            .l_paren, .l_brace, .l_bracket, .semicolon => {},
+                        if (self.impl.index >= 2) switch (self.buffer[self.impl.index - 2]) {
+                            ' ', '\t', '\n', '\r', '(', '{', '[', ';' => {},
                             else => break,
                         };
 
@@ -868,8 +967,6 @@ pub const Tokenizer = struct {
                     },
                 },
 
-                .starting_comment => break,
-
                 .maybe_trailing_comment => switch (c) {
                     0 => break,
                     ' ', '\t', '\r' => {
@@ -935,27 +1032,116 @@ pub const Tokenizer = struct {
         }
 
         result.loc.end = self.impl.index;
-        self.prev_tag = result.tag;
 
-        if (result.tag != .semicolon or self.parens_count != 0 or self.braces_count != 0 or self.brackets_count != 0) {
-            for (self.buffer[self.impl.index..]) |c| {
-                if (!std.ascii.isWhitespace(c)) {
-                    result.eob = false;
-                    break;
-                }
+        if (result.tag == .semicolon and self.parens_count == 0 and self.braces_count == 0 and self.brackets_count == 0) {
+            result.eob = true;
+        } else if (result.tag != .comment) {
+            self.nextComment();
 
-                self.prev_tag = null;
-                self.advance();
-                if (c == '\n' and !std.ascii.isWhitespace(self.buffer[self.impl.index])) {
-                    self.parens_count = 0;
-                    self.braces_count = 0;
-                    self.brackets_count = 0;
-                    break;
+            while (true) : (self.advance()) {
+                const c = self.buffer[self.impl.index];
+                switch (c) {
+                    0 => {
+                        result.eob = true;
+                        break;
+                    },
+                    ' ', '\t', '\n', '\r' => {},
+                    else => {
+                        if (self.impl.character == 0) {
+                            result.eob = true;
+                            self.parens_count = 0;
+                            self.braces_count = 0;
+                            self.brackets_count = 0;
+                        }
+                        break;
+                    },
                 }
             }
         }
 
         return result;
+    }
+
+    fn nextComment(self: *Tokenizer) void {
+        var state: CommentState = .start;
+        var found_comment = false;
+        var result = Token{
+            .tag = .comment,
+            .loc = .{
+                .start = self.impl.index,
+                .end = undefined,
+            },
+            .eob = false,
+        };
+
+        while (true) : (self.advance()) {
+            const c = self.buffer[self.impl.index];
+            switch (state) {
+                .start => switch (c) {
+                    ' ', '\t', '\n', '\r' => {
+                        result.loc.start = self.impl.index + 1;
+                    },
+                    '/' => {
+                        if (self.impl.character == 0) {
+                            state = .maybe_block;
+                        } else if (std.ascii.isWhitespace(self.buffer[self.impl.index - 1])) {
+                            found_comment = true;
+                            state = .line;
+                        } else {
+                            break;
+                        }
+                    },
+                    else => break,
+                },
+
+                .start_trailing => switch (c) {
+                    else => break,
+                },
+                .trailing => switch (c) {
+                    else => break,
+                },
+
+                .maybe_block => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        found_comment = true;
+                        state = .block;
+                    },
+                    else => {
+                        found_comment = true;
+                        state = .line;
+                    },
+                },
+                .block => switch (c) {
+                    0 => break,
+                    '\\' => {
+                        if (self.impl.character == 0) {
+                            state = .end_block;
+                        }
+                    },
+                    else => {},
+                },
+                .end_block => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r' => {},
+                    '\n' => break,
+                    else => {
+                        state = .block;
+                    },
+                },
+
+                .line => switch (c) {
+                    0, '\n' => break,
+                    else => {},
+                },
+            }
+        }
+
+        if (found_comment) {
+            result.loc.end = self.impl.index;
+            self.pending_token = result;
+        }
     }
 };
 
@@ -1479,25 +1665,160 @@ test "tokenize identifier" {
     });
 }
 
-// TODO: comments should never end blocks.
-// TODO: slash on character 0 does not end a block.
-// Need to peek-skip through the comment to see if
-// the next expression ends the block
-// TODO: store peeked-comment token to avoid backtracking
+// TODO: Test multiple comments
+// TODO: Validate comment tokens with trailing newlines match
 test "tokenize starting comment" {
-    if (true) return error.SkipZigTest;
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\/ and has some comments
+        \\/
+        \\inside.
+        \\\
+        \\ it also continues after
+        \\ some comments and ends
+        \\here
+    , &.{
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 141 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 141, .end = 145 }, .eob = true },
+    });
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\\
+        \\and has a trailing
+        \\comment inside
+    , &.{.{ .tag = .comment, .loc = .{ .start = 0, .end = 91 }, .eob = false }});
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\\d .
+        \\identifier
+    , &.{
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
+        .{ .tag = .system, .loc = .{ .start = 56, .end = 60 }, .eob = true },
+        .{ .tag = .identifier, .loc = .{ .start = 61, .end = 71 }, .eob = true },
+    });
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\\ d .
+        \\identifier
+    , &.{
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
+        .{ .tag = .invalid, .loc = .{ .start = 56, .end = 61 }, .eob = true },
+        .{ .tag = .identifier, .loc = .{ .start = 62, .end = 72 }, .eob = true },
+    });
 }
 
 test "tokenize block comment" {
-    if (true) return error.SkipZigTest;
+    try testTokenize(
+        \\;
+        \\/
+        \\block comment
+        \\\
+        \\1
+    , &.{
+        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 19 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 20, .end = 21 }, .eob = true },
+    });
+    try testTokenize(
+        \\1
+        \\/
+        \\block comment
+        \\\
+        \\ 2
+    , &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 19 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 21, .end = 22 }, .eob = true },
+    });
+    try testTokenize(
+        \\(1;
+        \\/
+        \\block comment
+        \\\
+        \\ 2)
+    , &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 23, .end = 24 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 24, .end = 25 }, .eob = true },
+    });
 }
 
 test "tokenize line comment" {
-    if (true) return error.SkipZigTest;
+    try testTokenize("1 /line comment", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 15 }, .eob = false },
+    });
+    try testTokenize("1 / line comment", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 16 }, .eob = false },
+    });
+    try testTokenize("1/not a line comment", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .slash, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 2, .end = 5 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 13, .end = 20 }, .eob = true },
+    });
+    try testTokenize("1/ not a line comment", &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .slash, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 3, .end = 6 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 7, .end = 8 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 9, .end = 13 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 14, .end = 21 }, .eob = true },
+    });
+    try testTokenize(
+        \\1 /line comment
+        \\ 2
+    , &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 15 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 17, .end = 18 }, .eob = true },
+    });
+    try testTokenize(
+        \\(1; /line comment
+        \\ 2)
+    , &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 19, .end = 20 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 20, .end = 21 }, .eob = true },
+    });
 }
 
 test "tokenize trailing comment" {
-    if (true) return error.SkipZigTest;
+    try testTokenize(
+        \\;
+        \\\
+        \\this is a
+        \\trailing comment
+    , &.{
+        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 30 }, .eob = false },
+    });
+    try testTokenize(
+        \\;
+        \\\ this is not a trailing comment
+        \\1
+    , &.{
+        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 34 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 35, .end = 36 }, .eob = true },
+    });
 }
 
 test {
