@@ -11,6 +11,11 @@ jobs:
         with:
           node-version: 20
           registry-url: https://npm.pkg.github.com
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          cache: false
+      - name: Build
+        run: zig build -Dfull -Doptimize=ReleaseSmall
       - name: Get package versions
         id: version
         run: |
@@ -19,11 +24,6 @@ jobs:
           echo "dev=$(npm view @kdblint/kdblint dist-tags.dev)" >> "$GITHUB_OUTPUT"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: goto-bus-stop/setup-zig@v2
-        with:
-          cache: false
-      - name: Build
-        run: zig build -Dfull -Doptimize=ReleaseSmall
       - name: Publish latest
         if: ${{ steps.version.outputs.current != steps.version.outputs.latest }}
         run: npm publish
