@@ -369,9 +369,6 @@ pub const Tokenizer = struct {
     const CommentState = enum {
         start,
 
-        start_trailing,
-        trailing,
-
         maybe_block,
         block,
         end_block,
@@ -381,20 +378,25 @@ pub const Tokenizer = struct {
 
     const State = enum {
         start,
+
         minus,
         dot,
         operator,
         angle_bracket_left,
         angle_bracket_right,
+
         zero,
         one,
         two,
         number,
+
         string,
         escaped_string,
+
         symbol_start,
         symbol,
         symbol_handle,
+
         identifier,
 
         maybe_trailing_comment,
@@ -406,13 +408,18 @@ pub const Tokenizer = struct {
         end_block_comment,
 
         skip_line,
+
+        skip_block_start,
+        skip_block,
+        skip_block_maybe_block_comment,
+        skip_block_block_comment,
+        skip_block_end_block_comment,
     };
 
     fn consumeStartingComment(self: *Tokenizer) void {
         var state: CommentState = .start;
         const start_index = self.impl.index;
 
-        var backtrack: @TypeOf(self.impl) = undefined;
         while (true) : (self.advance()) {
             const c = self.buffer[self.impl.index];
             switch (state) {
@@ -424,36 +431,11 @@ pub const Tokenizer = struct {
                             state = .maybe_block;
                         }
                     },
-                    '\\' => {
-                        if (self.impl.character == 0) {
-                            if (!std.ascii.isWhitespace(self.buffer[self.impl.index + 1])) {
-                                break;
-                            }
-                            backtrack = self.impl;
-                            state = .start_trailing;
-                        }
-                    },
                     else => {
                         if (self.impl.character == 0) {
                             break;
                         }
                     },
-                },
-
-                .start_trailing => switch (c) {
-                    0 => break,
-                    ' ', '\t', '\r' => {},
-                    '\n' => {
-                        state = .trailing;
-                    },
-                    else => {
-                        self.impl = backtrack;
-                        break;
-                    },
-                },
-                .trailing => switch (c) {
-                    0 => break,
-                    else => {},
                 },
 
                 .maybe_block => switch (c) {
@@ -540,6 +522,7 @@ pub const Tokenizer = struct {
             .eob = false,
         };
 
+        var checkpoint: @TypeOf(self.impl) = undefined;
         while (true) : (self.advance()) {
             const c = self.buffer[self.impl.index];
             switch (state) {
@@ -976,9 +959,8 @@ pub const Tokenizer = struct {
                         state = .trailing_comment;
                     },
                     else => {
-                        // TODO: Check if system should skip block rather than line
                         result.tag = .system;
-                        state = .skip_line;
+                        state = .skip_block_start;
                     },
                 },
                 .start_trailing_comment => switch (c) {
@@ -989,7 +971,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .invalid;
-                        state = .skip_line;
+                        state = .skip_block_start;
                     },
                 },
                 .trailing_comment => switch (c) {
@@ -1028,6 +1010,79 @@ pub const Tokenizer = struct {
                     0, '\n' => break,
                     else => {},
                 },
+
+                .skip_block_start => switch (c) {
+                    0 => break,
+                    '\n' => {
+                        checkpoint = .{
+                            .index = self.impl.index + 1,
+                            .line = self.impl.line + 1,
+                            .character = 0,
+                        };
+                        state = .skip_block;
+                    },
+                    else => {},
+                },
+                .skip_block => switch (c) {
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
+                    ' ', '\t', '\n', '\r' => {
+                        if (self.impl.character == 0) {
+                            state = .skip_block_start;
+                        }
+                    },
+                    '/' => {
+                        if (self.impl.character == 0) {
+                            state = .skip_block_maybe_block_comment;
+                        }
+                    },
+                    else => {
+                        if (self.impl.character == 0) {
+                            self.impl = checkpoint;
+                            break;
+                        }
+                    },
+                },
+                .skip_block_maybe_block_comment => switch (c) {
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        state = .skip_block_block_comment;
+                    },
+                    else => {
+                        state = .skip_block;
+                    },
+                },
+                .skip_block_block_comment => switch (c) {
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
+                    '\\' => {
+                        if (self.impl.character == 0) {
+                            state = .skip_block_end_block_comment;
+                        }
+                    },
+                    else => {},
+                },
+                .skip_block_end_block_comment => switch (c) {
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        state = .skip_block;
+                    },
+                    else => {
+                        state = .skip_block_block_comment;
+                    },
+                },
             }
         }
 
@@ -1035,86 +1090,51 @@ pub const Tokenizer = struct {
 
         if (result.tag == .semicolon and self.parens_count == 0 and self.braces_count == 0 and self.brackets_count == 0) {
             result.eob = true;
-        } else if (result.tag != .comment) {
-            self.nextComment();
-
-            while (true) : (self.advance()) {
-                const c = self.buffer[self.impl.index];
-                switch (c) {
-                    0 => {
-                        result.eob = true;
-                        break;
-                    },
-                    ' ', '\t', '\n', '\r' => {},
-                    else => {
-                        if (self.impl.character == 0) {
-                            result.eob = true;
-                            self.parens_count = 0;
-                            self.braces_count = 0;
-                            self.brackets_count = 0;
-                        }
-                        break;
-                    },
-                }
-            }
+        } else if (result.tag != .comment and self.endsBlock()) {
+            result.eob = true;
+            self.parens_count = 0;
+            self.braces_count = 0;
+            self.brackets_count = 0;
         }
 
         return result;
     }
 
-    fn nextComment(self: *Tokenizer) void {
-        var state: CommentState = .start;
-        var found_comment = false;
-        var result = Token{
-            .tag = .comment,
-            .loc = .{
-                .start = self.impl.index,
-                .end = undefined,
-            },
-            .eob = false,
-        };
+    fn endsBlock(self: *Tokenizer) bool {
+        const checkpoint = self.impl;
+        defer self.impl = checkpoint;
 
+        var state: CommentState = .start;
         while (true) : (self.advance()) {
             const c = self.buffer[self.impl.index];
             switch (state) {
                 .start => switch (c) {
-                    ' ', '\t', '\n', '\r' => {
-                        result.loc.start = self.impl.index + 1;
-                    },
+                    0 => return true,
+                    ' ', '\t', '\n', '\r' => {},
                     '/' => {
                         if (self.impl.character == 0) {
                             state = .maybe_block;
                         } else if (std.ascii.isWhitespace(self.buffer[self.impl.index - 1])) {
-                            found_comment = true;
                             state = .line;
                         } else {
-                            break;
+                            return false;
                         }
                     },
-                    else => break,
-                },
-
-                .start_trailing => switch (c) {
-                    else => break,
-                },
-                .trailing => switch (c) {
-                    else => break,
+                    else => return self.impl.character == 0,
                 },
 
                 .maybe_block => switch (c) {
-                    0 => break,
+                    0 => return true,
                     ' ', '\t', '\r' => {},
                     '\n' => {
-                        found_comment = true;
                         state = .block;
                     },
                     else => {
-                        found_comment = true;
                         state = .line;
                     },
                 },
                 .block => switch (c) {
-                    0 => break,
+                    0 => return true,
                     '\\' => {
                         if (self.impl.character == 0) {
                             state = .end_block;
@@ -1123,25 +1143,27 @@ pub const Tokenizer = struct {
                     else => {},
                 },
                 .end_block => switch (c) {
-                    0 => break,
+                    0 => return true,
                     ' ', '\t', '\r' => {},
-                    '\n' => break,
+                    '\n' => {
+                        state = .start;
+                    },
                     else => {
                         state = .block;
                     },
                 },
 
                 .line => switch (c) {
-                    0, '\n' => break,
+                    0 => return true,
+                    '\n' => {
+                        state = .start;
+                    },
                     else => {},
                 },
             }
         }
 
-        if (found_comment) {
-            result.loc.end = self.impl.index;
-            self.pending_token = result;
-        }
+        unreachable;
     }
 };
 
@@ -1665,8 +1687,6 @@ test "tokenize identifier" {
     });
 }
 
-// TODO: Test multiple comments
-// TODO: Validate comment tokens with trailing newlines match
 test "tokenize starting comment" {
     try testTokenize(
         \\ this is a starting
@@ -1688,9 +1708,11 @@ test "tokenize starting comment" {
         \\ comment that spans
         \\ multiple lines
         \\\
-        \\and has a trailing
-        \\comment inside
-    , &.{.{ .tag = .comment, .loc = .{ .start = 0, .end = 91 }, .eob = false }});
+        \\trailing comment
+    , &.{
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 56, .end = 74 }, .eob = false },
+    });
     try testTokenize(
         \\ this is a starting
         \\ comment that spans
@@ -1699,7 +1721,7 @@ test "tokenize starting comment" {
         \\identifier
     , &.{
         .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
-        .{ .tag = .system, .loc = .{ .start = 56, .end = 60 }, .eob = true },
+        .{ .tag = .system, .loc = .{ .start = 56, .end = 61 }, .eob = true },
         .{ .tag = .identifier, .loc = .{ .start = 61, .end = 71 }, .eob = true },
     });
     try testTokenize(
@@ -1710,47 +1732,77 @@ test "tokenize starting comment" {
         \\identifier
     , &.{
         .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 56, .end = 61 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 56, .end = 62 }, .eob = true },
         .{ .tag = .identifier, .loc = .{ .start = 62, .end = 72 }, .eob = true },
     });
 }
 
 test "tokenize block comment" {
     try testTokenize(
-        \\;
+        \\1
         \\/
-        \\block comment
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
         \\\
         \\1
     , &.{
-        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-        .{ .tag = .comment, .loc = .{ .start = 2, .end = 19 }, .eob = false },
-        .{ .tag = .number_literal, .loc = .{ .start = 20, .end = 21 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 21 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 22, .end = 41 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 42, .end = 43 }, .eob = true },
     });
     try testTokenize(
         \\1
         \\/
-        \\block comment
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
         \\\
         \\ 2
     , &.{
         .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .comment, .loc = .{ .start = 2, .end = 19 }, .eob = false },
-        .{ .tag = .number_literal, .loc = .{ .start = 21, .end = 22 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 21 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 22, .end = 41 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 43, .end = 44 }, .eob = true },
     });
     try testTokenize(
         \\(1;
         \\/
-        \\block comment
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
+        \\\
+        \\2)
+    , &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 23 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 24, .end = 43 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 44, .end = 45 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 45, .end = 46 }, .eob = true },
+    });
+    try testTokenize(
+        \\(1;
+        \\/
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
         \\\
         \\ 2)
     , &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
-        .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
-        .{ .tag = .number_literal, .loc = .{ .start = 23, .end = 24 }, .eob = false },
-        .{ .tag = .r_paren, .loc = .{ .start = 24, .end = 25 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 23 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 24, .end = 43 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 45, .end = 46 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 46, .end = 47 }, .eob = true },
     });
 }
 
@@ -1780,47 +1832,196 @@ test "tokenize line comment" {
         .{ .tag = .identifier, .loc = .{ .start = 14, .end = 21 }, .eob = true },
     });
     try testTokenize(
-        \\1 /line comment
+        \\1 /line comment 1
+        \\/line comment 2
+        \\2
+    , &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 17 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 18, .end = 33 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 34, .end = 35 }, .eob = true },
+    });
+    try testTokenize(
+        \\1 /line comment 1
+        \\ /line comment 2
+        \\2
+    , &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 17 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 19, .end = 34 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 35, .end = 36 }, .eob = true },
+    });
+    try testTokenize(
+        \\1 /line comment 1
+        \\/line comment 2
         \\ 2
     , &.{
         .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .comment, .loc = .{ .start = 2, .end = 15 }, .eob = false },
-        .{ .tag = .number_literal, .loc = .{ .start = 17, .end = 18 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 17 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 18, .end = 33 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 35, .end = 36 }, .eob = true },
     });
     try testTokenize(
-        \\(1; /line comment
+        \\1 /line comment 1
+        \\ /line comment 2
+        \\ 2
+    , &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 17 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 19, .end = 34 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 36, .end = 37 }, .eob = true },
+    });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\/line comment 2
+        \\2)
+    , &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 19 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 20, .end = 35 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 36, .end = 37 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 37, .end = 38 }, .eob = true },
+    });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\ /line comment 2
+        \\2)
+    , &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 19 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 21, .end = 36 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 37, .end = 38 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 38, .end = 39 }, .eob = true },
+    });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\/line comment 2
         \\ 2)
     , &.{
         .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
-        .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
-        .{ .tag = .number_literal, .loc = .{ .start = 19, .end = 20 }, .eob = false },
-        .{ .tag = .r_paren, .loc = .{ .start = 20, .end = 21 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 19 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 20, .end = 35 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 37, .end = 38 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 38, .end = 39 }, .eob = true },
+    });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\ /line comment 2
+        \\ 2)
+    , &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .semicolon, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 19 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 21, .end = 36 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 38, .end = 39 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 39, .end = 40 }, .eob = true },
     });
 }
 
 test "tokenize trailing comment" {
     try testTokenize(
-        \\;
+        \\1
         \\\
         \\this is a
         \\trailing comment
     , &.{
-        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 2, .end = 30 }, .eob = false },
     });
     try testTokenize(
-        \\;
+        \\1
         \\\ this is not a trailing comment
         \\1
     , &.{
-        .{ .tag = .semicolon, .loc = .{ .start = 0, .end = 1 }, .eob = true },
-        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 34 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = true },
+        .{ .tag = .invalid, .loc = .{ .start = 2, .end = 35 }, .eob = true },
         .{ .tag = .number_literal, .loc = .{ .start = 35, .end = 36 }, .eob = true },
     });
 }
 
+test "tokenize system" {
+    try testTokenize(
+        \\\d .
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 4 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\ ls
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 7 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\ ls
+        \\1
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 8 }, .eob = true },
+        .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\/line comment
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 4 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
+    });
+    try testTokenize(
+        \\\ls
+        \\/this is not a comment
+        \\ ls
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 30 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\/
+        \\this is not a block comment
+        \\\
+        \\ ls
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 39 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\/
+        \\this is not a block comment
+        \\\
+        \\ this is not a trailing comment
+        \\ ls
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 71 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\\
+        \\ trailing comment
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 4 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 22, .end = 41 }, .eob = false },
+    });
+    try testTokenize(
+        \\\ls
+        \\\
+        \\this is a trailing comment
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 4 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 32 }, .eob = false },
+    });
+}
+
+// TODO: Validate comment tokens with trailing newlines match
 test {
     @import("std").testing.refAllDecls(@This());
 }
