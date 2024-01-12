@@ -2,9 +2,11 @@ const std = @import("std");
 const lsp = @import("lsp");
 const types = lsp.types;
 
+const Connection = @import("main.zig").Connection;
 const DocumentStore = @import("DocumentStore.zig");
 const diff = @import("diff.zig");
 const offsets = @import("offsets.zig");
+const diagnostics_gen = @import("features/diagnostics.zig");
 
 const log = std.log.scoped(.kdbLint_Server);
 
@@ -13,6 +15,18 @@ const Server = @This();
 allocator: std.mem.Allocator,
 document_store: DocumentStore,
 position_encoding: types.PositionEncodingKind = .@"utf-16",
+
+/// private fields
+conn: *Connection = undefined,
+job_queue: std.fifo.LinearFifo(Job, .Dynamic),
+job_queue_lock: std.Thread.Mutex = .{},
+client_capabilities: ClientCapabilities = .{},
+
+const ClientCapabilities = struct {
+    supports_publish_diagnostics: bool = false,
+    supports_hover: bool = false,
+    hover_supports_md: bool = false,
+};
 
 pub const Error = error{
     OutOfMemory,
@@ -23,6 +37,16 @@ pub const Error = error{
     InternalError,
 };
 
+const Job = union(enum) {
+    generate_diagnostics: DocumentStore.Uri,
+
+    pub fn deinit(self: Job, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .generate_diagnostics => |uri| allocator.free(uri),
+        }
+    }
+};
+
 pub fn create(allocator: std.mem.Allocator) !*Server {
     const server = try allocator.create(Server);
     errdefer server.destroy();
@@ -31,11 +55,14 @@ pub fn create(allocator: std.mem.Allocator) !*Server {
         .document_store = .{
             .allocator = allocator,
         },
+        .job_queue = std.fifo.LinearFifo(Job, .Dynamic).init(allocator),
     };
     return server;
 }
 
 pub fn destroy(server: *Server) void {
+    while (server.job_queue.readItem()) |job| job.deinit(server.allocator);
+    server.job_queue.deinit();
     server.document_store.deinit();
     server.allocator.destroy(server);
 }
@@ -70,6 +97,24 @@ pub fn initialize(server: *Server, request: types.InitializeParams) !types.Initi
         log.info("encoding is {s}", .{@tagName(server.position_encoding)});
     }
 
+    if (request.capabilities.textDocument) |textDocument| {
+        server.client_capabilities.supports_publish_diagnostics = textDocument.publishDiagnostics != null;
+        if (textDocument.hover) |hover| {
+            server.client_capabilities.supports_hover = true;
+            if (hover.contentFormat) |content_format| {
+                for (content_format) |format| {
+                    if (format == .plaintext) {
+                        break;
+                    }
+                    if (format == .markdown) {
+                        server.client_capabilities.hover_supports_md = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     return types.InitializeResult{
         .capabilities = .{
             .positionEncoding = server.position_encoding,
@@ -83,8 +128,8 @@ pub fn initialize(server: *Server, request: types.InitializeParams) !types.Initi
     };
 }
 
-pub fn initialized(server: *Server) !void {
-    _ = server;
+pub fn initialized(server: *Server, conn: *Connection) !void {
+    server.conn = conn;
 }
 
 pub fn shutdown(server: *Server) !?void {
@@ -107,7 +152,11 @@ pub fn @"textDocument/didOpen"(server: *Server, notification: types.DidOpenTextD
 
     try server.document_store.openDocument(notification.textDocument.uri, notification.textDocument.text);
 
-    // TODO: Client capabilities - publish diagnostics
+    if (server.client_capabilities.supports_publish_diagnostics) {
+        try server.pushJob(.{
+            .generate_diagnostics = try server.allocator.dupe(u8, notification.textDocument.uri),
+        });
+    }
 }
 
 pub fn @"textDocument/didChange"(server: *Server, notification: types.DidChangeTextDocumentParams) !void {
@@ -125,7 +174,11 @@ pub fn @"textDocument/didChange"(server: *Server, notification: types.DidChangeT
 
     try server.document_store.refreshDocument(handle.uri, new_text);
 
-    // TODO: Client capabilities - publish diagnostics
+    if (server.client_capabilities.supports_publish_diagnostics) {
+        try server.pushJob(.{
+            .generate_diagnostics = try server.allocator.dupe(u8, notification.textDocument.uri),
+        });
+    }
 }
 
 pub fn @"textDocument/didSave"(server: *Server, notification: types.DidSaveTextDocumentParams) !void {
@@ -135,6 +188,31 @@ pub fn @"textDocument/didSave"(server: *Server, notification: types.DidSaveTextD
 
 pub fn @"textDocument/didClose"(server: *Server, notification: types.DidCloseTextDocumentParams) !void {
     server.document_store.closeDocument(notification.textDocument.uri);
+}
+
+pub fn processJob(server: *Server, job: Job) void {
+    defer job.deinit(server.allocator);
+
+    switch (job) {
+        .generate_diagnostics => |uri| {
+            const handle = server.document_store.getHandle(uri) orelse return;
+            var arena_allocator = std.heap.ArenaAllocator.init(server.allocator);
+            defer arena_allocator.deinit();
+            const diagnostics = diagnostics_gen.generateDiagnostics(server, arena_allocator.allocator(), handle) catch return;
+            log.info("publishing {d} diagnostic(s)", .{diagnostics.diagnostics.len});
+            server.conn.notify("textDocument/publishDiagnostics", diagnostics) catch return;
+        },
+    }
+}
+
+/// takes ownership of `job`
+fn pushJob(server: *Server, job: Job) error{OutOfMemory}!void {
+    server.job_queue_lock.lock();
+    defer server.job_queue_lock.unlock();
+    server.job_queue.writeItem(job) catch |err| {
+        job.deinit(server.allocator);
+        return err;
+    };
 }
 
 test {
