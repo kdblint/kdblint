@@ -9,7 +9,7 @@ const log = std.log.scoped(.kdbLint);
 
 // TODO: Tracy instrumentation!
 
-const Connection = lsp.Connection(std.fs.File.Reader, std.fs.File.Writer, Context);
+pub const Connection = lsp.Connection(std.fs.File.Reader, std.fs.File.Writer, Context);
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -37,6 +37,10 @@ pub fn main() !void {
     while (true) {
         const arena_allocator = arena.allocator();
         conn.accept(arena_allocator) catch return;
+
+        while (server.job_queue.readItem()) |job| {
+            server.processJob(job);
+        }
     }
 }
 
@@ -50,7 +54,7 @@ const Context = struct {
 
     pub fn initialized(conn: *Connection, _: types.InitializedParams) !void {
         log.debug("initialized", .{});
-        try conn.context.server.initialized();
+        try conn.context.server.initialized(conn);
     }
 
     pub fn shutdown(conn: *Connection, _: types.RequestId, _: void) !?void {

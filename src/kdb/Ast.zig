@@ -15,10 +15,7 @@ errors: []const Error,
 pub const TokenIndex = u32;
 pub const ByteOffset = u32;
 
-pub const TokenList = std.MultiArrayList(struct {
-    tag: Token.Tag,
-    start: ByteOffset,
-});
+pub const TokenList = std.MultiArrayList(Token);
 pub const NodeList = std.MultiArrayList(Node);
 
 pub const Location = struct {
@@ -57,10 +54,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     var tokenizer = Tokenizer.init(source, mode);
     while (true) {
         const token = tokenizer.next();
-        try tokens.append(gpa, .{
-            .tag = token.tag,
-            .start = @intCast(token.loc.start),
-        });
+        try tokens.append(gpa, token);
         if (token.tag == .eof) break;
     }
 
@@ -68,7 +62,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .source = source,
         .gpa = gpa,
         .token_tags = tokens.items(.tag),
-        .token_starts = tokens.items(.start),
+        .token_locs = tokens.items(.loc),
         .errors = .{},
         .nodes = .{},
         .extra_data = .{},
@@ -110,7 +104,7 @@ pub const Error = struct {
     extra: union {
         none: void,
         expected_tag: Token.Tag,
-    } = .{ .none = .{} }, // TODO: = {}
+    } = .{ .none = {} },
 
     pub const Tag = enum {
         expected_expr,

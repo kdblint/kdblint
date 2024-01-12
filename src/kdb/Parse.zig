@@ -5,7 +5,7 @@ pub const Error = error{ParseError} || Allocator.Error;
 gpa: Allocator,
 source: []const u8,
 token_tags: []const Token.Tag,
-token_starts: []const Ast.ByteOffset,
+token_locs: []const Token.Loc,
 tok_i: TokenIndex,
 errors: std.ArrayListUnmanaged(AstError),
 nodes: Ast.NodeList,
