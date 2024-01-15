@@ -273,7 +273,9 @@ const OperInfo = struct {
     assoc: Assoc = Assoc.left,
 };
 
-const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = -1, .tag = Node.Tag.root }, 0, .{});
+const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = -1, .tag = Node.Tag.root }, 0, .{
+    .plus = .{ .prec = 60, .tag = .add },
+});
 
 fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
     assert(min_prec >= 0);
@@ -282,16 +284,11 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
         return null_node;
     }
 
-    var banned_prec: i8 = -1;
-
     while (true) {
         const tok_tag = p.token_tags[p.tok_i];
         const info = operTable[@as(usize, @intCast(@intFromEnum(tok_tag)))];
         if (info.prec < min_prec) {
             break;
-        }
-        if (info.prec == banned_prec) {
-            return p.fail(.chained_comparison_operators);
         }
 
         const oper_token = p.nextToken();
@@ -299,20 +296,6 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
         if (rhs == 0) {
             try p.warn(.expected_expr);
             return node;
-        }
-
-        {
-            const tok_len = tok_tag.lexeme().?.len;
-            _ = tok_len; // autofix
-            const char_before = p.source[p.token_locs[oper_token].start - 1];
-            const char_after = p.source[p.token_locs[oper_token].end];
-            if (tok_tag == .ampersand and char_after == '&') {
-                // without types we don't know if '&&' was intended as 'bitwise_and address_of', or a c-style logical_and
-                // The best the parser can do is recommend changing it to 'and' or ' & &'
-                try p.warnMsg(.{ .tag = .invalid_ampersand_ampersand, .token = oper_token });
-            } else if (std.ascii.isWhitespace(char_before) != std.ascii.isWhitespace(char_after)) {
-                try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });
-            }
         }
 
         node = try p.addNode(.{
@@ -323,10 +306,6 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
                 .rhs = rhs,
             },
         });
-
-        if (info.assoc == Assoc.none) {
-            banned_prec = info.prec;
-        }
     }
 
     return node;
@@ -334,11 +313,11 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
 
 fn parsePrefixExpr(p: *Parse) Error!Node.Index {
     const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
-        .bang => .bool_not,
-        .minus => .negation,
-        .tilde => .bit_not,
+        // .bang => .bool_not,
+        // .minus => .negation,
+        // .tilde => .bit_not,
         // .minus_percent => .negation_wrap,
-        .ampersand => .address_of,
+        // .ampersand => .address_of,
         // .keyword_try => .@"try",
         // .keyword_await => .@"await",
         else => return p.parsePrimaryExpr(),
@@ -363,7 +342,46 @@ fn expectPrefixExpr(p: *Parse) Error!Node.Index {
 
 fn parsePrimaryExpr(p: *Parse) !Node.Index {
     switch (p.token_tags[p.tok_i]) {
-        .number_literal => unreachable,
+        .number_literal => return p.addNode(.{
+            .tag = .number_literal,
+            .main_token = p.nextToken(),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .string_literal => return p.addNode(.{
+            .tag = .string_literal,
+            .main_token = p.nextToken(),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .symbol_literal => return p.addNode(.{
+            .tag = .symbol_literal,
+            .main_token = p.nextToken(),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .symbol_list_literal => return p.addNode(.{
+            .tag = .symbol_list_literal,
+            .main_token = p.nextToken(),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .identifier => return p.addNode(.{
+            .tag = .identifier,
+            .main_token = p.nextToken(),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
         else => unreachable,
     }
 }
