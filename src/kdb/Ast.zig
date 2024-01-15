@@ -192,6 +192,28 @@ pub const Node = struct {
     pub const Tag = enum {
         /// sub_list[lhs...rhs]
         root,
+        /// Both lhs and rhs unused.
+        number_literal,
+        /// Both lhs and rhs unused.
+        string_literal,
+        /// Both lhs and rhs unused.
+        symbol_literal,
+        /// Both lhs and rhs unused.
+        symbol_list_literal,
+        /// Both lhs and rhs unused.
+        /// Most identifiers will not have explicit AST nodes, however for expressions
+        /// which could be one of many different kinds of AST nodes, there will be an
+        /// identifier AST node for it.
+        identifier,
+
+        /// `lhs + rhs`. main_token is the `+`.
+        add,
+    };
+
+    // TODO: Remove
+    pub const ZTag = enum {
+        /// sub_list[lhs...rhs]
+        root,
         /// `usingnamespace lhs;`. rhs unused. main_token is `usingnamespace`.
         @"usingnamespace",
         /// lhs is test name token (must be string literal or identifier), if any.
@@ -682,6 +704,24 @@ pub const Node = struct {
     };
 };
 
+pub fn print(tree: Ast, i: TokenIndex, stream: anytype) !void {
+    const tag = tree.nodes.items(.tag)[i];
+    switch (tag) {
+        .number_literal => {
+            const loc = tree.tokens.items(.loc)[i];
+            const source = tree.source[loc.start..loc.end];
+            try stream.writeAll(source);
+        },
+        .add => {
+            const data = tree.nodes.items(.data)[i];
+            try tree.print(data.lhs, stream);
+            try stream.writeAll("+");
+            try tree.print(data.rhs, stream);
+        },
+        else => log.err("NYI - {s}", .{@tagName(tag)}),
+    }
+}
+
 const std = @import("std");
 const kdb = @import("../kdb.zig");
 const Token = kdb.Token;
@@ -689,6 +729,8 @@ const Tokenizer = kdb.Tokenizer;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
+
+const log = std.log.scoped(.kdbLint_Ast);
 
 test {
     @import("std").testing.refAllDecls(@This());

@@ -8,10 +8,19 @@ const Server = @import("../Server.zig");
 const DocumentStore = @import("../DocumentStore.zig");
 const offsets = @import("../offsets.zig");
 
+const log = std.log.scoped(.kdbLint_diagnostics);
+
 pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *DocumentStore.Handle) error{OutOfMemory}!types.PublishDiagnosticsParams {
     std.debug.assert(server.client_capabilities.supports_publish_diagnostics);
 
     const tree = handle.tree;
+
+    for (tree.nodes.items(.tag), 0..) |_, i| {
+        var list = std.ArrayList(u8).init(arena);
+        defer list.deinit();
+        try tree.print(@intCast(i), list.writer());
+        log.debug("{s}", .{list.items});
+    }
 
     var diagnostics = std.ArrayListUnmanaged(types.Diagnostic){};
     var start: ?usize = null;
