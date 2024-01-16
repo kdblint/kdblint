@@ -208,6 +208,11 @@ pub const Node = struct {
 
         /// `lhs + rhs`. main_token is the `+`.
         add,
+
+        /// TODO
+        apply,
+        /// TODO
+        plus,
     };
 
     // TODO: Remove

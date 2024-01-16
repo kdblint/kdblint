@@ -16,7 +16,6 @@ const Blocks = struct {
     len: usize,
     lhs: Node.Index,
     rhs: Node.Index,
-    trailing: bool,
 
     fn toSpan(self: Blocks, p: *Parse) !Node.SubRange {
         if (self.len <= 2) {
@@ -162,16 +161,12 @@ pub fn parseRoot(p: *Parse) Allocator.Error!void {
         .main_token = 0,
         .data = undefined,
     });
-    _ = p.eatToken(.comment);
 
     const blocks = p.parseBlocks() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => unreachable,
     };
     const root_decls = try blocks.toSpan(p);
-    if (p.token_tags[p.tok_i] != .eof) {
-        try p.warnExpected(.eof);
-    }
     p.nodes.items(.data)[0] = .{
         .lhs = root_decls.start,
         .rhs = root_decls.end,
@@ -182,39 +177,13 @@ fn parseBlocks(p: *Parse) Error!Blocks {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const field_state: union(enum) {
-        /// No fields have been seen.
-        none,
-        /// Currently parsing fields.
-        seen,
-        /// Saw fields and then a declaration after them.
-        /// Payload is first token of previous declaration.
-        end: Node.Index,
-        /// There was a declaration between fields, don't report more errors.
-        err,
-    } = .none;
-    _ = field_state; // autofix
-
-    const last_field: TokenIndex = undefined;
-    _ = last_field; // autofix
-
-    // Skip comments.
-    while (p.eatToken(.comment)) |_| {}
-
-    var trailing = false;
-    while (true) {
-        _ = p.eatComments();
-
-        switch (p.token_tags[p.tok_i]) {
-            .eof => break,
-            else => {},
-        }
+    while (p.tok_i < p.token_tags.len) {
+        p.eatComments();
 
         const expr = try p.parseExpr();
         if (expr != 0) {
             try p.scratch.append(p.gpa, expr);
         }
-        trailing = p.token_tags[p.tok_i - 1] == .semicolon;
     }
 
     const items = p.scratch.items[scratch_top..];
@@ -223,19 +192,16 @@ fn parseBlocks(p: *Parse) Error!Blocks {
             .len = 0,
             .rhs = 0,
             .lhs = 0,
-            .trailing = trailing,
         },
         1 => return Blocks{
             .len = 1,
             .lhs = items[0],
             .rhs = 0,
-            .trailing = trailing,
         },
         2 => return Blocks{
             .len = 2,
             .lhs = items[0],
             .rhs = items[1],
-            .trailing = trailing,
         },
         else => {
             const span = try p.listToSpan(items);
@@ -243,14 +209,13 @@ fn parseBlocks(p: *Parse) Error!Blocks {
                 .len = items.len,
                 .lhs = span.start,
                 .rhs = span.end,
-                .trailing = trailing,
             };
         },
     }
 }
 
 fn parseExpr(p: *Parse) Error!Node.Index {
-    return p.parseExprPrecedence(0);
+    return p.parseExprPrecedence(Precedence.secondary);
 }
 
 fn expectExpr(p: *Parse) Error!Node.Index {
@@ -262,136 +227,210 @@ fn expectExpr(p: *Parse) Error!Node.Index {
     }
 }
 
-const Assoc = enum {
-    left,
-    none,
-};
-
-const OperInfo = struct {
-    prec: i8,
-    tag: Node.Tag,
-    assoc: Assoc = Assoc.left,
-};
-
-const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = -1, .tag = Node.Tag.root }, 0, .{
-    .plus = .{ .prec = 60, .tag = .add },
-});
-
-fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
-    assert(min_prec >= 0);
-    var node = try p.parsePrefixExpr();
-    if (node == 0) {
-        return null_node;
-    }
-
-    while (true) {
-        const tok_tag = p.token_tags[p.tok_i];
-        const info = operTable[@as(usize, @intCast(@intFromEnum(tok_tag)))];
-        if (info.prec < min_prec) {
-            break;
-        }
-
-        const oper_token = p.nextToken();
-        const rhs = try p.parseExprPrecedence(info.prec + 1);
-        if (rhs == 0) {
-            try p.warn(.expected_expr);
-            return node;
-        }
-
-        node = try p.addNode(.{
-            .tag = info.tag,
-            .main_token = oper_token,
-            .data = .{
-                .lhs = node,
-                .rhs = rhs,
-            },
-        });
-    }
-
-    return node;
-}
-
-fn parsePrefixExpr(p: *Parse) Error!Node.Index {
-    const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
-        // .bang => .bool_not,
-        // .minus => .negation,
-        // .tilde => .bit_not,
-        // .minus_percent => .negation_wrap,
-        // .ampersand => .address_of,
-        // .keyword_try => .@"try",
-        // .keyword_await => .@"await",
-        else => return p.parsePrimaryExpr(),
-    };
+fn plus(p: *Parse) Error!Node.Index {
     return p.addNode(.{
-        .tag = tag,
+        .tag = .plus,
         .main_token = p.nextToken(),
         .data = .{
-            .lhs = try p.expectPrefixExpr(),
+            .lhs = undefined,
             .rhs = undefined,
         },
     });
 }
 
-fn expectPrefixExpr(p: *Parse) Error!Node.Index {
-    const node = try p.parsePrefixExpr();
-    if (node == 0) {
-        return p.fail(.expected_prefix_expr);
+fn number(p: *Parse) Error!Node.Index {
+    const tag = p.token_tags[p.tok_i];
+    _ = tag; // autofix
+    const loc = p.token_locs[p.tok_i];
+    const source = p.source[loc.start..loc.end];
+    _ = source; // autofix
+    return try p.addNode(.{
+        .tag = .number_literal,
+        .main_token = p.nextToken(),
+        .data = .{
+            .lhs = undefined,
+            .rhs = undefined,
+        },
+    });
+}
+
+fn binary(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    const rhs = try p.parseExpr();
+    return p.addNode(.{
+        .tag = .apply, // TODO: binary_op
+        .main_token = p.nextToken(),
+        .data = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        },
+    });
+}
+
+fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    const rhs = try p.parseExpr();
+    return p.addNode(.{
+        .tag = .apply,
+        .main_token = p.nextToken(),
+        .data = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        },
+    });
+}
+
+fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
+    const prefix = operTable[@intFromEnum(p.token_tags[p.tok_i])].prefix orelse @panic(@tagName(p.token_tags[p.tok_i]));
+    var node = try prefix(p);
+
+    while (p.tok_i < p.token_tags.len and @intFromEnum(precedence) <= @intFromEnum(operTable[@intFromEnum(p.token_tags[p.tok_i])].prec)) {
+        const infix = operTable[@intFromEnum(p.token_tags[p.tok_i])].infix orelse @panic(@tagName(p.token_tags[p.tok_i]));
+        node = try infix(p, node);
     }
+
     return node;
 }
 
-fn parsePrimaryExpr(p: *Parse) !Node.Index {
-    switch (p.token_tags[p.tok_i]) {
-        .number_literal => return p.addNode(.{
-            .tag = .number_literal,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
-        .string_literal => return p.addNode(.{
-            .tag = .string_literal,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
-        .symbol_literal => return p.addNode(.{
-            .tag = .symbol_literal,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
-        .symbol_list_literal => return p.addNode(.{
-            .tag = .symbol_list_literal,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
-        .identifier => return p.addNode(.{
-            .tag = .identifier,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
-        else => unreachable,
-    }
-}
+const Precedence = enum {
+    none,
+    secondary,
+    primary,
+};
 
-fn eatComments(p: *Parse) ?TokenIndex {
-    if (p.eatToken(.comment)) |tok| {
-        while (p.eatToken(.comment)) |_| {}
-        return tok;
-    }
-    return null;
+const OperInfo = struct {
+    prefix: ?*const fn (*Parse) Error!Node.Index,
+    infix: ?*const fn (*Parse, Node.Index) Error!Node.Index,
+    prec: Precedence,
+};
+
+const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
+    // Punctuation
+    .l_paren = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .r_paren = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .l_brace = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .r_brace = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .l_bracket = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .r_bracket = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .semicolon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+
+    // Verbs
+    .colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .colon_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .plus = .{ .prefix = plus, .infix = binary, .prec = Precedence.secondary },
+    .plus_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .minus = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .minus_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .asterisk = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .asterisk_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .percent = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .percent_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .bang = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .bang_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .ampersand = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .ampersand_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .pipe = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .pipe_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .angle_bracket_left = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .angle_bracket_left_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .angle_bracket_left_equal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .angle_bracket_left_right = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .angle_bracket_right = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .angle_bracket_right_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .angle_bracket_right_equal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .equal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .equal_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .tilde = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .tilde_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .comma = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .comma_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .caret = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .caret_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .hash = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .hash_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .underscore = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .underscore_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .dollar = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .dollar_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .question_mark = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .question_mark_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .at = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .at_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .dot = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .dot_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .zero_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .zero_colon_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .one_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .one_colon_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .two_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+
+    // Adverbs
+    .apostrophe = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .apostrophe_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .slash = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .slash_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .backslash = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .backslash_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+
+    // Literals
+    .number_literal = .{ .prefix = number, .infix = apply, .prec = Precedence.secondary },
+    .string_literal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .symbol_literal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .symbol_list_literal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .identifier = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+
+    // Misc.
+    .comment = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .system = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .invalid = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .eof = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+
+    // Keywords
+    .keyword_abs = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_acos = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_asin = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_atan = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_avg = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_bin = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_binr = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_cor = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_cos = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_cov = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_delete = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_dev = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_div = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_do = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_enlist = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_exec = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_exit = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_exp = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_getenv = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_hopen = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_if = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_in = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_insert = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_last = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_like = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_log = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_max = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_min = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_prd = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_select = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_setenv = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_sin = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_sqrt = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_ss = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_sum = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_tan = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_update = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_var = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_wavg = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_while = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_within = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_wsum = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .keyword_xexp = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+});
+
+fn eatComments(p: *Parse) void {
+    while (p.eatToken(.comment)) |_| {}
 }
 
 fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
