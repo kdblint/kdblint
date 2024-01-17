@@ -63,6 +63,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .gpa = gpa,
         .token_tags = tokens.items(.tag),
         .token_locs = tokens.items(.loc),
+        .token_eobs = tokens.items(.eob),
         .errors = .{},
         .nodes = .{},
         .extra_data = .{},
@@ -123,6 +124,7 @@ pub const Error = struct {
         expected_labelable,
         expected_param_list,
         expected_prefix_expr,
+        expected_infix_expr,
         expected_primary_type_expr,
         expected_pub_item,
         expected_return_type,
@@ -192,6 +194,10 @@ pub const Node = struct {
     pub const Tag = enum {
         /// sub_list[lhs...rhs]
         root,
+
+        /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
+        grouped_expression,
+
         /// Both lhs and rhs unused.
         number_literal,
         /// Both lhs and rhs unused.
@@ -206,13 +212,202 @@ pub const Node = struct {
         /// identifier AST node for it.
         identifier,
 
-        /// `lhs + rhs`. main_token is the `+`.
-        add,
-
-        /// TODO
-        apply,
-        /// TODO
+        /// Both lhs and rhs unused.
+        colon,
+        /// Both lhs and rhs unused.
+        colon_colon,
+        /// Both lhs and rhs unused.
         plus,
+        /// Both lhs and rhs unused.
+        plus_colon,
+        /// Both lhs and rhs unused.
+        minus,
+        /// Both lhs and rhs unused.
+        minus_colon,
+        /// Both lhs and rhs unused.
+        asterisk,
+        /// Both lhs and rhs unused.
+        asterisk_colon,
+        /// Both lhs and rhs unused.
+        percent,
+        /// Both lhs and rhs unused.
+        percent_colon,
+        /// Both lhs and rhs unused.
+        bang,
+        /// Both lhs and rhs unused.
+        bang_colon,
+        /// Both lhs and rhs unused.
+        ampersand,
+        /// Both lhs and rhs unused.
+        ampersand_colon,
+        /// Both lhs and rhs unused.
+        pipe,
+        /// Both lhs and rhs unused.
+        pipe_colon,
+        /// Both lhs and rhs unused.
+        angle_bracket_left,
+        /// Both lhs and rhs unused.
+        angle_bracket_left_colon,
+        /// Both lhs and rhs unused.
+        angle_bracket_left_equal,
+        /// Both lhs and rhs unused.
+        angle_bracket_left_right,
+        /// Both lhs and rhs unused.
+        angle_bracket_right,
+        /// Both lhs and rhs unused.
+        angle_bracket_right_colon,
+        /// Both lhs and rhs unused.
+        angle_bracket_right_equal,
+        /// Both lhs and rhs unused.
+        equal,
+        /// Both lhs and rhs unused.
+        equal_colon,
+        /// Both lhs and rhs unused.
+        tilde,
+        /// Both lhs and rhs unused.
+        tilde_colon,
+        /// Both lhs and rhs unused.
+        comma,
+        /// Both lhs and rhs unused.
+        comma_colon,
+        /// Both lhs and rhs unused.
+        caret,
+        /// Both lhs and rhs unused.
+        caret_colon,
+        /// Both lhs and rhs unused.
+        hash,
+        /// Both lhs and rhs unused.
+        hash_colon,
+        /// Both lhs and rhs unused.
+        underscore,
+        /// Both lhs and rhs unused.
+        underscore_colon,
+        /// Both lhs and rhs unused.
+        dollar,
+        /// Both lhs and rhs unused.
+        dollar_colon,
+        /// Both lhs and rhs unused.
+        question_mark,
+        /// Both lhs and rhs unused.
+        question_mark_colon,
+        /// Both lhs and rhs unused.
+        at,
+        /// Both lhs and rhs unused.
+        at_colon,
+        /// Both lhs and rhs unused.
+        dot,
+        /// Both lhs and rhs unused.
+        dot_colon,
+        /// Both lhs and rhs unused.
+        zero_colon,
+        /// Both lhs and rhs unused.
+        zero_colon_colon,
+        /// Both lhs and rhs unused.
+        one_colon,
+        /// Both lhs and rhs unused.
+        one_colon_colon,
+        /// Both lhs and rhs unused.
+        two_colon,
+
+        /// `lhs : rhs`. main_token is `:`.
+        assign,
+        /// `lhs :: rhs`. main_token is `::`.
+        global_assign,
+        /// `lhs + rhs`. main_token is `+`.
+        add,
+        /// `lhs +: rhs`. main_token is `+:`.
+        plus_assign,
+        /// `lhs - rhs`. main_token is `-`.
+        subtract,
+        /// `lhs -: rhs`. main_token is `-:`.
+        minus_assign,
+        /// `lhs * rhs`. main_token is `*`.
+        multiply,
+        /// `lhs *: rhs`. main_token is `*:`.
+        asterisk_assign,
+        /// `lhs % rhs`. main_token is `%`.
+        divide,
+        /// `lhs %: rhs`. main_token is `%:`.
+        percent_assign,
+        /// `lhs ! rhs`. main_token is `!`.
+        dict,
+        /// `lhs !: rhs`. main_token is `!:`.
+        bang_assign,
+        /// `lhs & rhs`. main_token is `&`.
+        lesser,
+        /// `lhs &: rhs`. main_token is `&:`.
+        ampersand_assign,
+        /// `lhs | rhs`. main_token is `|`.
+        greater,
+        /// `lhs |: rhs`. main_token is `|:`.
+        pipe_assign,
+        /// `lhs < rhs`. main_token is `<`.
+        less_than,
+        /// `lhs <: rhs`. main_token is `<:`.
+        angle_bracket_left_assign,
+        /// `lhs <= rhs`. main_token is `<=`.
+        less_than_equal,
+        /// `lhs <> rhs`. main_token is `<>`.
+        not_equal,
+        /// `lhs > rhs`. main_token is `>`.
+        greater_than,
+        /// `lhs >: rhs`. main_token is `>:`.
+        angle_bracket_right_assign,
+        /// `lhs >= rhs`. main_token is `>=`.
+        greater_than_equal,
+        /// `lhs = rhs`. main_token is `=`.
+        equals,
+        /// `lhs =: rhs`. main_token is `=:`.
+        equal_assign,
+        /// `lhs ~ rhs`. main_token is `~`.
+        match,
+        /// `lhs ~: rhs`. main_token is `~:`.
+        tilde_assign,
+        /// `lhs , rhs`. main_token is `,`.
+        join,
+        /// `lhs ,: rhs`. main_token is `,:`.
+        comma_assign,
+        /// `lhs ^ rhs`. main_token is `^`.
+        fill,
+        /// `lhs ^: rhs`. main_token is `^:`.
+        caret_assign,
+        /// `lhs # rhs`. main_token is `#`.
+        take,
+        /// `lhs #: rhs`. main_token is `#:`.
+        hash_assign,
+        /// `lhs _ rhs`. main_token is `_`.
+        drop,
+        /// `lhs _: rhs`. main_token is `_:`.
+        underscore_assign,
+        /// `lhs $ rhs`. main_token is `$`.
+        cast,
+        /// `lhs $: rhs`. main_token is `$:`.
+        dollar_assign,
+        /// `lhs ? rhs`. main_token is `?`.
+        find,
+        /// `lhs ?: rhs`. main_token is `?:`.
+        question_mark_assign,
+        /// `lhs @ rhs`. main_token is `@`.
+        apply,
+        /// `lhs @: rhs`. main_token is `@:`.
+        at_assign,
+        /// `lhs . rhs`. main_token is `.`.
+        apply_n,
+        /// `lhs .: rhs`. main_token is `.:`.
+        dot_assign,
+        /// `lhs 0: rhs`. main_token is `0:`.
+        file_text,
+        /// `lhs 0:: rhs`. main_token is `0::`.
+        zero_colon_assign,
+        /// `lhs 1: rhs`. main_token is `1:`.
+        file_binary,
+        /// `lhs 1:: rhs`. main_token is `1::`.
+        one_colon_assign,
+        /// `lhs 2: rhs`. main_token is `2:`.
+        dynamic_load,
+
+        /// `lhs rhs`. main_token is unused.
+        implicit_apply,
     };
 
     // TODO: Remove
@@ -709,21 +904,192 @@ pub const Node = struct {
     };
 };
 
-pub fn print(tree: Ast, i: TokenIndex, stream: anytype) !void {
-    const tag = tree.nodes.items(.tag)[i];
-    switch (tag) {
-        .number_literal => {
-            const loc = tree.tokens.items(.loc)[i];
-            const source = tree.source[loc.start..loc.end];
-            try stream.writeAll(source);
+fn getTokenTag(tree: Ast, i: Node.Index) Token.Tag {
+    return tree.tokens.items(.tag)[tree.getMainToken(i)];
+}
+
+fn getTokenLoc(tree: Ast, i: Node.Index) Token.Loc {
+    return tree.tokens.items(.loc)[tree.getMainToken(i)];
+}
+
+fn getTokenEob(tree: Ast, i: Node.Index) bool {
+    return tree.tokens.items(.eob)[tree.getMainToken(i)];
+}
+
+fn getSource(tree: Ast, i: Node.Index) []const u8 {
+    const loc = tree.getTokenLoc(i);
+    return tree.source[loc.start..loc.end];
+}
+
+fn getTag(tree: Ast, i: Node.Index) Node.Tag {
+    return tree.nodes.items(.tag)[i];
+}
+
+fn getMainToken(tree: Ast, i: Node.Index) TokenIndex {
+    return tree.nodes.items(.main_token)[i];
+}
+
+fn getData(tree: Ast, i: Node.Index) Node.Data {
+    return tree.nodes.items(.data)[i];
+}
+
+fn getExtraData(tree: Ast, i: usize) Node.Index {
+    return tree.extra_data[i];
+}
+
+pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
+    switch (tree.getTag(i)) {
+        .root => unreachable,
+        .grouped_expression => try tree.print(tree.getData(i).lhs, stream, gpa),
+        .number_literal,
+        .string_literal,
+        => try stream.writeAll(tree.getSource(i)),
+        .symbol_literal,
+        .symbol_list_literal,
+        => try stream.print(",{s}", .{tree.getSource(i)}),
+        .identifier => try stream.print("`{s}", .{tree.getSource(i)}),
+        .assign,
+        .global_assign,
+        .add,
+        .plus_assign,
+        .subtract,
+        .minus_assign,
+        .multiply,
+        .asterisk_assign,
+        .divide,
+        .percent_assign,
+        .dict,
+        .bang_assign,
+        .lesser,
+        .ampersand_assign,
+        .greater,
+        .pipe_assign,
+        .less_than,
+        .angle_bracket_left_assign,
+        .less_than_equal,
+        .not_equal,
+        .greater_than,
+        .angle_bracket_right_assign,
+        .greater_than_equal,
+        .equals,
+        .equal_assign,
+        .match,
+        .tilde_assign,
+        .join,
+        .comma_assign,
+        .fill,
+        .caret_assign,
+        .take,
+        .hash_assign,
+        .drop,
+        .underscore_assign,
+        .cast,
+        .dollar_assign,
+        .find,
+        .question_mark_assign,
+        .apply,
+        .at_assign,
+        .apply_n,
+        .dot_assign,
+        .file_text,
+        .zero_colon_assign,
+        .file_binary,
+        .one_colon_assign,
+        .dynamic_load,
+        => {
+            const data = tree.getData(i);
+            if (data.rhs == 0) {
+                try stream.writeAll("NYI");
+            } else {
+                const symbol = tree.getTokenTag(i).symbol();
+
+                var rhs = std.ArrayList(u8).init(gpa);
+                defer rhs.deinit();
+                try tree.print(data.rhs, rhs.writer(), gpa);
+
+                var lhs = std.ArrayList(u8).init(gpa);
+                defer lhs.deinit();
+                try tree.print(data.lhs, lhs.writer(), gpa);
+
+                try stream.print("({s};{s};{s})", .{ symbol, lhs.items, rhs.items });
+            }
         },
-        .add => {
-            const data = tree.nodes.items(.data)[i];
-            try tree.print(data.lhs, stream);
-            try stream.writeAll("+");
-            try tree.print(data.rhs, stream);
+        .colon,
+        .colon_colon,
+        .plus,
+        .plus_colon,
+        .minus,
+        .minus_colon,
+        .asterisk,
+        .asterisk_colon,
+        .percent,
+        .percent_colon,
+        .bang,
+        .bang_colon,
+        .ampersand,
+        .ampersand_colon,
+        .pipe,
+        .pipe_colon,
+        .angle_bracket_left,
+        .angle_bracket_left_colon,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_colon,
+        .angle_bracket_right_equal,
+        .equal,
+        .equal_colon,
+        .tilde,
+        .tilde_colon,
+        .comma,
+        .comma_colon,
+        .caret,
+        .caret_colon,
+        .hash,
+        .hash_colon,
+        .underscore,
+        .underscore_colon,
+        .dollar,
+        .dollar_colon,
+        .question_mark,
+        .question_mark_colon,
+        .at,
+        .at_colon,
+        .dot,
+        .dot_colon,
+        .zero_colon,
+        .zero_colon_colon,
+        .one_colon,
+        .one_colon_colon,
+        .two_colon,
+        => try stream.writeAll(tree.getTokenTag(i).symbol()),
+        .implicit_apply => {
+            const data = tree.getData(i);
+
+            var rhs = std.ArrayList(u8).init(gpa);
+            defer rhs.deinit();
+            if (data.rhs > 0) {
+                try tree.print(data.rhs, rhs.writer(), gpa);
+            }
+
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            if (data.lhs > 0) {
+                try tree.print(data.lhs, lhs.writer(), gpa);
+            }
+
+            try stream.print("({s};{s})", .{ lhs.items, rhs.items });
         },
-        else => log.err("NYI - {s}", .{@tagName(tag)}),
+    }
+}
+
+pub fn visit(tree: Ast, gpa: Allocator) !void {
+    const data = tree.getData(0);
+    for (data.lhs..data.rhs) |extra_data_i| {
+        var list = std.ArrayList(u8).init(gpa);
+        defer list.deinit();
+        try tree.print(tree.getExtraData(extra_data_i), list.writer(), gpa);
+        log.debug("{s}", .{list.items});
     }
 }
 
