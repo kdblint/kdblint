@@ -15,12 +15,7 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
 
     const tree = handle.tree;
 
-    for (tree.nodes.items(.tag), 0..) |_, i| {
-        var list = std.ArrayList(u8).init(arena);
-        defer list.deinit();
-        try tree.print(@intCast(i), list.writer());
-        log.debug("{s}", .{list.items});
-    }
+    try tree.visit(arena);
 
     var diagnostics = std.ArrayListUnmanaged(types.Diagnostic){};
     var start: ?usize = null;

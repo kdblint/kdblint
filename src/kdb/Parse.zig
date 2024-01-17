@@ -6,6 +6,7 @@ gpa: Allocator,
 source: []const u8,
 token_tags: []const Token.Tag,
 token_locs: []const Token.Loc,
+token_eobs: []const bool,
 tok_i: TokenIndex,
 errors: std.ArrayListUnmanaged(AstError),
 nodes: Ast.NodeList,
@@ -36,31 +37,9 @@ fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
 }
 
 fn addNode(p: *Parse, elem: Ast.Node) Allocator.Error!Node.Index {
-    const result = @as(Node.Index, @intCast(p.nodes.len));
+    const result: Node.Index = @intCast(p.nodes.len);
     try p.nodes.append(p.gpa, elem);
     return result;
-}
-
-fn setNode(p: *Parse, i: usize, elem: Ast.Node) Node.Index {
-    p.nodes.set(i, elem);
-    return @as(Node.Index, @intCast(i));
-}
-
-fn reserveNode(p: *Parse, tag: Ast.Node.Tag) !usize {
-    try p.nodes.resize(p.gpa, p.nodes.len + 1);
-    p.nodes.items(.tag)[p.nodes.len - 1] = tag;
-    return p.nodes.len - 1;
-}
-
-fn unreserveNode(p: *Parse, node_index: usize) void {
-    if (p.nodes.len == node_index) {
-        p.nodes.resize(p.gpa, p.nodes.len - 1) catch unreachable;
-    } else {
-        // There is zombie node left in the tree, let's make it as inoffensive as possible
-        // (sadly there's no no-op node)
-        p.nodes.items(.tag)[node_index] = .unreachable_literal;
-        p.nodes.items(.main_token)[node_index] = p.tok_i;
-    }
 }
 
 fn addExtra(p: *Parse, extra: anytype) Allocator.Error!Node.Index {
@@ -164,7 +143,7 @@ pub fn parseRoot(p: *Parse) Allocator.Error!void {
 
     const blocks = p.parseBlocks() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => unreachable,
+        error.ParseError => return,
     };
     const root_decls = try blocks.toSpan(p);
     p.nodes.items(.data)[0] = .{
@@ -177,8 +156,10 @@ fn parseBlocks(p: *Parse) Error!Blocks {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    while (p.tok_i < p.token_tags.len) {
-        p.eatComments();
+    while (true) {
+        try p.eatComments();
+
+        if (p.token_tags[p.tok_i] == .eof) break;
 
         const expr = try p.parseExpr();
         if (expr != 0) {
@@ -227,63 +208,82 @@ fn expectExpr(p: *Parse) Error!Node.Index {
     }
 }
 
-fn plus(p: *Parse) Error!Node.Index {
+fn Prefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
+    return struct {
+        fn impl(p: *Parse) Error!Node.Index {
+            return p.addNode(.{
+                .tag = tag,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        }
+    }.impl;
+}
+
+fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index {
+    return struct {
+        fn impl(p: *Parse, lhs: Node.Index) Error!Node.Index {
+            const main_token = p.nextToken();
+            const rhs = try p.parseExpr();
+            const node = try p.addNode(.{
+                .tag = tag,
+                .main_token = main_token,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                },
+            });
+            return if (rhs == 0) node else node; // TODO: Composition
+        }
+    }.impl;
+}
+
+fn grouping(p: *Parse) Error!Node.Index {
     return p.addNode(.{
-        .tag = .plus,
+        .tag = .grouped_expression,
         .main_token = p.nextToken(),
         .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
+            .lhs = try p.expectExpr(),
+            .rhs = try p.expectToken(.r_paren),
         },
     });
 }
 
-fn number(p: *Parse) Error!Node.Index {
-    const tag = p.token_tags[p.tok_i];
-    _ = tag; // autofix
-    const loc = p.token_locs[p.tok_i];
-    const source = p.source[loc.start..loc.end];
-    _ = source; // autofix
-    return try p.addNode(.{
-        .tag = .number_literal,
-        .main_token = p.nextToken(),
-        .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
-        },
-    });
-}
-
-fn binary(p: *Parse, lhs: Node.Index) Error!Node.Index {
-    const rhs = try p.parseExpr();
-    return p.addNode(.{
-        .tag = .apply, // TODO: binary_op
-        .main_token = p.nextToken(),
-        .data = .{
-            .lhs = lhs,
-            .rhs = rhs,
-        },
-    });
+fn noOp(p: *Parse) Error!Node.Index {
+    _ = p.nextToken();
+    return 0;
 }
 
 fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
-    const rhs = try p.parseExpr();
     return p.addNode(.{
-        .tag = .apply,
-        .main_token = p.nextToken(),
+        .tag = .implicit_apply,
+        .main_token = undefined,
         .data = .{
             .lhs = lhs,
-            .rhs = rhs,
+            .rhs = try p.parseExpr(),
         },
     });
 }
 
+fn getRule(p: *Parse) OperInfo {
+    return operTable[@intFromEnum(p.token_tags[p.tok_i])];
+}
+
 fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
-    const prefix = operTable[@intFromEnum(p.token_tags[p.tok_i])].prefix orelse @panic(@tagName(p.token_tags[p.tok_i]));
+    const prefix = p.getRule().prefix orelse {
+        try p.warn(.expected_prefix_expr);
+        return null_node;
+    };
     var node = try prefix(p);
 
-    while (p.tok_i < p.token_tags.len and @intFromEnum(precedence) <= @intFromEnum(operTable[@intFromEnum(p.token_tags[p.tok_i])].prec)) {
-        const infix = operTable[@intFromEnum(p.token_tags[p.tok_i])].infix orelse @panic(@tagName(p.token_tags[p.tok_i]));
+    while (@intFromEnum(precedence) <= @intFromEnum(p.getRule().prec)) {
+        const infix = p.getRule().infix orelse {
+            try p.warn(.expected_infix_expr);
+            break;
+        };
         node = try infix(p, node);
     }
 
@@ -304,63 +304,63 @@ const OperInfo = struct {
 
 const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     // Punctuation
-    .l_paren = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .l_paren = .{ .prefix = grouping, .infix = apply, .prec = Precedence.secondary },
     .r_paren = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .l_brace = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .l_brace = .{ .prefix = null, .infix = apply, .prec = Precedence.secondary },
     .r_brace = .{ .prefix = null, .infix = null, .prec = Precedence.none },
     .l_bracket = .{ .prefix = null, .infix = null, .prec = Precedence.none },
     .r_bracket = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .semicolon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .semicolon = .{ .prefix = noOp, .infix = null, .prec = Precedence.none },
 
     // Verbs
-    .colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .colon_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .plus = .{ .prefix = plus, .infix = binary, .prec = Precedence.secondary },
-    .plus_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .minus = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .minus_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .asterisk = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .asterisk_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .percent = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .percent_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .bang = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .bang_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .ampersand = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .ampersand_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .pipe = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .pipe_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .angle_bracket_left = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .angle_bracket_left_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .angle_bracket_left_equal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .angle_bracket_left_right = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .angle_bracket_right = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .angle_bracket_right_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .angle_bracket_right_equal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .equal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .equal_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .tilde = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .tilde_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .comma = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .comma_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .caret = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .caret_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .hash = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .hash_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .underscore = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .underscore_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .dollar = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .dollar_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .question_mark = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .question_mark_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .at = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .at_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .dot = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .dot_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .zero_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .zero_colon_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .one_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .one_colon_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .two_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .colon = .{ .prefix = Prefix(.colon), .infix = Infix(.assign), .prec = Precedence.secondary },
+    .colon_colon = .{ .prefix = Prefix(.colon_colon), .infix = Infix(.global_assign), .prec = Precedence.secondary },
+    .plus = .{ .prefix = Prefix(.plus), .infix = Infix(.add), .prec = Precedence.secondary },
+    .plus_colon = .{ .prefix = Prefix(.plus_colon), .infix = Infix(.plus_assign), .prec = Precedence.secondary },
+    .minus = .{ .prefix = Prefix(.minus), .infix = Infix(.subtract), .prec = Precedence.secondary },
+    .minus_colon = .{ .prefix = Prefix(.minus_colon), .infix = Infix(.minus_assign), .prec = Precedence.secondary },
+    .asterisk = .{ .prefix = Prefix(.asterisk), .infix = Infix(.multiply), .prec = Precedence.secondary },
+    .asterisk_colon = .{ .prefix = Prefix(.asterisk_colon), .infix = Infix(.asterisk_assign), .prec = Precedence.secondary },
+    .percent = .{ .prefix = Prefix(.percent), .infix = Infix(.divide), .prec = Precedence.secondary },
+    .percent_colon = .{ .prefix = Prefix(.percent_colon), .infix = Infix(.percent_assign), .prec = Precedence.secondary },
+    .bang = .{ .prefix = Prefix(.bang), .infix = Infix(.dict), .prec = Precedence.secondary },
+    .bang_colon = .{ .prefix = Prefix(.bang_colon), .infix = Infix(.bang_assign), .prec = Precedence.secondary },
+    .ampersand = .{ .prefix = Prefix(.ampersand), .infix = Infix(.lesser), .prec = Precedence.secondary },
+    .ampersand_colon = .{ .prefix = Prefix(.ampersand_colon), .infix = Infix(.ampersand_assign), .prec = Precedence.secondary },
+    .pipe = .{ .prefix = Prefix(.pipe), .infix = Infix(.greater), .prec = Precedence.secondary },
+    .pipe_colon = .{ .prefix = Prefix(.pipe_colon), .infix = Infix(.pipe_assign), .prec = Precedence.secondary },
+    .angle_bracket_left = .{ .prefix = Prefix(.angle_bracket_left), .infix = Infix(.less_than), .prec = Precedence.secondary },
+    .angle_bracket_left_colon = .{ .prefix = Prefix(.angle_bracket_left_colon), .infix = Infix(.angle_bracket_left_assign), .prec = Precedence.secondary },
+    .angle_bracket_left_equal = .{ .prefix = Prefix(.angle_bracket_left_equal), .infix = Infix(.less_than_equal), .prec = Precedence.secondary },
+    .angle_bracket_left_right = .{ .prefix = Prefix(.angle_bracket_left_right), .infix = Infix(.not_equal), .prec = Precedence.secondary },
+    .angle_bracket_right = .{ .prefix = Prefix(.angle_bracket_right), .infix = Infix(.greater_than), .prec = Precedence.secondary },
+    .angle_bracket_right_colon = .{ .prefix = Prefix(.angle_bracket_right_colon), .infix = Infix(.angle_bracket_right_assign), .prec = Precedence.secondary },
+    .angle_bracket_right_equal = .{ .prefix = Prefix(.angle_bracket_right_equal), .infix = Infix(.greater_than_equal), .prec = Precedence.secondary },
+    .equal = .{ .prefix = Prefix(.equal), .infix = Infix(.equals), .prec = Precedence.secondary },
+    .equal_colon = .{ .prefix = Prefix(.equal_colon), .infix = Infix(.equal_assign), .prec = Precedence.secondary },
+    .tilde = .{ .prefix = Prefix(.tilde), .infix = Infix(.match), .prec = Precedence.secondary },
+    .tilde_colon = .{ .prefix = Prefix(.tilde_colon), .infix = Infix(.tilde_assign), .prec = Precedence.secondary },
+    .comma = .{ .prefix = Prefix(.comma), .infix = Infix(.join), .prec = Precedence.secondary },
+    .comma_colon = .{ .prefix = Prefix(.comma_colon), .infix = Infix(.comma_assign), .prec = Precedence.secondary },
+    .caret = .{ .prefix = Prefix(.caret), .infix = Infix(.fill), .prec = Precedence.secondary },
+    .caret_colon = .{ .prefix = Prefix(.caret_colon), .infix = Infix(.caret_assign), .prec = Precedence.secondary },
+    .hash = .{ .prefix = Prefix(.hash), .infix = Infix(.take), .prec = Precedence.secondary },
+    .hash_colon = .{ .prefix = Prefix(.hash_colon), .infix = Infix(.hash_assign), .prec = Precedence.secondary },
+    .underscore = .{ .prefix = Prefix(.underscore), .infix = Infix(.drop), .prec = Precedence.secondary },
+    .underscore_colon = .{ .prefix = Prefix(.underscore_colon), .infix = Infix(.underscore_assign), .prec = Precedence.secondary },
+    .dollar = .{ .prefix = Prefix(.dollar), .infix = Infix(.cast), .prec = Precedence.secondary },
+    .dollar_colon = .{ .prefix = Prefix(.dollar_colon), .infix = Infix(.dollar_assign), .prec = Precedence.secondary },
+    .question_mark = .{ .prefix = Prefix(.question_mark), .infix = Infix(.find), .prec = Precedence.secondary },
+    .question_mark_colon = .{ .prefix = Prefix(.question_mark_colon), .infix = Infix(.question_mark_assign), .prec = Precedence.secondary },
+    .at = .{ .prefix = Prefix(.at), .infix = Infix(.apply), .prec = Precedence.secondary },
+    .at_colon = .{ .prefix = Prefix(.at_colon), .infix = Infix(.at_assign), .prec = Precedence.secondary },
+    .dot = .{ .prefix = Prefix(.dot), .infix = Infix(.apply_n), .prec = Precedence.secondary },
+    .dot_colon = .{ .prefix = Prefix(.dot_colon), .infix = Infix(.dot_assign), .prec = Precedence.secondary },
+    .zero_colon = .{ .prefix = Prefix(.zero_colon), .infix = Infix(.file_text), .prec = Precedence.secondary },
+    .zero_colon_colon = .{ .prefix = Prefix(.zero_colon_colon), .infix = Infix(.zero_colon_assign), .prec = Precedence.secondary },
+    .one_colon = .{ .prefix = Prefix(.one_colon), .infix = Infix(.file_binary), .prec = Precedence.secondary },
+    .one_colon_colon = .{ .prefix = Prefix(.one_colon_colon), .infix = Infix(.one_colon_assign), .prec = Precedence.secondary },
+    .two_colon = .{ .prefix = Prefix(.two_colon), .infix = Infix(.dynamic_load), .prec = Precedence.secondary },
 
     // Adverbs
     .apostrophe = .{ .prefix = null, .infix = null, .prec = Precedence.none },
@@ -371,11 +371,11 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .backslash_colon = .{ .prefix = null, .infix = null, .prec = Precedence.none },
 
     // Literals
-    .number_literal = .{ .prefix = number, .infix = apply, .prec = Precedence.secondary },
-    .string_literal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .symbol_literal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .symbol_list_literal = .{ .prefix = null, .infix = null, .prec = Precedence.none },
-    .identifier = .{ .prefix = null, .infix = null, .prec = Precedence.none },
+    .number_literal = .{ .prefix = Prefix(.number_literal), .infix = apply, .prec = Precedence.secondary },
+    .string_literal = .{ .prefix = Prefix(.string_literal), .infix = apply, .prec = Precedence.secondary },
+    .symbol_literal = .{ .prefix = Prefix(.symbol_literal), .infix = apply, .prec = Precedence.secondary },
+    .symbol_list_literal = .{ .prefix = Prefix(.symbol_list_literal), .infix = apply, .prec = Precedence.secondary },
+    .identifier = .{ .prefix = Prefix(.identifier), .infix = apply, .prec = Precedence.secondary },
 
     // Misc.
     .comment = .{ .prefix = null, .infix = null, .prec = Precedence.none },
@@ -429,15 +429,15 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .keyword_xexp = .{ .prefix = null, .infix = null, .prec = Precedence.none },
 });
 
-fn eatComments(p: *Parse) void {
-    while (p.eatToken(.comment)) |_| {}
+fn eatComments(p: *Parse) Error!void {
+    while (try p.eatToken(.comment)) |_| {}
 }
 
 fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
     return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].start], '\n') == null;
 }
 
-fn eatToken(p: *Parse, tag: Token.Tag) ?TokenIndex {
+fn eatToken(p: *Parse, tag: Token.Tag) Error!?TokenIndex {
     return if (p.token_tags[p.tok_i] == tag) p.nextToken() else null;
 }
 
@@ -458,15 +458,6 @@ fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
     return p.nextToken();
 }
 
-fn expectSemicolon(p: *Parse, error_tag: AstError.Tag, recoverable: bool) Error!void {
-    if (p.token_tags[p.tok_i] == .semicolon) {
-        _ = p.nextToken();
-        return;
-    }
-    try p.warn(error_tag);
-    if (!recoverable) return error.ParseError;
-}
-
 fn nextToken(p: *Parse) TokenIndex {
     const result = p.tok_i;
     p.tok_i += 1;
@@ -485,6 +476,7 @@ const Node = Ast.Node;
 const AstError = Ast.Error;
 const TokenIndex = Ast.TokenIndex;
 const Token = kdb.Token;
+const log = std.log.scoped(.kdbLint_Parse);
 
 test {
     @import("std").testing.refAllDecls(@This());
