@@ -7,11 +7,19 @@ source: []const u8,
 token_tags: []const Token.Tag,
 token_locs: []const Token.Loc,
 token_eobs: []const bool,
-tok_i: TokenIndex,
-errors: std.ArrayListUnmanaged(AstError),
-nodes: Ast.NodeList,
-extra_data: std.ArrayListUnmanaged(Node.Index),
-scratch: std.ArrayListUnmanaged(Node.Index),
+tok_i: TokenIndex = 0,
+eob: bool = false,
+errors: std.ArrayListUnmanaged(AstError) = .{},
+nodes: Ast.NodeList = .{},
+extra_data: std.ArrayListUnmanaged(Node.Index) = .{},
+scratch: std.ArrayListUnmanaged(Node.Index) = .{},
+
+pub fn deinit(p: *Parse) void {
+    defer p.errors.deinit(p.gpa);
+    defer p.nodes.deinit(p.gpa);
+    defer p.extra_data.deinit(p.gpa);
+    defer p.scratch.deinit(p.gpa);
+}
 
 const Blocks = struct {
     len: usize,
@@ -26,6 +34,18 @@ const Blocks = struct {
             return Node.SubRange{ .start = self.lhs, .end = self.rhs };
         }
     }
+};
+
+const Precedence = enum {
+    none,
+    secondary,
+    primary,
+};
+
+const OperInfo = struct {
+    prefix: ?*const fn (*Parse) Error!Node.Index,
+    infix: ?*const fn (*Parse, Node.Index) Error!Node.Index,
+    prec: Precedence,
 };
 
 fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
@@ -157,11 +177,9 @@ fn parseBlocks(p: *Parse) Error!Blocks {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
-        try p.eatComments();
+        if (p.peekTag() == .eof) break;
 
-        if (p.token_tags[p.tok_i] == .eof) break;
-
-        const expr = try p.parseExpr();
+        const expr = try p.parseBlock();
         if (expr != 0) {
             try p.scratch.append(p.gpa, expr);
         }
@@ -193,6 +211,12 @@ fn parseBlocks(p: *Parse) Error!Blocks {
             };
         },
     }
+}
+
+fn parseBlock(p: *Parse) Error!Node.Index {
+    const node = p.parseExpr();
+    p.nextBlock();
+    return node;
 }
 
 fn parseExpr(p: *Parse) Error!Node.Index {
@@ -268,8 +292,53 @@ fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
     });
 }
 
+fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
+    return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].start], '\n') == null;
+}
+
+fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
+    if (p.peekTag() != tag) {
+        return p.failMsg(.{
+            .tag = .expected_token,
+            .token = p.tok_i,
+            .extra = .{ .expected_tag = tag },
+        });
+    }
+    return p.nextToken();
+}
+
+fn skipComments(p: *Parse) void {
+    while (p.token_tags[p.tok_i] == .comment) {
+        p.tok_i += 1;
+    }
+}
+
+fn peekTag(p: *Parse) Token.Tag {
+    p.skipComments();
+    return p.token_tags[p.tok_i];
+}
+
+fn nextToken(p: *Parse) TokenIndex {
+    if (p.eob) return null_node;
+
+    p.skipComments();
+    const result = p.tok_i;
+    p.eob = p.token_eobs[result];
+    log.debug("nextToken = '{s}' {}", .{ p.source[p.token_locs[result].start..p.token_locs[result].end], p.eob });
+    p.tok_i += 1;
+    return result;
+}
+
+fn nextBlock(p: *Parse) void {
+    assert(p.eob);
+    p.eob = false;
+}
+
 fn getRule(p: *Parse) OperInfo {
-    return operTable[@intFromEnum(p.token_tags[p.tok_i])];
+    if (p.eob) {
+        return .{ .prefix = noOp, .infix = null, .prec = Precedence.none };
+    }
+    return operTable[@intFromEnum(p.peekTag())];
 }
 
 fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
@@ -289,18 +358,6 @@ fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
 
     return node;
 }
-
-const Precedence = enum {
-    none,
-    secondary,
-    primary,
-};
-
-const OperInfo = struct {
-    prefix: ?*const fn (*Parse) Error!Node.Index,
-    infix: ?*const fn (*Parse, Node.Index) Error!Node.Index,
-    prec: Precedence,
-};
 
 const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     // Punctuation
@@ -429,46 +486,12 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .keyword_xexp = .{ .prefix = null, .infix = null, .prec = Precedence.none },
 });
 
-fn eatComments(p: *Parse) Error!void {
-    while (try p.eatToken(.comment)) |_| {}
-}
-
-fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
-    return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].start], '\n') == null;
-}
-
-fn eatToken(p: *Parse, tag: Token.Tag) Error!?TokenIndex {
-    return if (p.token_tags[p.tok_i] == tag) p.nextToken() else null;
-}
-
-fn assertToken(p: *Parse, tag: Token.Tag) TokenIndex {
-    const token = p.nextToken();
-    assert(p.token_tags[token] == tag);
-    return token;
-}
-
-fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
-    if (p.token_tags[p.tok_i] != tag) {
-        return p.failMsg(.{
-            .tag = .expected_token,
-            .token = p.tok_i,
-            .extra = .{ .expected_tag = tag },
-        });
-    }
-    return p.nextToken();
-}
-
-fn nextToken(p: *Parse) TokenIndex {
-    const result = p.tok_i;
-    p.tok_i += 1;
-    return result;
-}
-
 const null_node: Node.Index = 0;
 
 const Parse = @This();
 const std = @import("std");
 const assert = std.debug.assert;
+const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const kdb = @import("../kdb.zig");
 const Ast = kdb.Ast;

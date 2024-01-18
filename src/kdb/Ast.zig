@@ -64,16 +64,8 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .token_tags = tokens.items(.tag),
         .token_locs = tokens.items(.loc),
         .token_eobs = tokens.items(.eob),
-        .errors = .{},
-        .nodes = .{},
-        .extra_data = .{},
-        .scratch = .{},
-        .tok_i = 0,
     };
-    defer parser.errors.deinit(gpa);
-    defer parser.nodes.deinit(gpa);
-    defer parser.extra_data.deinit(gpa);
-    defer parser.scratch.deinit(gpa);
+    defer parser.deinit();
 
     // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
     // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
