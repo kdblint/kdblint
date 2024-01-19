@@ -64,6 +64,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .token_tags = tokens.items(.tag),
         .token_locs = tokens.items(.loc),
         .token_eobs = tokens.items(.eob),
+        .mode = mode,
     };
     defer parser.deinit();
 
@@ -72,10 +73,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     const estimated_node_count = (tokens.len + 2) / 2;
     try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
 
-    switch (mode) {
-        .q => try parser.parseRoot(),
-        .k => unreachable,
-    }
+    try parser.parseRoot();
 
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
@@ -933,9 +931,16 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
     switch (tree.getTag(i)) {
         .root => unreachable,
         .grouped_expression => try tree.print(tree.getData(i).lhs, stream, gpa),
-        .number_literal,
-        .string_literal,
-        => try stream.writeAll(tree.getSource(i)),
+        .number_literal => {
+            var index = i;
+            while (true) {
+                try stream.writeAll(tree.getSource(index));
+                index = tree.getData(index).rhs;
+                if (index == 0) break;
+                try stream.writeAll(" ");
+            }
+        },
+        .string_literal => try stream.writeAll(tree.getSource(i)),
         .symbol_literal,
         .symbol_list_literal,
         => try stream.print(",{s}", .{tree.getSource(i)}),
