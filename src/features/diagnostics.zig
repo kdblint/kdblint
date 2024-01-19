@@ -18,46 +18,19 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
     try tree.visit(arena);
 
     var diagnostics = std.ArrayListUnmanaged(types.Diagnostic){};
-    var start: ?usize = null;
-    const start_index: usize = if (tree.tokens.items(.tag)[0] == .comment) 1 else 0;
-    for (tree.tokens.items(.tag)[start_index..], tree.tokens.items(.loc)[start_index..], tree.tokens.items(.eob)[start_index..]) |tag, loc, eob| {
-        if (tag == .eof) break;
-        if (start == null) {
-            start = loc.start;
-        }
-        if (eob) {
-            var buffer = std.ArrayListUnmanaged(u8){};
-            try buffer.writer(arena).writeAll("TEST");
+    try diagnostics.ensureUnusedCapacity(arena, tree.errors.len);
+    for (tree.errors) |err| {
+        var buffer = std.ArrayListUnmanaged(u8){};
+        try buffer.writer(arena).writeAll(if (err.tag == .expected_token) @tagName(err.extra.expected_tag) else "TEST");
 
-            const range_start = offsets.indexToPosition(tree.source, start.?, server.position_encoding);
-            const range_end = offsets.indexToPosition(tree.source, loc.end, server.position_encoding);
-            try diagnostics.append(arena, .{
-                .range = .{
-                    .start = range_start,
-                    .end = range_end,
-                },
-                .severity = .Information,
-                .code = .{ .string = @tagName(tag) },
-                .source = "kdblint",
-                .message = try buffer.toOwnedSlice(arena),
-            });
-            start = null;
-        }
+        diagnostics.appendAssumeCapacity(.{
+            .range = offsets.tokenToRange(tree, err.token, server.position_encoding),
+            .severity = .Error,
+            .code = .{ .string = @tagName(err.tag) },
+            .source = "kdblint",
+            .message = try buffer.toOwnedSlice(arena),
+        });
     }
-
-    // try diagnostics.ensureUnusedCapacity(arena, tree.tokens.len);
-    // for (tree.tokens.items(.tag), 0..) |tag, i| {
-    //     var buffer = std.ArrayListUnmanaged(u8){};
-    //     try buffer.writer(arena).writeAll(tag.symbol());
-
-    //     diagnostics.appendAssumeCapacity(.{
-    //         .range = offsets.tokenToRange(tree, @intCast(i), server.position_encoding),
-    //         .severity = .Information,
-    //         .code = .{ .string = @tagName(tag) },
-    //         .source = "kdblint",
-    //         .message = try buffer.toOwnedSlice(arena),
-    //     });
-    // }
 
     return .{
         .uri = handle.uri,
