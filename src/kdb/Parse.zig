@@ -216,7 +216,7 @@ fn parseBlocks(p: *Parse) Error!Blocks {
 
 fn parseBlock(p: *Parse) Error!Node.Index {
     const node = p.parseExpr();
-    p.nextBlock();
+    try p.nextBlock();
     return node;
 }
 
@@ -277,6 +277,71 @@ fn grouping(p: *Parse) Error!Node.Index {
     });
 }
 
+fn lambda(p: *Parse) Error!Node.Index {
+    const l_brace = p.nextToken();
+
+    // TODO: Where do we store this?
+    if (p.eatToken(.l_bracket)) |_| {
+        if (p.peekTag() != .r_bracket) {
+            while (true) {
+                _ = try p.expectToken(.identifier);
+                if (p.eatToken(.semicolon)) |_| continue;
+                break;
+            }
+        }
+        _ = try p.expectToken(.r_bracket);
+    }
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+    while (true) {
+        if (p.peekTag() == .r_brace) break;
+        const expr = try p.parseExpr();
+        if (expr == 0) break;
+        try p.scratch.append(p.gpa, expr);
+    }
+    _ = try p.expectToken(.r_brace);
+    const semicolon = p.token_tags[p.tok_i - 2] == .semicolon;
+    const expressions = p.scratch.items[scratch_top..];
+    switch (expressions.len) {
+        0 => return p.addNode(.{
+            .tag = .block_two,
+            .main_token = l_brace,
+            .data = .{
+                .lhs = 0,
+                .rhs = 0,
+            },
+        }),
+        1 => return p.addNode(.{
+            .tag = if (semicolon) .block_two_semicolon else .block_two,
+            .main_token = l_brace,
+            .data = .{
+                .lhs = expressions[0],
+                .rhs = 0,
+            },
+        }),
+        2 => return p.addNode(.{
+            .tag = if (semicolon) .block_two_semicolon else .block_two,
+            .main_token = l_brace,
+            .data = .{
+                .lhs = expressions[0],
+                .rhs = expressions[1],
+            },
+        }),
+        else => {
+            const span = try p.listToSpan(expressions);
+            return p.addNode(.{
+                .tag = if (semicolon) .block_semicolon else .block,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = span.start,
+                    .rhs = span.end,
+                },
+            });
+        },
+    }
+}
+
 fn noOp(p: *Parse) Error!Node.Index {
     _ = p.nextToken();
     return 0;
@@ -327,6 +392,10 @@ fn peekTag(p: *Parse) Token.Tag {
     return p.token_tags[p.tok_i];
 }
 
+fn eatToken(p: *Parse, tag: Token.Tag) ?TokenIndex {
+    return if (p.peekTag() == tag) p.nextToken() else null;
+}
+
 fn nextToken(p: *Parse) TokenIndex {
     if (p.eob) return null_node;
 
@@ -338,8 +407,14 @@ fn nextToken(p: *Parse) TokenIndex {
     return result;
 }
 
-fn nextBlock(p: *Parse) void {
-    assert(p.eob);
+fn nextBlock(p: *Parse) Error!void {
+    // assert(p.eob);
+    if (!p.eob) {
+        try p.warn(.expected_block);
+        while (!p.eob) {
+            _ = p.nextToken();
+        }
+    }
     p.eob = false;
 }
 
@@ -353,6 +428,7 @@ fn getRule(p: *Parse) OperInfo {
 fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
     const prefix = p.getRule().prefix orelse {
         try p.warn(.expected_prefix_expr);
+        _ = p.nextToken();
         return null_node;
     };
     var node = try prefix(p);
@@ -360,6 +436,7 @@ fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
     while (@intFromEnum(precedence) <= @intFromEnum(p.getRule().prec)) {
         const infix = p.getRule().infix orelse {
             try p.warn(.expected_infix_expr);
+            _ = p.nextToken();
             break;
         };
         node = try infix(p, node);
@@ -372,9 +449,9 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     // Punctuation
     .l_paren = .{ .prefix = grouping, .infix = apply, .prec = .secondary },
     .r_paren = .{ .prefix = null, .infix = null, .prec = .none },
-    .l_brace = .{ .prefix = null, .infix = apply, .prec = .secondary },
+    .l_brace = .{ .prefix = lambda, .infix = apply, .prec = .secondary },
     .r_brace = .{ .prefix = null, .infix = null, .prec = .none },
-    .l_bracket = .{ .prefix = null, .infix = null, .prec = .none },
+    .l_bracket = .{ .prefix = null, .infix = null, .prec = .secondary },
     .r_bracket = .{ .prefix = null, .infix = null, .prec = .none },
     .semicolon = .{ .prefix = noOp, .infix = null, .prec = .none },
 

@@ -197,9 +197,6 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         symbol_list_literal,
         /// Both lhs and rhs unused.
-        /// Most identifiers will not have explicit AST nodes, however for expressions
-        /// which could be one of many different kinds of AST nodes, there will be an
-        /// identifier AST node for it.
         identifier,
 
         /// Both lhs and rhs unused.
@@ -398,6 +395,17 @@ pub const Node = struct {
 
         /// `lhs rhs`. main_token is unused.
         implicit_apply,
+
+        /// `{lhs rhs}`. rhs or lhs can be omitted.
+        /// main_token points at the lbrace.
+        block_two,
+        /// Same as block_two but there is known to be a semicolon before the rbrace.
+        block_two_semicolon,
+        /// `{}`. `sub_list[lhs..rhs]`.
+        /// main_token points at the lbrace.
+        block,
+        /// Same as block but there is known to be a semicolon before the rbrace.
+        block_semicolon,
     };
 
     // TODO: Remove
@@ -927,6 +935,158 @@ fn getExtraData(tree: Ast, i: usize) Node.Index {
     return tree.extra_data[i];
 }
 
+fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
+    switch (tree.getTag(i)) {
+        .root => unreachable,
+        .grouped_expression => return tree.getLastToken(tree.getData(i).lhs),
+        .number_literal => {
+            var index = i;
+            while (true) {
+                const data = tree.getData(index);
+                if (data.rhs == 0) {
+                    return tree.getMainToken(index);
+                }
+                index = data.rhs;
+            }
+        },
+        .string_literal,
+        .symbol_literal,
+        .symbol_list_literal,
+        .identifier,
+        => return tree.getMainToken(i),
+        .assign,
+        .global_assign,
+        .add,
+        .plus_assign,
+        .subtract,
+        .minus_assign,
+        .multiply,
+        .asterisk_assign,
+        .divide,
+        .percent_assign,
+        .dict,
+        .bang_assign,
+        .lesser,
+        .ampersand_assign,
+        .greater,
+        .pipe_assign,
+        .less_than,
+        .angle_bracket_left_assign,
+        .less_than_equal,
+        .not_equal,
+        .greater_than,
+        .angle_bracket_right_assign,
+        .greater_than_equal,
+        .equals,
+        .equal_assign,
+        .match,
+        .tilde_assign,
+        .join,
+        .comma_assign,
+        .fill,
+        .caret_assign,
+        .take,
+        .hash_assign,
+        .drop,
+        .underscore_assign,
+        .cast,
+        .dollar_assign,
+        .find,
+        .question_mark_assign,
+        .apply,
+        .at_assign,
+        .apply_n,
+        .dot_assign,
+        .file_text,
+        .zero_colon_assign,
+        .file_binary,
+        .one_colon_assign,
+        .dynamic_load,
+        => {
+            const data = tree.getData(i);
+            if (data.rhs > 0) {
+                return tree.getLastToken(data.rhs);
+            }
+            return tree.getMainToken(i);
+        },
+        .colon,
+        .colon_colon,
+        .plus,
+        .plus_colon,
+        .minus,
+        .minus_colon,
+        .asterisk,
+        .asterisk_colon,
+        .percent,
+        .percent_colon,
+        .bang,
+        .bang_colon,
+        .ampersand,
+        .ampersand_colon,
+        .pipe,
+        .pipe_colon,
+        .angle_bracket_left,
+        .angle_bracket_left_colon,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_colon,
+        .angle_bracket_right_equal,
+        .equal,
+        .equal_colon,
+        .tilde,
+        .tilde_colon,
+        .comma,
+        .comma_colon,
+        .caret,
+        .caret_colon,
+        .hash,
+        .hash_colon,
+        .underscore,
+        .underscore_colon,
+        .dollar,
+        .dollar_colon,
+        .question_mark,
+        .question_mark_colon,
+        .at,
+        .at_colon,
+        .dot,
+        .dot_colon,
+        .zero_colon,
+        .zero_colon_colon,
+        .one_colon,
+        .one_colon_colon,
+        .two_colon,
+        => return tree.getMainToken(i),
+        .implicit_apply => {
+            const data = tree.getData(i);
+            if (data.rhs > 0) {
+                return tree.getLastToken(data.rhs);
+            }
+            unreachable;
+        },
+        .block_two,
+        .block_two_semicolon,
+        => {
+            const data = tree.getData(i);
+            if (data.rhs > 0) {
+                return tree.getLastToken(data.rhs);
+            } else if (data.lhs > 0) {
+                return tree.getLastToken(data.lhs);
+            } else {
+                return tree.getMainToken(i);
+            }
+        },
+        .block,
+        .block_semicolon,
+        => {
+            const data = tree.getData(i);
+            const extra_data = tree.getExtraData(data.rhs - 1);
+            return tree.getLastToken(extra_data);
+        },
+    }
+}
+
 pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
     switch (tree.getTag(i)) {
         .root => unreachable,
@@ -1077,6 +1237,31 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             try stream.print("({s};{s})", .{ lhs.items, rhs.items });
         },
+
+        .block_two,
+        .block,
+        => {
+            const l_brace = tree.getMainToken(i);
+            const start = tree.tokens.items(.loc)[l_brace].start;
+
+            const last_token = tree.getLastToken(i);
+            const end = tree.tokens.items(.loc)[last_token + 1].end;
+
+            const source = tree.source[start..end];
+            try stream.print("{s}", .{source});
+        },
+        .block_two_semicolon,
+        .block_semicolon,
+        => {
+            const l_brace = tree.getMainToken(i);
+            const start = tree.tokens.items(.loc)[l_brace].start;
+
+            const last_token = tree.getLastToken(i);
+            const end = tree.tokens.items(.loc)[last_token + 2].end;
+
+            const source = tree.source[start..end];
+            try stream.print("{s}", .{source});
+        },
     }
 }
 
@@ -1097,6 +1282,7 @@ const Tokenizer = kdb.Tokenizer;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
+const panic = std.debug.panic;
 
 const log = std.log.scoped(.kdbLint_Ast);
 
