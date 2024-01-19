@@ -398,14 +398,14 @@ pub const Node = struct {
 
         /// `{lhs rhs}`. rhs or lhs can be omitted.
         /// main_token points at the lbrace.
-        block_two,
-        /// Same as block_two but there is known to be a semicolon before the rbrace.
-        block_two_semicolon,
+        lambda_two,
+        /// Same as lambda_two but there is known to be a semicolon before the rbrace.
+        lambda_two_semicolon,
         /// `{}`. `sub_list[lhs..rhs]`.
         /// main_token points at the lbrace.
-        block,
-        /// Same as block but there is known to be a semicolon before the rbrace.
-        block_semicolon,
+        lambda,
+        /// Same as lambda but there is known to be a semicolon before the rbrace.
+        lambda_semicolon,
     };
 
     // TODO: Remove
@@ -1065,8 +1065,8 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             unreachable;
         },
-        .block_two,
-        .block_two_semicolon,
+        .lambda_two,
+        .lambda_two_semicolon,
         => {
             const data = tree.getData(i);
             if (data.rhs > 0) {
@@ -1077,8 +1077,8 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
                 return tree.getMainToken(i);
             }
         },
-        .block,
-        .block_semicolon,
+        .lambda,
+        .lambda_semicolon,
         => {
             const data = tree.getData(i);
             const extra_data = tree.getExtraData(data.rhs - 1);
@@ -1238,8 +1238,8 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
             try stream.print("({s};{s})", .{ lhs.items, rhs.items });
         },
 
-        .block_two,
-        .block,
+        .lambda_two,
+        .lambda,
         => {
             const l_brace = tree.getMainToken(i);
             const start = tree.tokens.items(.loc)[l_brace].start;
@@ -1250,8 +1250,8 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
             const source = tree.source[start..end];
             try stream.print("{s}", .{source});
         },
-        .block_two_semicolon,
-        .block_semicolon,
+        .lambda_two_semicolon,
+        .lambda_semicolon,
         => {
             const l_brace = tree.getMainToken(i);
             const start = tree.tokens.items(.loc)[l_brace].start;

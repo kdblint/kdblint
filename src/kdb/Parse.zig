@@ -305,7 +305,7 @@ fn lambda(p: *Parse) Error!Node.Index {
     const expressions = p.scratch.items[scratch_top..];
     switch (expressions.len) {
         0 => return p.addNode(.{
-            .tag = .block_two,
+            .tag = .lambda_two,
             .main_token = l_brace,
             .data = .{
                 .lhs = 0,
@@ -313,7 +313,7 @@ fn lambda(p: *Parse) Error!Node.Index {
             },
         }),
         1 => return p.addNode(.{
-            .tag = if (semicolon) .block_two_semicolon else .block_two,
+            .tag = if (semicolon) .lambda_two_semicolon else .lambda_two,
             .main_token = l_brace,
             .data = .{
                 .lhs = expressions[0],
@@ -321,7 +321,7 @@ fn lambda(p: *Parse) Error!Node.Index {
             },
         }),
         2 => return p.addNode(.{
-            .tag = if (semicolon) .block_two_semicolon else .block_two,
+            .tag = if (semicolon) .lambda_two_semicolon else .lambda_two,
             .main_token = l_brace,
             .data = .{
                 .lhs = expressions[0],
@@ -331,7 +331,7 @@ fn lambda(p: *Parse) Error!Node.Index {
         else => {
             const span = try p.listToSpan(expressions);
             return p.addNode(.{
-                .tag = if (semicolon) .block_semicolon else .block,
+                .tag = if (semicolon) .lambda_semicolon else .lambda,
                 .main_token = l_brace,
                 .data = .{
                     .lhs = span.start,
