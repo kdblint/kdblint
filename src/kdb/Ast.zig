@@ -406,6 +406,13 @@ pub const Node = struct {
         lambda,
         /// Same as lambda but there is known to be a semicolon before the rbrace.
         lambda_semicolon,
+
+        /// `[lhs rhs]`. rhs or lhs can be omitted.
+        /// main_token points at the lbracket.
+        block_two,
+        /// `[]`. `sub_list[lhs..rhs]`.
+        /// main_token points at the lbracket.
+        block,
     };
 
     // TODO: Remove
@@ -1067,6 +1074,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         },
         .lambda_two,
         .lambda_two_semicolon,
+        .block_two,
         => {
             const data = tree.getData(i);
             if (data.rhs > 0) {
@@ -1079,6 +1087,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         },
         .lambda,
         .lambda_semicolon,
+        .block,
         => {
             const data = tree.getData(i);
             const extra_data = tree.getExtraData(data.rhs - 1);
@@ -1240,9 +1249,10 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
         .lambda_two,
         .lambda,
+        .block_two,
         => {
-            const l_brace = tree.getMainToken(i);
-            const start = tree.tokens.items(.loc)[l_brace].start;
+            const start_token = tree.getMainToken(i);
+            const start = tree.tokens.items(.loc)[start_token].start;
 
             const last_token = tree.getLastToken(i);
             const end = tree.tokens.items(.loc)[last_token + 1].end;
@@ -1252,9 +1262,10 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         },
         .lambda_two_semicolon,
         .lambda_semicolon,
+        .block,
         => {
-            const l_brace = tree.getMainToken(i);
-            const start = tree.tokens.items(.loc)[l_brace].start;
+            const start_token = tree.getMainToken(i);
+            const start = tree.tokens.items(.loc)[start_token].start;
 
             const last_token = tree.getLastToken(i);
             const end = tree.tokens.items(.loc)[last_token + 2].end;

@@ -284,7 +284,8 @@ fn lambda(p: *Parse) Error!Node.Index {
     if (p.eatToken(.l_bracket)) |_| {
         if (p.peekTag() != .r_bracket) {
             while (true) {
-                _ = try p.expectToken(.identifier);
+                const identifier = try p.expectToken(.identifier);
+                _ = identifier; // autofix
                 if (p.eatToken(.semicolon)) |_| continue;
                 break;
             }
@@ -294,13 +295,16 @@ fn lambda(p: *Parse) Error!Node.Index {
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
     while (true) {
         if (p.peekTag() == .r_brace) break;
+        if (p.eatToken(.semicolon)) |_| continue;
         const expr = try p.parseExpr();
         if (expr == 0) break;
         try p.scratch.append(p.gpa, expr);
     }
     _ = try p.expectToken(.r_brace);
+
     const semicolon = p.token_tags[p.tok_i - 2] == .semicolon;
     const expressions = p.scratch.items[scratch_top..];
     switch (expressions.len) {
@@ -333,6 +337,61 @@ fn lambda(p: *Parse) Error!Node.Index {
             return p.addNode(.{
                 .tag = if (semicolon) .lambda_semicolon else .lambda,
                 .main_token = l_brace,
+                .data = .{
+                    .lhs = span.start,
+                    .rhs = span.end,
+                },
+            });
+        },
+    }
+}
+
+fn block(p: *Parse) Error!Node.Index {
+    const l_bracket = p.nextToken();
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (true) {
+        if (p.peekTag() == .r_bracket) break;
+        if (p.eatToken(.semicolon)) |_| continue;
+        const expr = try p.parseExpr();
+        if (expr == 0) break;
+        try p.scratch.append(p.gpa, expr);
+    }
+    _ = try p.expectToken(.r_bracket);
+
+    const expressions = p.scratch.items[scratch_top..];
+    switch (expressions.len) {
+        0 => return p.addNode(.{
+            .tag = .block_two,
+            .main_token = l_bracket,
+            .data = .{
+                .lhs = 0,
+                .rhs = 0,
+            },
+        }),
+        1 => return p.addNode(.{
+            .tag = .block_two,
+            .main_token = l_bracket,
+            .data = .{
+                .lhs = expressions[0],
+                .rhs = 0,
+            },
+        }),
+        2 => return p.addNode(.{
+            .tag = .block_two,
+            .main_token = l_bracket,
+            .data = .{
+                .lhs = expressions[0],
+                .rhs = expressions[1],
+            },
+        }),
+        else => {
+            const span = try p.listToSpan(expressions);
+            return p.addNode(.{
+                .tag = .block,
+                .main_token = l_bracket,
                 .data = .{
                     .lhs = span.start,
                     .rhs = span.end,
@@ -451,7 +510,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .r_paren = .{ .prefix = null, .infix = null, .prec = .none },
     .l_brace = .{ .prefix = lambda, .infix = apply, .prec = .secondary },
     .r_brace = .{ .prefix = null, .infix = null, .prec = .none },
-    .l_bracket = .{ .prefix = null, .infix = null, .prec = .secondary },
+    .l_bracket = .{ .prefix = block, .infix = null, .prec = .secondary },
     .r_bracket = .{ .prefix = null, .infix = null, .prec = .none },
     .semicolon = .{ .prefix = noOp, .infix = null, .prec = .none },
 
