@@ -10,16 +10,18 @@ token_eobs: []const bool,
 mode: Ast.Mode,
 tok_i: TokenIndex = 0,
 eob: bool = false,
+ends_expr_tags: std.ArrayListUnmanaged(Token.Tag) = .{},
 errors: std.ArrayListUnmanaged(AstError) = .{},
 nodes: Ast.NodeList = .{},
 extra_data: std.ArrayListUnmanaged(Node.Index) = .{},
 scratch: std.ArrayListUnmanaged(Node.Index) = .{},
 
 pub fn deinit(p: *Parse) void {
-    defer p.errors.deinit(p.gpa);
-    defer p.nodes.deinit(p.gpa);
-    defer p.extra_data.deinit(p.gpa);
-    defer p.scratch.deinit(p.gpa);
+    p.ends_expr_tags.deinit(p.gpa);
+    p.errors.deinit(p.gpa);
+    p.nodes.deinit(p.gpa);
+    p.extra_data.deinit(p.gpa);
+    p.scratch.deinit(p.gpa);
 }
 
 const Blocks = struct {
@@ -90,47 +92,13 @@ fn warn(p: *Parse, error_tag: AstError.Tag) error{OutOfMemory}!void {
 
 fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
     @setCold(true);
-    switch (msg.tag) {
-        .expected_semi_after_decl,
-        .expected_semi_after_stmt,
-        .expected_comma_after_field,
-        .expected_comma_after_arg,
-        .expected_comma_after_param,
-        .expected_comma_after_initializer,
-        .expected_comma_after_switch_prong,
-        .expected_comma_after_for_operand,
-        .expected_comma_after_capture,
-        .expected_semi_or_else,
-        .expected_semi_or_lbrace,
-        .expected_token,
-        .expected_block,
-        .expected_block_or_assignment,
-        .expected_block_or_expr,
-        .expected_block_or_field,
-        .expected_expr,
-        .expected_expr_or_assignment,
-        .expected_fn,
-        .expected_inlinable,
-        .expected_labelable,
-        .expected_param_list,
-        .expected_prefix_expr,
-        .expected_primary_type_expr,
-        .expected_pub_item,
-        .expected_return_type,
-        .expected_suffix_op,
-        .expected_type_expr,
-        .expected_var_decl,
-        .expected_var_decl_or_fn,
-        .expected_loop_payload,
-        .expected_container,
-        => if (msg.token != 0 and !p.tokensOnSameLine(msg.token - 1, msg.token)) {
-            var copy = msg;
-            copy.token_is_prev = true;
-            copy.token -= 1;
-            return p.errors.append(p.gpa, copy);
-        },
-        else => {},
-    }
+    // TODO: Do we need this?
+    // if (msg.token != 0 and !p.tokensOnSameLine(msg.token - 1, msg.token)) {
+    //     var copy = msg;
+    //     copy.token_is_prev = true;
+    //     copy.token -= 1;
+    //     return p.errors.append(p.gpa, copy);
+    // }
     try p.errors.append(p.gpa, msg);
 }
 
@@ -215,22 +183,34 @@ fn parseBlocks(p: *Parse) Error!Blocks {
 }
 
 fn parseBlock(p: *Parse) Error!Node.Index {
-    const node = p.parseExpr();
+    const node = p.parseExpr(.semicolon);
     try p.nextBlock();
     return node;
 }
 
-fn parseExpr(p: *Parse) Error!Node.Index {
+fn parseExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
+    try p.ends_expr_tags.append(p.gpa, ends_expr);
+    defer _ = p.ends_expr_tags.pop();
+
     return p.parseExprPrecedence(Precedence.secondary);
 }
 
-fn expectExpr(p: *Parse) Error!Node.Index {
-    const node = try p.parseExpr();
+fn expectExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
+    const node = try p.parseExpr(ends_expr);
     if (node == 0) {
         return p.fail(.expected_expr);
     } else {
         return node;
     }
+}
+
+fn NoOp(comptime eat_token: bool) *const fn (*Parse) Error!Node.Index {
+    return struct {
+        fn impl(p: *Parse) Error!Node.Index {
+            if (eat_token) _ = p.nextToken();
+            return null_node;
+        }
+    }.impl;
 }
 
 fn Prefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
@@ -252,7 +232,7 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
     return struct {
         fn impl(p: *Parse, lhs: Node.Index) Error!Node.Index {
             const main_token = p.nextToken();
-            const rhs = try p.parseExpr();
+            const rhs = try p.parseExprPrecedence(Precedence.secondary);
             const node = try p.addNode(.{
                 .tag = tag,
                 .main_token = main_token,
@@ -271,7 +251,7 @@ fn grouping(p: *Parse) Error!Node.Index {
         .tag = .grouped_expression,
         .main_token = p.nextToken(),
         .data = .{
-            .lhs = try p.expectExpr(),
+            .lhs = try p.expectExpr(.r_paren),
             .rhs = try p.expectToken(.r_paren),
         },
     });
@@ -297,19 +277,24 @@ fn lambda(p: *Parse) Error!Node.Index {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
-        if (p.peekTag() == .r_brace) break;
+        if (p.eob) return p.failExpected(.r_brace);
+        if (p.eatToken(.r_brace)) |_| break;
         if (p.eatToken(.semicolon)) |_| continue;
-        const expr = try p.parseExpr();
-        if (expr == 0) break;
-        try p.scratch.append(p.gpa, expr);
+        const expr = try p.parseExpr(.r_brace);
+        if (expr > 0) {
+            try p.scratch.append(p.gpa, expr);
+        }
     }
-    _ = try p.expectToken(.r_brace);
 
-    const semicolon = p.token_tags[p.tok_i - 2] == .semicolon;
+    var i = p.tok_i - 2;
+    while (true) : (i -= 1) {
+        if (p.token_tags[i] != .comment) break;
+    }
+    const semicolon = p.token_tags[i] == .semicolon;
     const expressions = p.scratch.items[scratch_top..];
     switch (expressions.len) {
         0 => return p.addNode(.{
-            .tag = .lambda_two,
+            .tag = if (semicolon) .lambda_two_semicolon else .lambda_two,
             .main_token = l_brace,
             .data = .{
                 .lhs = 0,
@@ -353,13 +338,14 @@ fn block(p: *Parse) Error!Node.Index {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
-        if (p.peekTag() == .r_bracket) break;
+        if (p.eob) return p.failExpected(.r_bracket);
+        if (p.eatToken(.r_bracket)) |_| break;
         if (p.eatToken(.semicolon)) |_| continue;
-        const expr = try p.parseExpr();
-        if (expr == 0) break;
-        try p.scratch.append(p.gpa, expr);
+        const expr = try p.parseExpr(.r_bracket);
+        if (expr > 0) {
+            try p.scratch.append(p.gpa, expr);
+        }
     }
-    _ = try p.expectToken(.r_bracket);
 
     const expressions = p.scratch.items[scratch_top..];
     switch (expressions.len) {
@@ -401,11 +387,6 @@ fn block(p: *Parse) Error!Node.Index {
     }
 }
 
-fn noOp(p: *Parse) Error!Node.Index {
-    _ = p.nextToken();
-    return 0;
-}
-
 fn applyNumber(p: *Parse, lhs: Node.Index) Error!Node.Index {
     if (p.nodes.items(.tag)[lhs] == .number_literal) {
         p.nodes.items(.data)[lhs].rhs = try p.parseExprPrecedence(.primary);
@@ -420,9 +401,63 @@ fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
         .main_token = undefined,
         .data = .{
             .lhs = lhs,
-            .rhs = try p.parseExpr(),
+            .rhs = try p.parseExprPrecedence(Precedence.secondary),
         },
     });
+}
+
+fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    const l_paren = p.nextToken();
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (true) {
+        if (p.eob) return p.failExpected(.r_bracket);
+        if (p.eatToken(.r_bracket)) |_| break;
+        const expr = try p.parseExpr(.r_bracket);
+        try p.scratch.append(p.gpa, expr);
+        switch (p.peekTag()) {
+            .semicolon => _ = p.nextToken(),
+            .r_bracket => {
+                _ = p.nextToken();
+                break;
+            },
+            else => try p.warn(.expected_semi_after_arg), // TODO: p.failExpected(.r_bracket);
+        }
+    }
+
+    const params = p.scratch.items[scratch_top..];
+
+    const expressions = p.scratch.items[scratch_top..];
+    switch (expressions.len) {
+        0 => return p.addNode(.{
+            .tag = .call_one,
+            .main_token = l_paren,
+            .data = .{
+                .lhs = lhs,
+                .rhs = 0,
+            },
+        }),
+        1 => return p.addNode(.{
+            .tag = .call_one,
+            .main_token = l_paren,
+            .data = .{
+                .lhs = lhs,
+                .rhs = params[0],
+            },
+        }),
+        else => {
+            return p.addNode(.{
+                .tag = .call,
+                .main_token = l_paren,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = try p.addExtra(try p.listToSpan(params)),
+                },
+            });
+        },
+    }
 }
 
 fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
@@ -448,6 +483,7 @@ fn skipComments(p: *Parse) void {
 
 fn peekTag(p: *Parse) Token.Tag {
     p.skipComments();
+    // TODO: What if skipComments brought us to eof?
     return p.token_tags[p.tok_i];
 }
 
@@ -479,9 +515,14 @@ fn nextBlock(p: *Parse) Error!void {
 
 fn getRule(p: *Parse) OperInfo {
     if (p.eob) {
-        return .{ .prefix = noOp, .infix = null, .prec = .none };
+        return .{ .prefix = NoOp(true), .infix = null, .prec = .none };
     }
-    return operTable[@intFromEnum(p.peekTag())];
+    const tag = p.peekTag();
+    if (p.ends_expr_tags.getLastOrNull()) |t| if (tag == t or tag == .semicolon) {
+        log.debug("found: {s}", .{@tagName(tag)});
+        return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+    };
+    return operTable[@intFromEnum(tag)];
 }
 
 fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
@@ -510,9 +551,9 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .r_paren = .{ .prefix = null, .infix = null, .prec = .none },
     .l_brace = .{ .prefix = lambda, .infix = apply, .prec = .secondary },
     .r_brace = .{ .prefix = null, .infix = null, .prec = .none },
-    .l_bracket = .{ .prefix = block, .infix = null, .prec = .secondary },
+    .l_bracket = .{ .prefix = block, .infix = call, .prec = .secondary },
     .r_bracket = .{ .prefix = null, .infix = null, .prec = .none },
-    .semicolon = .{ .prefix = noOp, .infix = null, .prec = .none },
+    .semicolon = .{ .prefix = NoOp(true), .infix = null, .prec = .none },
 
     // Verbs
     .colon = .{ .prefix = Prefix(.colon), .infix = Infix(.assign), .prec = .secondary },
@@ -644,6 +685,7 @@ const Node = Ast.Node;
 const AstError = Ast.Error;
 const TokenIndex = Ast.TokenIndex;
 const Token = kdb.Token;
+
 const log = std.log.scoped(.kdbLint_Parse);
 
 test {
