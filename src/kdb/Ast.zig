@@ -86,6 +86,16 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     };
 }
 
+pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
+    const fields = std.meta.fields(T);
+    var result: T = undefined;
+    inline for (fields, 0..) |field, i| {
+        comptime assert(field.type == Node.Index);
+        @field(result, field.name) = tree.extra_data[index + i];
+    }
+    return result;
+}
+
 pub const Error = struct {
     tag: Tag,
     is_note: bool = false,
@@ -98,6 +108,18 @@ pub const Error = struct {
     } = .{ .none = {} },
 
     pub const Tag = enum {
+        /// `expected_tag` is populated.
+        expected_token,
+
+        expected_semi_after_arg,
+        expected_expr,
+        expected_block,
+        expected_prefix_expr,
+        expected_infix_expr,
+    };
+
+    // TODO: Remove
+    pub const ZTag = enum {
         asterisk_after_ptr_deref,
         chained_comparison_operators,
         decl_between_fields,
@@ -397,22 +419,29 @@ pub const Node = struct {
         implicit_apply,
 
         /// `{lhs rhs}`. rhs or lhs can be omitted.
-        /// main_token points at the lbrace.
+        /// main_token is `{`.
         lambda_two,
         /// Same as lambda_two but there is known to be a semicolon before the rbrace.
         lambda_two_semicolon,
         /// `{}`. `sub_list[lhs..rhs]`.
-        /// main_token points at the lbrace.
+        /// main_token is `{`.
         lambda,
         /// Same as lambda but there is known to be a semicolon before the rbrace.
         lambda_semicolon,
 
         /// `[lhs rhs]`. rhs or lhs can be omitted.
-        /// main_token points at the lbracket.
+        /// main_token is `[`.
         block_two,
-        /// `[]`. `sub_list[lhs..rhs]`.
-        /// main_token points at the lbracket.
+        /// `[a;b;c]`. `sub_list[lhs..rhs]`.
+        /// main_token is `[`.
         block,
+
+        /// `lhs[rhs]`. rhs can be omitted.
+        /// main_token is `[`.
+        call_one,
+        /// `lhs[a;b;c]`. `SubRange[rhs]`.
+        /// main_token is `[`.
+        call,
     };
 
     // TODO: Remove
@@ -945,7 +974,16 @@ fn getExtraData(tree: Ast, i: usize) Node.Index {
 fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
     switch (tree.getTag(i)) {
         .root => unreachable,
-        .grouped_expression => return tree.getLastToken(tree.getData(i).lhs),
+        .grouped_expression => {
+            var last_token = tree.getLastToken(tree.getData(i).lhs) + 1;
+            while (true) : (last_token += 1) {
+                switch (tree.tokens.items(.tag)[last_token]) {
+                    .comment => {},
+                    else => break,
+                }
+            }
+            return last_token;
+        },
         .number_literal => {
             var index = i;
             while (true) {
@@ -1077,13 +1115,21 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         .block_two,
         => {
             const data = tree.getData(i);
-            if (data.rhs > 0) {
-                return tree.getLastToken(data.rhs);
-            } else if (data.lhs > 0) {
-                return tree.getLastToken(data.lhs);
-            } else {
-                return tree.getMainToken(i);
+            var last_token = (if (data.rhs > 0) blk: {
+                break :blk tree.getLastToken(data.rhs);
+            } else if (data.lhs > 0) blk: {
+                break :blk tree.getLastToken(data.lhs);
+            } else blk: {
+                break :blk tree.getMainToken(i);
+            }) + 1;
+            while (true) : (last_token += 1) {
+                switch (tree.tokens.items(.tag)[last_token]) {
+                    .semicolon => {},
+                    .comment => {},
+                    else => break,
+                }
             }
+            return last_token;
         },
         .lambda,
         .lambda_semicolon,
@@ -1091,7 +1137,20 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         => {
             const data = tree.getData(i);
             const extra_data = tree.getExtraData(data.rhs - 1);
-            return tree.getLastToken(extra_data);
+            var last_token = tree.getLastToken(extra_data) + 1;
+            while (true) : (last_token += 1) {
+                switch (tree.tokens.items(.tag)[last_token]) {
+                    .semicolon => {},
+                    .comment => {},
+                    else => break,
+                }
+            }
+            return last_token;
+        },
+        .call_one,
+        .call,
+        => {
+            unreachable;
         },
     }
 }
@@ -1234,44 +1293,70 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             var rhs = std.ArrayList(u8).init(gpa);
             defer rhs.deinit();
-            if (data.rhs > 0) {
+            try tree.print(data.rhs, rhs.writer(), gpa);
+
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            try tree.print(data.lhs, lhs.writer(), gpa);
+
+            try stream.print("({s};{s})", .{ lhs.items, rhs.items });
+        },
+        .lambda_two,
+        .lambda_two_semicolon,
+        .lambda,
+        .lambda_semicolon,
+        .block_two,
+        .block,
+        => |t| {
+            log.debug("{s}", .{@tagName(t)});
+            const start_token = tree.getMainToken(i);
+            const start = tree.tokens.items(.loc)[start_token].start;
+
+            const last_token = tree.getLastToken(i);
+            const end = tree.tokens.items(.loc)[last_token].end;
+
+            const source = tree.source[start..end];
+            try stream.print("{s}", .{source});
+        },
+        .call_one => {
+            const data = tree.getData(i);
+
+            var rhs = std.ArrayList(u8).init(gpa);
+            defer rhs.deinit();
+            if (data.rhs == 0) {
+                try rhs.appendSlice("::");
+            } else {
                 try tree.print(data.rhs, rhs.writer(), gpa);
             }
 
             var lhs = std.ArrayList(u8).init(gpa);
             defer lhs.deinit();
-            if (data.lhs > 0) {
-                try tree.print(data.lhs, lhs.writer(), gpa);
-            }
+            try tree.print(data.lhs, lhs.writer(), gpa);
 
             try stream.print("({s};{s})", .{ lhs.items, rhs.items });
         },
+        .call => {
+            const data = tree.getData(i);
 
-        .lambda_two,
-        .lambda,
-        .block_two,
-        => {
-            const start_token = tree.getMainToken(i);
-            const start = tree.tokens.items(.loc)[start_token].start;
+            var rhs = std.ArrayList(u8).init(gpa);
+            defer rhs.deinit();
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            for (sub_range.start..sub_range.end - 1) |extra_data_i| {
+                const node_i = tree.getExtraData(extra_data_i);
+                if (node_i == 0) {
+                    try rhs.appendSlice("::");
+                } else {
+                    try tree.print(node_i, rhs.writer(), gpa);
+                }
+                try rhs.append(';');
+            }
+            try tree.print(tree.getExtraData(sub_range.end - 1), rhs.writer(), gpa);
 
-            const last_token = tree.getLastToken(i);
-            const end = tree.tokens.items(.loc)[last_token + 1].end;
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            try tree.print(data.lhs, lhs.writer(), gpa);
 
-            const source = tree.source[start..end];
-            try stream.print("{s}", .{source});
-        },
-        .lambda_two_semicolon,
-        .lambda_semicolon,
-        .block,
-        => {
-            const start_token = tree.getMainToken(i);
-            const start = tree.tokens.items(.loc)[start_token].start;
-
-            const last_token = tree.getLastToken(i);
-            const end = tree.tokens.items(.loc)[last_token + 2].end;
-
-            const source = tree.source[start..end];
-            try stream.print("{s}", .{source});
+            try stream.print("({s};{s})", .{ lhs.items, rhs.items });
         },
     }
 }
@@ -1294,6 +1379,7 @@ const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
 const panic = std.debug.panic;
+const assert = std.debug.assert;
 
 const log = std.log.scoped(.kdbLint_Ast);
 
