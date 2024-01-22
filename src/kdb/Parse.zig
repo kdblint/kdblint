@@ -192,7 +192,19 @@ fn parseExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
     try p.ends_expr_tags.append(p.gpa, ends_expr);
     defer _ = p.ends_expr_tags.pop();
 
-    return p.parseExprPrecedence(Precedence.secondary);
+    const node = try p.parseExprPrecedence(Precedence.secondary);
+    if (p.eatToken(.semicolon)) |_| {} else {
+        return p.addNode(.{
+            .tag = .implicit_return,
+            .main_token = undefined,
+            .data = .{
+                .lhs = node,
+                .rhs = undefined,
+            },
+        });
+    }
+
+    return node;
 }
 
 fn expectExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
@@ -519,7 +531,6 @@ fn getRule(p: *Parse) OperInfo {
     }
     const tag = p.peekTag();
     if (p.ends_expr_tags.getLastOrNull()) |t| if (tag == t or tag == .semicolon) {
-        log.debug("found: {s}", .{@tagName(tag)});
         return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
     };
     return operTable[@intFromEnum(tag)];
