@@ -52,6 +52,7 @@ const OperInfo = struct {
 };
 
 fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
+    assert(list.len > 0);
     try p.extra_data.appendSlice(p.gpa, list);
     return Node.SubRange{
         .start = @as(Node.Index, @intCast(p.extra_data.items.len - list.len)),
@@ -183,18 +184,9 @@ fn parseBlocks(p: *Parse) Error!Blocks {
 }
 
 fn parseBlock(p: *Parse) Error!Node.Index {
-    const node = p.parseExpr(.semicolon);
-    try p.nextBlock();
-    return node;
-}
-
-fn parseExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
-    try p.ends_expr_tags.append(p.gpa, ends_expr);
-    defer _ = p.ends_expr_tags.pop();
-
-    const node = try p.parseExprPrecedence(Precedence.secondary);
-    if (p.eatToken(.semicolon)) |_| {} else {
-        return p.addNode(.{
+    var node = try p.parseExpr(.semicolon);
+    if (p.peekTag() != .semicolon) {
+        node = try p.addNode(.{
             .tag = .implicit_return,
             .main_token = undefined,
             .data = .{
@@ -203,8 +195,15 @@ fn parseExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
             },
         });
     }
-
+    try p.nextBlock();
     return node;
+}
+
+fn parseExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
+    try p.ends_expr_tags.append(p.gpa, ends_expr);
+    defer _ = p.ends_expr_tags.pop();
+
+    return p.parseExprPrecedence(Precedence.secondary);
 }
 
 fn expectExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
@@ -272,12 +271,14 @@ fn grouping(p: *Parse) Error!Node.Index {
 fn lambda(p: *Parse) Error!Node.Index {
     const l_brace = p.nextToken();
 
-    // TODO: Where do we store this?
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
     if (p.eatToken(.l_bracket)) |_| {
         if (p.peekTag() != .r_bracket) {
             while (true) {
                 const identifier = try p.expectToken(.identifier);
-                _ = identifier; // autofix
+                try p.scratch.append(p.gpa, identifier);
                 if (p.eatToken(.semicolon)) |_| continue;
                 break;
             }
@@ -285,8 +286,7 @@ fn lambda(p: *Parse) Error!Node.Index {
         _ = try p.expectToken(.r_bracket);
     }
 
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+    const body_top = p.scratch.items.len;
 
     while (true) {
         if (p.eob) return p.failExpected(.r_brace);
@@ -303,43 +303,35 @@ fn lambda(p: *Parse) Error!Node.Index {
         if (p.token_tags[i] != .comment) break;
     }
     const semicolon = p.token_tags[i] == .semicolon;
-    const expressions = p.scratch.items[scratch_top..];
+    const expressions = p.scratch.items[body_top..];
+
+    const params_len = body_top - scratch_top;
+    const params = if (params_len > 0) try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..body_top])) else null_node;
     switch (expressions.len) {
         0 => return p.addNode(.{
-            .tag = if (semicolon) .lambda_two_semicolon else .lambda_two,
+            .tag = if (semicolon) .lambda_one_semicolon else .lambda_one,
             .main_token = l_brace,
             .data = .{
-                .lhs = 0,
+                .lhs = params,
                 .rhs = 0,
             },
         }),
         1 => return p.addNode(.{
-            .tag = if (semicolon) .lambda_two_semicolon else .lambda_two,
+            .tag = if (semicolon) .lambda_one_semicolon else .lambda_one,
             .main_token = l_brace,
             .data = .{
-                .lhs = expressions[0],
-                .rhs = 0,
+                .lhs = params,
+                .rhs = expressions[0],
             },
         }),
-        2 => return p.addNode(.{
-            .tag = if (semicolon) .lambda_two_semicolon else .lambda_two,
+        else => return p.addNode(.{
+            .tag = if (semicolon) .lambda_semicolon else .lambda,
             .main_token = l_brace,
             .data = .{
-                .lhs = expressions[0],
-                .rhs = expressions[1],
+                .lhs = params,
+                .rhs = try p.addExtra(try p.listToSpan(expressions)),
             },
         }),
-        else => {
-            const span = try p.listToSpan(expressions);
-            return p.addNode(.{
-                .tag = if (semicolon) .lambda_semicolon else .lambda,
-                .main_token = l_brace,
-                .data = .{
-                    .lhs = span.start,
-                    .rhs = span.end,
-                },
-            });
-        },
     }
 }
 
@@ -426,7 +418,6 @@ fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
 
     while (true) {
         if (p.eob) return p.failExpected(.r_bracket);
-        if (p.eatToken(.r_bracket)) |_| break;
         const expr = try p.parseExpr(.r_bracket);
         try p.scratch.append(p.gpa, expr);
         switch (p.peekTag()) {
@@ -435,7 +426,7 @@ fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
                 _ = p.nextToken();
                 break;
             },
-            else => try p.warn(.expected_semi_after_arg), // TODO: p.failExpected(.r_bracket);
+            else => {},
         }
     }
 
@@ -443,14 +434,7 @@ fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
 
     const expressions = p.scratch.items[scratch_top..];
     switch (expressions.len) {
-        0 => return p.addNode(.{
-            .tag = .call_one,
-            .main_token = l_paren,
-            .data = .{
-                .lhs = lhs,
-                .rhs = 0,
-            },
-        }),
+        0 => unreachable,
         1 => return p.addNode(.{
             .tag = .call_one,
             .main_token = l_paren,
@@ -564,7 +548,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .r_brace = .{ .prefix = null, .infix = null, .prec = .none },
     .l_bracket = .{ .prefix = block, .infix = call, .prec = .secondary },
     .r_bracket = .{ .prefix = null, .infix = null, .prec = .none },
-    .semicolon = .{ .prefix = NoOp(true), .infix = null, .prec = .none },
+    .semicolon = .{ .prefix = null, .infix = null, .prec = .none },
 
     // Verbs
     .colon = .{ .prefix = Prefix(.colon), .infix = Infix(.assign), .prec = .secondary },
@@ -698,6 +682,182 @@ const TokenIndex = Ast.TokenIndex;
 const Token = kdb.Token;
 
 const log = std.log.scoped(.kdbLint_Parse);
+
+fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
+    const tag = tree.nodes.items(.tag)[i];
+    try tags.append(tag);
+
+    switch (tree.nodes.items(.tag)[i]) {
+        .implicit_return => {
+            const data = tree.nodes.items(.data)[i];
+            try appendTags(tree, data.lhs, tags);
+        },
+        .call_one, .add => {
+            const data = tree.nodes.items(.data)[i];
+            if (data.rhs > 0) {
+                try appendTags(tree, data.rhs, tags);
+            }
+            try appendTags(tree, data.lhs, tags);
+        },
+        .lambda_one,
+        .lambda_one_semicolon,
+        => {
+            const data = tree.nodes.items(.data)[i];
+            if (data.rhs > 0) {
+                try appendTags(tree, data.rhs, tags);
+            }
+        },
+        .lambda,
+        .lambda_semicolon,
+        => {
+            const data = tree.nodes.items(.data)[i];
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            for (sub_range.start..sub_range.end) |extra_data_i| {
+                const node_i = tree.extra_data[extra_data_i];
+                try appendTags(tree, node_i, tags);
+            }
+        },
+        .identifier, .number_literal => {},
+        .call => {
+            const data = tree.nodes.items(.data)[i];
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            for (sub_range.start..sub_range.end, 0..) |_, temp_i| {
+                const extra_data_i = sub_range.end - temp_i - 1;
+                const node_i = tree.extra_data[extra_data_i];
+                if (node_i > 0) {
+                    try appendTags(tree, node_i, tags);
+                }
+            }
+            try appendTags(tree, data.lhs, tags);
+        },
+        else => |t| panic("{s}", .{@tagName(t)}),
+    }
+}
+
+fn testParse(source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
+    inline for (&.{ .k, .q }) |mode| {
+        try testParseMode(mode, source, expected_tags, expected_parse_tree);
+    }
+}
+
+fn testParseMode(comptime mode: Ast.Mode, source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
+    var tree = try Ast.parse(std.testing.allocator, source, mode);
+    defer tree.deinit(std.testing.allocator);
+
+    const errors = try std.testing.allocator.alloc(Ast.Error.Tag, tree.errors.len);
+    defer std.testing.allocator.free(errors);
+    for (tree.errors, 0..) |err, i| {
+        errors[i] = err.tag;
+    }
+    try std.testing.expectEqualSlices(Ast.Error.Tag, &.{}, errors);
+
+    const data = tree.nodes.items(.data)[0];
+    const i = tree.extra_data[data.lhs];
+
+    var tags = std.ArrayList(Node.Tag).init(std.testing.allocator);
+    defer tags.deinit();
+    try appendTags(tree, i, &tags);
+
+    try std.testing.expectEqualSlices(Node.Tag, expected_tags, tags.items);
+
+    var parse_tree = std.ArrayList(u8).init(std.testing.allocator);
+    defer parse_tree.deinit();
+    try tree.print(i, parse_tree.writer(), std.testing.allocator);
+
+    try std.testing.expectEqualSlices(u8, expected_parse_tree, parse_tree.items);
+}
+
+test "lambda" {
+    try testParse("{x}", &.{
+        .implicit_return,
+        .lambda_one,
+        .identifier,
+    }, "{x}");
+    try testParse("{x;}", &.{
+        .implicit_return,
+        .lambda_one_semicolon,
+        .identifier,
+    }, "{x;}");
+    try testParse("{x;y}", &.{
+        .implicit_return,
+        .lambda,
+        .identifier,
+        .identifier,
+    }, "{x;y}");
+    try testParse("{x;y;}", &.{
+        .implicit_return,
+        .lambda_semicolon,
+        .identifier,
+        .identifier,
+    }, "{x;y;}");
+}
+
+test "call" {
+    try testParse("{x}[]", &.{
+        .implicit_return,
+        .call_one,
+        .lambda_one,
+        .identifier,
+    }, "({x};::)");
+    try testParse("{x}[1]", &.{
+        .implicit_return,
+        .call_one,
+        .number_literal,
+        .lambda_one,
+        .identifier,
+    }, "({x};1)");
+    try testParse("{x+y}[1;2]", &.{
+        .implicit_return,
+        .call,
+        .number_literal,
+        .number_literal,
+        .lambda_one,
+        .add,
+        .identifier,
+        .identifier,
+    }, "({x+y};1;2)");
+}
+
+test "call - explicit projection" {
+    try testParse("{x+y}[;]", &.{
+        .implicit_return,
+        .call,
+        .lambda_one,
+        .add,
+        .identifier,
+        .identifier,
+    }, "({x+y};::;::)");
+    try testParse("{x+y}[1;]", &.{
+        .implicit_return,
+        .call,
+        .number_literal,
+        .lambda_one,
+        .add,
+        .identifier,
+        .identifier,
+    }, "({x+y};1;::)");
+    try testParse("{x+y}[;2]", &.{
+        .implicit_return,
+        .call,
+        .number_literal,
+        .lambda_one,
+        .add,
+        .identifier,
+        .identifier,
+    }, "({x+y};::;2)");
+}
+
+test "call - implicit projection" {
+    try testParse("{x+y}[1]", &.{
+        .implicit_return,
+        .call_one,
+        .number_literal,
+        .lambda_one,
+        .add,
+        .identifier,
+        .identifier,
+    }, "({x+y};1)");
+}
 
 test {
     @import("std").testing.refAllDecls(@This());
