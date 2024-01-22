@@ -442,6 +442,11 @@ pub const Node = struct {
         /// `lhs[a;b;c]`. `SubRange[rhs]`.
         /// main_token is `[`.
         call,
+
+        /// `lhs`. rhs is unused. main_token is unused.
+        implicit_return,
+        /// `:lhs`. rhs is unused. main_token is ':'.
+        @"return",
     };
 
     // TODO: Remove
@@ -1152,13 +1157,17 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         => {
             unreachable;
         },
+        .implicit_return => return tree.getLastToken(tree.getData(i).lhs),
+        .@"return" => unreachable,
     }
 }
 
 pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
     switch (tree.getTag(i)) {
         .root => unreachable,
-        .grouped_expression => try tree.print(tree.getData(i).lhs, stream, gpa),
+        .grouped_expression,
+        .implicit_return,
+        => try tree.print(tree.getData(i).lhs, stream, gpa),
         .number_literal => {
             var index = i;
             while (true) {
@@ -1357,6 +1366,15 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
             try tree.print(data.lhs, lhs.writer(), gpa);
 
             try stream.print("({s};{s})", .{ lhs.items, rhs.items });
+        },
+        .@"return" => {
+            const data = tree.getData(i);
+
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            try tree.print(data.lhs, lhs.writer(), gpa);
+
+            try stream.print("(\":\";{s})", .{lhs.items});
         },
     }
 }
