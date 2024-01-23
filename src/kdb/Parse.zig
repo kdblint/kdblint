@@ -52,7 +52,6 @@ const OperInfo = struct {
 };
 
 fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
-    assert(list.len > 0);
     try p.extra_data.appendSlice(p.gpa, list);
     return Node.SubRange{
         .start = @as(Node.Index, @intCast(p.extra_data.items.len - list.len)),
@@ -262,7 +261,7 @@ fn grouping(p: *Parse) Error!Node.Index {
 }
 
 fn lambda(p: *Parse) Error!Node.Index {
-    const l_brace = p.nextToken();
+    const l_brace = p.assertToken(.l_brace);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -329,7 +328,7 @@ fn lambda(p: *Parse) Error!Node.Index {
 }
 
 fn block(p: *Parse) Error!Node.Index {
-    const l_bracket = p.nextToken();
+    const l_bracket = p.assertToken(.l_bracket);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -384,6 +383,90 @@ fn block(p: *Parse) Error!Node.Index {
     }
 }
 
+fn do(p: *Parse) Error!Node.Index {
+    _ = p; // autofix
+    unreachable;
+}
+
+fn @"if"(p: *Parse) Error!Node.Index {
+    const if_token = p.assertToken(.keyword_if);
+    _ = try p.expectToken(.l_bracket);
+    const condition = try p.expectExpr(.semicolon);
+    _ = try p.expectToken(.semicolon);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (true) {
+        if (p.eob) return p.failExpected(.r_bracket);
+        const expr = try p.parseExpr(.r_bracket);
+        try p.scratch.append(p.gpa, expr);
+        switch (p.peekTag()) {
+            .semicolon => _ = p.nextToken(),
+            .r_bracket => {
+                _ = p.nextToken();
+                break;
+            },
+            else => {},
+        }
+    }
+
+    const expressions = p.scratch.items[scratch_top..];
+    switch (expressions.len) {
+        0 => return p.addNode(.{
+            .tag = .if_one,
+            .main_token = if_token,
+            .data = .{
+                .lhs = condition,
+                .rhs = 0,
+            },
+        }),
+        1 => return p.addNode(.{
+            .tag = .if_one,
+            .main_token = if_token,
+            .data = .{
+                .lhs = condition,
+                .rhs = expressions[0],
+            },
+        }),
+        else => {
+            return p.addNode(.{
+                .tag = .@"if",
+                .main_token = if_token,
+                .data = .{
+                    .lhs = condition,
+                    .rhs = try p.addExtra(try p.listToSpan(expressions)),
+                },
+            });
+        },
+    }
+}
+
+fn @"while"(p: *Parse) Error!Node.Index {
+    _ = p; // autofix
+    unreachable;
+}
+
+fn select(p: *Parse) Error!Node.Index {
+    _ = p; // autofix
+    unreachable;
+}
+
+fn exec(p: *Parse) Error!Node.Index {
+    _ = p; // autofix
+    unreachable;
+}
+
+fn update(p: *Parse) Error!Node.Index {
+    _ = p; // autofix
+    unreachable;
+}
+
+fn delete(p: *Parse) Error!Node.Index {
+    _ = p; // autofix
+    unreachable;
+}
+
 fn applyNumber(p: *Parse, lhs: Node.Index) Error!Node.Index {
     if (p.nodes.items(.tag)[lhs] == .number_literal) {
         p.nodes.items(.data)[lhs].rhs = try p.parsePrecedence(.primary);
@@ -404,7 +487,7 @@ fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
 }
 
 fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
-    const l_paren = p.nextToken();
+    const l_paren = p.assertToken(.l_bracket);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -453,17 +536,6 @@ fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
     return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].start], '\n') == null;
 }
 
-fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
-    if (p.peekTag() != tag) {
-        return p.failMsg(.{
-            .tag = .expected_token,
-            .token = p.tok_i,
-            .extra = .{ .expected_tag = tag },
-        });
-    }
-    return p.nextToken();
-}
-
 fn skipComments(p: *Parse) void {
     while (p.token_tags[p.tok_i] == .comment) {
         p.tok_i += 1;
@@ -478,6 +550,23 @@ fn peekTag(p: *Parse) Token.Tag {
 
 fn eatToken(p: *Parse, tag: Token.Tag) ?TokenIndex {
     return if (p.peekTag() == tag) p.nextToken() else null;
+}
+
+fn assertToken(p: *Parse, tag: Token.Tag) TokenIndex {
+    const token = p.nextToken();
+    assert(p.token_tags[token] == tag);
+    return token;
+}
+
+fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
+    if (p.peekTag() != tag) {
+        return p.failMsg(.{
+            .tag = .expected_token,
+            .token = p.tok_i,
+            .extra = .{ .expected_tag = tag },
+        });
+    }
+    return p.nextToken();
 }
 
 fn nextToken(p: *Parse) TokenIndex {
@@ -615,49 +704,49 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .eof = .{ .prefix = null, .infix = null, .prec = .none },
 
     // Keywords
-    .keyword_abs = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_acos = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_asin = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_atan = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_avg = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_bin = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_binr = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_cor = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_cos = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_cov = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_delete = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_dev = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_div = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_do = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_enlist = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_exec = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_exit = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_exp = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_getenv = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_hopen = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_if = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_in = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_insert = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_last = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_like = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_log = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_max = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_min = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_prd = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_select = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_setenv = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_sin = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_sqrt = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_ss = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_sum = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_tan = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_update = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_var = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_wavg = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_while = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_within = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_wsum = .{ .prefix = null, .infix = null, .prec = .none },
-    .keyword_xexp = .{ .prefix = null, .infix = null, .prec = .none },
+    .keyword_abs = .{ .prefix = Prefix(.abs), .infix = apply, .prec = .secondary },
+    .keyword_acos = .{ .prefix = Prefix(.acos), .infix = apply, .prec = .secondary },
+    .keyword_asin = .{ .prefix = Prefix(.asin), .infix = apply, .prec = .secondary },
+    .keyword_atan = .{ .prefix = Prefix(.atan), .infix = apply, .prec = .secondary },
+    .keyword_avg = .{ .prefix = Prefix(.avg), .infix = apply, .prec = .secondary },
+    .keyword_bin = .{ .prefix = Prefix(.bin), .infix = Infix(.bin_infix), .prec = .secondary },
+    .keyword_binr = .{ .prefix = Prefix(.binr), .infix = Infix(.binr_infix), .prec = .secondary },
+    .keyword_cor = .{ .prefix = Prefix(.cor), .infix = Infix(.cor_infix), .prec = .secondary },
+    .keyword_cos = .{ .prefix = Prefix(.cos), .infix = apply, .prec = .secondary },
+    .keyword_cov = .{ .prefix = Prefix(.cov), .infix = Infix(.cov_infix), .prec = .secondary },
+    .keyword_delete = .{ .prefix = delete, .infix = apply, .prec = .secondary },
+    .keyword_dev = .{ .prefix = Prefix(.dev), .infix = apply, .prec = .secondary },
+    .keyword_div = .{ .prefix = Prefix(.div), .infix = Infix(.div_infix), .prec = .secondary },
+    .keyword_do = .{ .prefix = do, .infix = apply, .prec = .secondary },
+    .keyword_enlist = .{ .prefix = Prefix(.enlist), .infix = apply, .prec = .secondary },
+    .keyword_exec = .{ .prefix = exec, .infix = apply, .prec = .secondary },
+    .keyword_exit = .{ .prefix = Prefix(.exit), .infix = apply, .prec = .secondary },
+    .keyword_exp = .{ .prefix = Prefix(.exp), .infix = apply, .prec = .secondary },
+    .keyword_getenv = .{ .prefix = Prefix(.getenv), .infix = apply, .prec = .secondary },
+    .keyword_hopen = .{ .prefix = Prefix(.hopen), .infix = apply, .prec = .secondary },
+    .keyword_if = .{ .prefix = @"if", .infix = apply, .prec = .secondary },
+    .keyword_in = .{ .prefix = Prefix(.in), .infix = Infix(.in_infix), .prec = .secondary },
+    .keyword_insert = .{ .prefix = Prefix(.insert), .infix = Infix(.insert_infix), .prec = .secondary },
+    .keyword_last = .{ .prefix = Prefix(.last), .infix = apply, .prec = .secondary },
+    .keyword_like = .{ .prefix = Prefix(.like), .infix = Infix(.like_infix), .prec = .secondary },
+    .keyword_log = .{ .prefix = Prefix(.log), .infix = apply, .prec = .secondary },
+    .keyword_max = .{ .prefix = Prefix(.max), .infix = apply, .prec = .secondary },
+    .keyword_min = .{ .prefix = Prefix(.min), .infix = apply, .prec = .secondary },
+    .keyword_prd = .{ .prefix = Prefix(.prd), .infix = apply, .prec = .secondary },
+    .keyword_select = .{ .prefix = select, .infix = apply, .prec = .secondary },
+    .keyword_setenv = .{ .prefix = Prefix(.setenv), .infix = Infix(.setenv_infix), .prec = .secondary },
+    .keyword_sin = .{ .prefix = Prefix(.sin), .infix = apply, .prec = .secondary },
+    .keyword_sqrt = .{ .prefix = Prefix(.sqrt), .infix = apply, .prec = .secondary },
+    .keyword_ss = .{ .prefix = Prefix(.ss), .infix = Infix(.ss_infix), .prec = .secondary },
+    .keyword_sum = .{ .prefix = Prefix(.sum), .infix = apply, .prec = .secondary },
+    .keyword_tan = .{ .prefix = Prefix(.tan), .infix = apply, .prec = .secondary },
+    .keyword_update = .{ .prefix = update, .infix = apply, .prec = .secondary },
+    .keyword_var = .{ .prefix = Prefix(.@"var"), .infix = apply, .prec = .secondary },
+    .keyword_wavg = .{ .prefix = Prefix(.wavg), .infix = Infix(.wavg_infix), .prec = .secondary },
+    .keyword_while = .{ .prefix = @"while", .infix = apply, .prec = .secondary },
+    .keyword_within = .{ .prefix = Prefix(.within), .infix = Infix(.within_infix), .prec = .secondary },
+    .keyword_wsum = .{ .prefix = Prefix(.wsum), .infix = Infix(.wsum_infix), .prec = .secondary },
+    .keyword_xexp = .{ .prefix = Prefix(.xexp), .infix = Infix(.xexp_infix), .prec = .secondary },
 });
 
 const null_node: Node.Index = 0;
@@ -804,16 +893,16 @@ test "call" {
         .lambda_one,
         .identifier,
     }, "({x};1)");
-    try testParse("{x+y}[1;2]", &.{
+    try testParse("{x+y}[1;a]", &.{
         .implicit_return,
         .call,
-        .number_literal,
+        .identifier,
         .number_literal,
         .lambda_one,
         .add,
         .identifier,
         .identifier,
-    }, "({x+y};1;2)");
+    }, "({x+y};1;`a)");
 }
 
 test "call - explicit projection" {
