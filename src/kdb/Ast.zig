@@ -346,35 +346,136 @@ pub const Node = struct {
         /// `lhs rhs`. main_token is unused.
         implicit_apply,
 
-        /// `{[lhs]rhs}`. `SubRange[lhs]`. rhs or lhs can be omitted.
-        /// main_token is `{`.
+        /// `{[lhs]rhs}`. `SubRange[lhs]`. rhs or lhs can be omitted. main_token is `{`.
         lambda_one,
         /// Same as lambda_one but there is known to be a semicolon before the rbrace.
         lambda_one_semicolon,
-        /// `{[lhs]}`. `SubRange[lhs]`. `SubRange[rhs]`. lhs can be omitted.
-        /// main_token is `{`.
+        /// `{[lhs]rhs}`. `SubRange[lhs]`. `SubRange[rhs]`. lhs can be omitted. main_token is `{`.
         lambda,
         /// Same as lambda but there is known to be a semicolon before the rbrace.
         lambda_semicolon,
 
-        /// `[lhs rhs]`. rhs or lhs can be omitted.
-        /// main_token is `[`.
+        /// `[lhs;rhs]`. rhs or lhs can be omitted. main_token is `[`.
         block_two,
-        /// `[a;b;c]`. `extra_data[lhs..rhs]`.
-        /// main_token is `[`.
+        /// `[a;b;c]`. `extra_data[lhs..rhs]`. main_token is `[`.
         block,
 
-        /// `lhs[rhs]`. rhs can be omitted.
-        /// main_token is `[`.
+        /// `lhs[rhs]`. rhs can be omitted. main_token is `[`.
         call_one,
-        /// `lhs[a;b;c]`. `SubRange[rhs]`.
-        /// main_token is `[`.
+        /// `lhs[a;b;c]`. `Range[rhs]`. main_token is `[`.
         call,
 
         /// `lhs`. rhs is unused. main_token is unused.
         implicit_return,
         /// `:lhs`. rhs is unused. main_token is ':'.
         @"return",
+
+        /// Both lhs and rhs unused.
+        abs,
+        /// Both lhs and rhs unused.
+        acos,
+        /// Both lhs and rhs unused.
+        asin,
+        /// Both lhs and rhs unused.
+        atan,
+        /// Both lhs and rhs unused.
+        avg,
+        /// Both lhs and rhs unused.
+        cos,
+        /// Both lhs and rhs unused.
+        dev,
+        /// Both lhs and rhs unused.
+        enlist,
+        /// Both lhs and rhs unused.
+        exit,
+        /// Both lhs and rhs unused.
+        exp,
+        /// Both lhs and rhs unused.
+        getenv,
+        /// Both lhs and rhs unused.
+        hopen,
+        /// Both lhs and rhs unused.
+        last,
+        /// Both lhs and rhs unused.
+        log,
+        /// Both lhs and rhs unused.
+        max,
+        /// Both lhs and rhs unused.
+        min,
+        /// Both lhs and rhs unused.
+        prd,
+        /// Both lhs and rhs unused.
+        sin,
+        /// Both lhs and rhs unused.
+        sqrt,
+        /// Both lhs and rhs unused.
+        sum,
+        /// Both lhs and rhs unused.
+        tan,
+        /// Both lhs and rhs unused.
+        @"var",
+
+        /// Both lhs and rhs unused.
+        bin,
+        /// `lhs bin rhs`. main_token is `bin`.
+        bin_infix,
+        /// Both lhs and rhs unused.
+        binr,
+        /// `lhs binr rhs`. main_token is `binr`.
+        binr_infix,
+        /// Both lhs and rhs unused.
+        cor,
+        /// `lhs cor rhs`. main_token is `cor`.
+        cor_infix,
+        /// Both lhs and rhs unused.
+        cov,
+        /// `lhs cov rhs`. main_token is `cov`.
+        cov_infix,
+        /// Both lhs and rhs unused.
+        div,
+        /// `lhs div rhs`. main_token is `div`.
+        div_infix,
+        /// Both lhs and rhs unused.
+        in,
+        /// `lhs in rhs`. main_token is `in`.
+        in_infix,
+        /// Both lhs and rhs unused.
+        insert,
+        /// `lhs insert rhs`. main_token is `insert`.
+        insert_infix,
+        /// Both lhs and rhs unused.
+        like,
+        /// `lhs like rhs`. main_token is `like`.
+        like_infix,
+        /// Both lhs and rhs unused.
+        setenv,
+        /// `lhs setenv rhs`. main_token is `setenv`.
+        setenv_infix,
+        /// Both lhs and rhs unused.
+        ss,
+        /// `lhs ss rhs`. main_token is `ss`.
+        ss_infix,
+        /// Both lhs and rhs unused.
+        wavg,
+        /// `lhs wavg rhs`. main_token is `wavg`.
+        wavg_infix,
+        /// Both lhs and rhs unused.
+        within,
+        /// `lhs within rhs`. main_token is `within`.
+        within_infix,
+        /// Both lhs and rhs unused.
+        wsum,
+        /// `lhs wsum rhs`. main_token is `wsum`.
+        wsum_infix,
+        /// Both lhs and rhs unused.
+        xexp,
+        /// `lhs xexp rhs`. main_token is `xexp`.
+        xexp_infix,
+
+        /// `if[lhs;rhs]`. rhs can be omitted. main_token is `if`.
+        if_one,
+        /// `if[lhs;rhs]`. `SubRange[rhs]`. main_token is `if`.
+        @"if",
     };
 
     pub const Data = struct {
@@ -499,6 +600,21 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         .file_binary,
         .one_colon_assign,
         .dynamic_load,
+
+        .bin_infix,
+        .binr_infix,
+        .cor_infix,
+        .cov_infix,
+        .div_infix,
+        .in_infix,
+        .insert_infix,
+        .like_infix,
+        .setenv_infix,
+        .ss_infix,
+        .wavg_infix,
+        .within_infix,
+        .wsum_infix,
+        .xexp_infix,
         => {
             const data = tree.getData(i);
             if (data.rhs > 0) {
@@ -585,7 +701,8 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         => {
             const data = tree.getData(i);
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
-            var last_token = tree.getLastToken(sub_range.end) + 1;
+            const node_i = tree.getExtraData(sub_range.end - 1);
+            var last_token = tree.getLastToken(node_i) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
                     .semicolon => {},
@@ -626,13 +743,88 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
-        .call_one,
-        .call,
-        => {
-            unreachable;
+        .call_one => {
+            const data = tree.getData(i);
+            var last_token = (if (data.rhs > 0) blk: {
+                break :blk tree.getLastToken(data.rhs);
+            } else blk: {
+                break :blk tree.getMainToken(i);
+            }) + 1;
+            while (true) : (last_token += 1) {
+                switch (tree.tokens.items(.tag)[last_token]) {
+                    .comment => {},
+                    else => break,
+                }
+            }
+            return last_token;
+        },
+        .call => {
+            const data = tree.getData(i);
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            var last_token = (if (sub_range.start == sub_range.end) blk: {
+                break :blk tree.getMainToken(i);
+            } else blk: {
+                var extra_data_i = sub_range.end - 1;
+                var node_i = tree.getExtraData(extra_data_i);
+                while (node_i == 0 and extra_data_i > sub_range.start) {
+                    extra_data_i -= 1;
+                    node_i = tree.getExtraData(extra_data_i);
+                }
+                break :blk if (node_i == 0) tree.getMainToken(i) else tree.getLastToken(node_i);
+            }) + 1;
+            while (true) : (last_token += 1) {
+                switch (tree.tokens.items(.tag)[last_token]) {
+                    .semicolon => {},
+                    .comment => {},
+                    else => break,
+                }
+            }
+            return last_token;
         },
         .implicit_return => return tree.getLastToken(tree.getData(i).lhs),
         .@"return" => unreachable,
+
+        .abs,
+        .acos,
+        .asin,
+        .atan,
+        .avg,
+        .cos,
+        .dev,
+        .enlist,
+        .exit,
+        .exp,
+        .getenv,
+        .hopen,
+        .last,
+        .log,
+        .max,
+        .min,
+        .prd,
+        .sin,
+        .sqrt,
+        .sum,
+        .tan,
+        .@"var",
+
+        .bin,
+        .binr,
+        .cor,
+        .cov,
+        .div,
+        .in,
+        .insert,
+        .like,
+        .setenv,
+        .ss,
+        .wavg,
+        .within,
+        .wsum,
+        .xexp,
+        => return tree.getMainToken(i),
+
+        .if_one => unreachable,
+        .@"if" => unreachable,
     }
 }
 
@@ -704,6 +896,21 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         .file_binary,
         .one_colon_assign,
         .dynamic_load,
+
+        .bin_infix,
+        .binr_infix,
+        .cor_infix,
+        .cov_infix,
+        .div_infix,
+        .in_infix,
+        .insert_infix,
+        .like_infix,
+        .setenv_infix,
+        .ss_infix,
+        .wavg_infix,
+        .within_infix,
+        .wsum_infix,
+        .xexp_infix,
         => {
             const data = tree.getData(i);
             if (data.rhs == 0) {
@@ -850,6 +1057,87 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             try stream.print("(\":\";{s})", .{lhs.items});
         },
+
+        .abs,
+        .acos,
+        .asin,
+        .atan,
+        .avg,
+        .cos,
+        .dev,
+        .enlist,
+        .exit,
+        .exp,
+        .getenv,
+        .hopen,
+        .last,
+        .log,
+        .max,
+        .min,
+        .prd,
+        .sin,
+        .sqrt,
+        .sum,
+        .tan,
+        .@"var",
+
+        .bin,
+        .binr,
+        .cor,
+        .cov,
+        .div,
+        .in,
+        .insert,
+        .like,
+        .setenv,
+        .ss,
+        .wavg,
+        .within,
+        .wsum,
+        .xexp,
+        => try stream.writeAll(tree.getSource(i)),
+
+        .if_one => {
+            const data = tree.getData(i);
+
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            try tree.print(data.lhs, lhs.writer(), gpa);
+
+            var rhs = std.ArrayList(u8).init(gpa);
+            defer rhs.deinit();
+            if (data.rhs == 0) {
+                try rhs.appendSlice("::");
+            } else {
+                try tree.print(data.rhs, rhs.writer(), gpa);
+            }
+
+            try stream.print("(`if;{s};{s})", .{ lhs.items, rhs.items });
+        },
+        .@"if" => {
+            const data = tree.getData(i);
+
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            try tree.print(data.lhs, lhs.writer(), gpa);
+
+            var rhs = std.ArrayList(u8).init(gpa);
+            defer rhs.deinit();
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            for (sub_range.start..sub_range.end) |extra_data_i| {
+                const node_i = tree.getExtraData(extra_data_i);
+                if (node_i == 0) {
+                    try rhs.appendSlice("::");
+                } else {
+                    try tree.print(node_i, rhs.writer(), gpa);
+                }
+                if (extra_data_i < sub_range.end - 1) {
+                    try rhs.append(';');
+                }
+            }
+
+            try stream.print("(`if;{s};{s})", .{ lhs.items, rhs.items });
+        },
     }
 }
 
@@ -874,6 +1162,40 @@ const panic = std.debug.panic;
 const assert = std.debug.assert;
 
 const log = std.log.scoped(.kdbLint_Ast);
+
+fn testLastToken(source: [:0]const u8) !void {
+    inline for (&.{ .k, .q }) |mode| {
+        try testLastTokenMode(mode, source);
+    }
+}
+
+fn testLastTokenMode(mode: Ast.Mode, source: [:0]const u8) !void {
+    var tree = try parse(std.testing.allocator, source, mode);
+    defer tree.deinit(std.testing.allocator);
+
+    const data = tree.nodes.items(.data)[0];
+    const i = tree.extra_data[data.lhs];
+
+    const start = tree.tokens.items(.loc)[tree.getMainToken(i)].start;
+    const end = tree.tokens.items(.loc)[tree.getLastToken(i)].end;
+    const actual = tree.source[start..end];
+    try std.testing.expectEqualSlices(u8, source[0..source.len], actual);
+}
+
+test "getLastToken" {
+    try testLastToken("{f[]}");
+    try testLastToken("{f[];}");
+    try testLastToken("{f[1]}");
+    try testLastToken("{f[1];}");
+    try testLastToken("{f[;]}");
+    try testLastToken("{f[;];}");
+    try testLastToken("{f[1;]}");
+    try testLastToken("{f[1;];}");
+    try testLastToken("{f[;2]}");
+    try testLastToken("{f[;2];}");
+    try testLastToken("{f[1;2]}");
+    try testLastToken("{f[1;2];}");
+}
 
 test {
     @import("std").testing.refAllDecls(@This());
