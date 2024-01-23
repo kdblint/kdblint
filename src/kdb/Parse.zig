@@ -93,13 +93,6 @@ fn warn(p: *Parse, error_tag: AstError.Tag) error{OutOfMemory}!void {
 
 fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
     @setCold(true);
-    // TODO: Do we need this?
-    // if (msg.token != 0 and !p.tokensOnSameLine(msg.token - 1, msg.token)) {
-    //     var copy = msg;
-    //     copy.token_is_prev = true;
-    //     copy.token -= 1;
-    //     return p.errors.append(p.gpa, copy);
-    // }
     try p.errors.append(p.gpa, msg);
 }
 
@@ -185,7 +178,7 @@ fn parseBlocks(p: *Parse) Error!Blocks {
 
 fn parseBlock(p: *Parse) Error!Node.Index {
     var node = try p.parseExpr(.semicolon);
-    if (p.peekTag() != .semicolon) {
+    if (p.eatToken(.semicolon)) |_| {} else {
         node = try p.addNode(.{
             .tag = .implicit_return,
             .main_token = undefined,
@@ -203,7 +196,7 @@ fn parseExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
     try p.ends_expr_tags.append(p.gpa, ends_expr);
     defer _ = p.ends_expr_tags.pop();
 
-    return p.parseExprPrecedence(Precedence.secondary);
+    return p.parsePrecedence(Precedence.secondary);
 }
 
 fn expectExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
@@ -243,7 +236,7 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
     return struct {
         fn impl(p: *Parse, lhs: Node.Index) Error!Node.Index {
             const main_token = p.nextToken();
-            const rhs = try p.parseExprPrecedence(Precedence.secondary);
+            const rhs = try p.parsePrecedence(Precedence.secondary);
             const node = try p.addNode(.{
                 .tag = tag,
                 .main_token = main_token,
@@ -393,7 +386,7 @@ fn block(p: *Parse) Error!Node.Index {
 
 fn applyNumber(p: *Parse, lhs: Node.Index) Error!Node.Index {
     if (p.nodes.items(.tag)[lhs] == .number_literal) {
-        p.nodes.items(.data)[lhs].rhs = try p.parseExprPrecedence(.primary);
+        p.nodes.items(.data)[lhs].rhs = try p.parsePrecedence(.primary);
         return lhs;
     }
     return p.apply(lhs);
@@ -405,7 +398,7 @@ fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
         .main_token = undefined,
         .data = .{
             .lhs = lhs,
-            .rhs = try p.parseExprPrecedence(Precedence.secondary),
+            .rhs = try p.parsePrecedence(Precedence.secondary),
         },
     });
 }
@@ -520,7 +513,7 @@ fn getRule(p: *Parse) OperInfo {
     return operTable[@intFromEnum(tag)];
 }
 
-fn parseExprPrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
+fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
     const prefix = p.getRule().prefix orelse {
         try p.warn(.expected_prefix_expr);
         _ = p.nextToken();
@@ -765,6 +758,11 @@ fn testParseMode(comptime mode: Ast.Mode, source: [:0]const u8, expected_tags: [
     try tree.print(i, parse_tree.writer(), std.testing.allocator);
 
     try std.testing.expectEqualSlices(u8, expected_parse_tree, parse_tree.items);
+}
+
+test "expressions" {
+    try testParse("1", &.{ .implicit_return, .number_literal }, "1");
+    try testParse("1;", &.{.number_literal}, "1");
 }
 
 test "lambda" {
