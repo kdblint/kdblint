@@ -362,7 +362,7 @@ pub const Node = struct {
 
         /// `lhs[rhs]`. rhs can be omitted. main_token is `[`.
         call_one,
-        /// `lhs[a;b;c]`. `Range[rhs]`. main_token is `[`.
+        /// `lhs[a;b;c]`. `SubRange[rhs]`. main_token is `[`.
         call,
 
         /// `lhs`. rhs is unused. main_token is unused.
@@ -472,10 +472,18 @@ pub const Node = struct {
         /// `lhs xexp rhs`. main_token is `xexp`.
         xexp_infix,
 
+        /// `do[lhs;rhs]`. rhs can be omitted. main_token is `do`.
+        do_one,
+        /// `do[lhs;rhs]`. `SubRange[rhs]`. main_token is `do`.
+        do,
         /// `if[lhs;rhs]`. rhs can be omitted. main_token is `if`.
         if_one,
         /// `if[lhs;rhs]`. `SubRange[rhs]`. main_token is `if`.
         @"if",
+        /// `while[lhs;rhs]`. rhs can be omitted. main_token is `while`.
+        while_one,
+        /// `while[lhs;rhs]`. `SubRange[rhs]`. main_token is `while`.
+        @"while",
     };
 
     pub const Data = struct {
@@ -684,13 +692,19 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             const data = tree.getData(i);
             var last_token = (if (data.rhs > 0) blk: {
                 break :blk tree.getLastToken(data.rhs);
+            } else if (data.lhs > 0) blk: {
+                const sub_range = tree.extraData(data.lhs, Node.SubRange);
+                break :blk tree.getExtraData(sub_range.end - 1);
             } else blk: {
                 break :blk tree.getMainToken(i);
             }) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
-                    .semicolon => {},
-                    .comment => {},
+                    .semicolon,
+                    .comment,
+                    .l_bracket,
+                    .r_bracket,
+                    => {},
                     else => break,
                 }
             }
@@ -758,7 +772,11 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
-        .call => {
+        .call,
+        .do,
+        .@"if",
+        .@"while",
+        => {
             const data = tree.getData(i);
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
             var last_token = (if (sub_range.start == sub_range.end) blk: {
@@ -823,8 +841,25 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         .xexp,
         => return tree.getMainToken(i),
 
-        .if_one => unreachable,
-        .@"if" => unreachable,
+        .do_one,
+        .if_one,
+        .while_one,
+        => {
+            const data = tree.getData(i);
+            var last_token = (if (data.rhs > 0) blk: {
+                break :blk tree.getLastToken(data.rhs);
+            } else blk: {
+                break :blk tree.getLastToken(data.lhs);
+            }) + 1;
+            while (true) : (last_token += 1) {
+                switch (tree.tokens.items(.tag)[last_token]) {
+                    .comment => {},
+                    .semicolon => {},
+                    else => break,
+                }
+            }
+            return last_token;
+        },
     }
 }
 
@@ -1097,7 +1132,10 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         .xexp,
         => try stream.writeAll(tree.getSource(i)),
 
-        .if_one => {
+        .do_one,
+        .if_one,
+        .while_one,
+        => {
             const data = tree.getData(i);
 
             var lhs = std.ArrayList(u8).init(gpa);
@@ -1112,9 +1150,12 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
                 try tree.print(data.rhs, rhs.writer(), gpa);
             }
 
-            try stream.print("(`if;{s};{s})", .{ lhs.items, rhs.items });
+            try stream.print("(`{s};{s};{s})", .{ tree.getSource(i), lhs.items, rhs.items });
         },
-        .@"if" => {
+        .do,
+        .@"if",
+        .@"while",
+        => {
             const data = tree.getData(i);
 
             var lhs = std.ArrayList(u8).init(gpa);
@@ -1136,7 +1177,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
                 }
             }
 
-            try stream.print("(`if;{s};{s})", .{ lhs.items, rhs.items });
+            try stream.print("(`{s};{s};{s})", .{ tree.getSource(i), lhs.items, rhs.items });
         },
     }
 }
@@ -1195,6 +1236,38 @@ test "getLastToken" {
     try testLastToken("{f[;2];}");
     try testLastToken("{f[1;2]}");
     try testLastToken("{f[1;2];}");
+
+    try testLastToken("{do[0;]}");
+    try testLastToken("{do[0;];}");
+    try testLastToken("{do[0;1]}");
+    try testLastToken("{do[0;1];}");
+    try testLastToken("{do[0;1;]}");
+    try testLastToken("{do[0;1;];}");
+    try testLastToken("{do[0;1;2]}");
+    try testLastToken("{do[0;1;2];}");
+
+    try testLastToken("{if[0;]}");
+    try testLastToken("{if[0;];}");
+    try testLastToken("{if[0;1]}");
+    try testLastToken("{if[0;1];}");
+    try testLastToken("{if[0;1;]}");
+    try testLastToken("{if[0;1;];}");
+    try testLastToken("{if[0;1;2]}");
+    try testLastToken("{if[0;1;2];}");
+
+    try testLastToken("{while[0;]}");
+    try testLastToken("{while[0;];}");
+    try testLastToken("{while[0;1]}");
+    try testLastToken("{while[0;1];}");
+    try testLastToken("{while[0;1;]}");
+    try testLastToken("{while[0;1;];}");
+    try testLastToken("{while[0;1;2]}");
+    try testLastToken("{while[0;1;2];}");
+
+    try testLastToken("{[]}");
+    try testLastToken("{[x]}");
+    try testLastToken("{[x;y]}");
+    try testLastToken("{[x;y;z]}");
 }
 
 test {
