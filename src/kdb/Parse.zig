@@ -756,12 +756,12 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .two_colon = .{ .prefix = Prefix(.two_colon), .infix = Infix(.dynamic_load), .prec = .secondary },
 
     // Adverbs
-    .apostrophe = .{ .prefix = null, .infix = null, .prec = .none },
-    .apostrophe_colon = .{ .prefix = null, .infix = null, .prec = .none },
-    .slash = .{ .prefix = null, .infix = null, .prec = .none },
-    .slash_colon = .{ .prefix = null, .infix = null, .prec = .none },
-    .backslash = .{ .prefix = null, .infix = null, .prec = .none },
-    .backslash_colon = .{ .prefix = null, .infix = null, .prec = .none },
+    .apostrophe = .{ .prefix = Prefix(.apostrophe), .infix = Infix(.apostrophe_infix), .prec = .secondary },
+    .apostrophe_colon = .{ .prefix = Prefix(.apostrophe_colon), .infix = Infix(.apostrophe_colon_infix), .prec = .secondary },
+    .slash = .{ .prefix = Prefix(.slash), .infix = Infix(.slash_infix), .prec = .secondary },
+    .slash_colon = .{ .prefix = Prefix(.slash_colon), .infix = Infix(.slash_colon_infix), .prec = .secondary },
+    .backslash = .{ .prefix = Prefix(.backslash), .infix = Infix(.backslash_infix), .prec = .secondary },
+    .backslash_colon = .{ .prefix = Prefix(.backslash_colon), .infix = Infix(.backslash_colon_infix), .prec = .secondary },
 
     // Literals
     .number_literal = .{ .prefix = Prefix(.number_literal), .infix = applyNumber, .prec = .primary },

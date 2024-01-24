@@ -346,6 +346,32 @@ pub const Node = struct {
         /// `lhs rhs`. main_token is unused.
         implicit_apply,
 
+        /// Both lhs and rhs unused.
+        apostrophe,
+        /// Both lhs and rhs unused.
+        apostrophe_colon,
+        /// Both lhs and rhs unused.
+        slash,
+        /// Both lhs and rhs unused.
+        slash_colon,
+        /// Both lhs and rhs unused.
+        backslash,
+        /// Both lhs and rhs unused.
+        backslash_colon,
+
+        /// `lhs ' rhs`. rhs can be omitted. main_token is `'`.
+        apostrophe_infix,
+        /// `lhs ': rhs`. rhs can be omitted. main_token is `':`.
+        apostrophe_colon_infix,
+        /// `lhs / rhs`. rhs can be omitted. main_token is `/`.
+        slash_infix,
+        /// `lhs /: rhs`. rhs can be omitted. main_token is `/:`.
+        slash_colon_infix,
+        /// `lhs \ rhs`. rhs can be omitted. main_token is `\`.
+        backslash_infix,
+        /// `lhs \: rhs`. rhs can be omitted. main_token is `\:`.
+        backslash_colon_infix,
+
         /// `{[lhs]rhs}`. `SubRange[lhs]`. rhs or lhs can be omitted. main_token is `{`.
         lambda_one,
         /// Same as lambda_one but there is known to be a semicolon before the rbrace.
@@ -607,6 +633,13 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         .one_colon_assign,
         .dynamic_load,
 
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+
         .bin_infix,
         .binr_infix,
         .cor_infix,
@@ -676,6 +709,12 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         .one_colon,
         .one_colon_colon,
         .two_colon,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
         => return tree.getMainToken(i),
         .implicit_apply => {
             const data = tree.getData(i);
@@ -921,6 +960,13 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         .one_colon_assign,
         .dynamic_load,
 
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+
         .bin_infix,
         .binr_infix,
         .cor_infix,
@@ -1001,6 +1047,12 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         .one_colon,
         .one_colon_colon,
         .two_colon,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
         => try stream.writeAll(tree.getTokenTag(i).symbol()),
         .implicit_apply => {
             const data = tree.getData(i);
