@@ -123,10 +123,7 @@ pub fn parseRoot(p: *Parse) Allocator.Error!void {
         .data = undefined,
     });
 
-    const blocks = p.parseBlocks() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => return,
-    };
+    const blocks = try p.parseBlocks();
     const root_decls = try blocks.toSpan(p);
     p.nodes.items(.data)[0] = .{
         .lhs = root_decls.start,
@@ -134,14 +131,21 @@ pub fn parseRoot(p: *Parse) Allocator.Error!void {
     };
 }
 
-fn parseBlocks(p: *Parse) Error!Blocks {
+fn parseBlocks(p: *Parse) Allocator.Error!Blocks {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
         if (p.peekTag() == .eof) break;
 
-        const expr = try p.parseBlock();
+        const expr = p.parseBlock() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => blk: {
+                try p.warn(.parse_error);
+                try p.nextBlock(false);
+                break :blk null_node;
+            },
+        };
         if (expr != 0) {
             try p.scratch.append(p.gpa, expr);
         }
@@ -187,7 +191,7 @@ fn parseBlock(p: *Parse) Error!Node.Index {
             },
         });
     }
-    try p.nextBlock();
+    try p.nextBlock(true);
     return node;
 }
 
@@ -571,22 +575,22 @@ fn @"while"(p: *Parse) Error!Node.Index {
 
 fn select(p: *Parse) Error!Node.Index {
     _ = p; // autofix
-    unreachable;
+    return error.ParseError;
 }
 
 fn exec(p: *Parse) Error!Node.Index {
     _ = p; // autofix
-    unreachable;
+    return error.ParseError;
 }
 
 fn update(p: *Parse) Error!Node.Index {
     _ = p; // autofix
-    unreachable;
+    return error.ParseError;
 }
 
 fn delete(p: *Parse) Error!Node.Index {
     _ = p; // autofix
-    unreachable;
+    return error.ParseError;
 }
 
 fn applyNumber(p: *Parse, lhs: Node.Index) Error!Node.Index {
@@ -702,9 +706,9 @@ fn nextToken(p: *Parse) TokenIndex {
     return result;
 }
 
-fn nextBlock(p: *Parse) Error!void {
+fn nextBlock(p: *Parse, comptime should_warn: bool) Allocator.Error!void {
     if (!p.eob) {
-        try p.warn(.expected_end_of_block);
+        if (should_warn) try p.warn(.expected_end_of_block);
         while (!p.eob) {
             _ = p.nextToken();
         }
