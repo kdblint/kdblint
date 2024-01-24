@@ -384,8 +384,57 @@ fn block(p: *Parse) Error!Node.Index {
 }
 
 fn do(p: *Parse) Error!Node.Index {
-    _ = p; // autofix
-    unreachable;
+    const do_token = p.assertToken(.keyword_do);
+    _ = try p.expectToken(.l_bracket);
+    const iter = try p.expectExpr(.semicolon);
+    _ = try p.expectToken(.semicolon);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (true) {
+        if (p.eob) return p.failExpected(.r_bracket);
+        const expr = try p.parseExpr(.r_bracket);
+        try p.scratch.append(p.gpa, expr);
+        switch (p.peekTag()) {
+            .semicolon => _ = p.nextToken(),
+            .r_bracket => {
+                _ = p.nextToken();
+                break;
+            },
+            else => {},
+        }
+    }
+
+    const expressions = p.scratch.items[scratch_top..];
+    switch (expressions.len) {
+        0 => return p.addNode(.{
+            .tag = .do_one,
+            .main_token = do_token,
+            .data = .{
+                .lhs = iter,
+                .rhs = 0,
+            },
+        }),
+        1 => return p.addNode(.{
+            .tag = .do_one,
+            .main_token = do_token,
+            .data = .{
+                .lhs = iter,
+                .rhs = expressions[0],
+            },
+        }),
+        else => {
+            return p.addNode(.{
+                .tag = .do,
+                .main_token = do_token,
+                .data = .{
+                    .lhs = iter,
+                    .rhs = try p.addExtra(try p.listToSpan(expressions)),
+                },
+            });
+        },
+    }
 }
 
 fn @"if"(p: *Parse) Error!Node.Index {
@@ -443,8 +492,57 @@ fn @"if"(p: *Parse) Error!Node.Index {
 }
 
 fn @"while"(p: *Parse) Error!Node.Index {
-    _ = p; // autofix
-    unreachable;
+    const while_token = p.assertToken(.keyword_while);
+    _ = try p.expectToken(.l_bracket);
+    const condition = try p.expectExpr(.semicolon);
+    _ = try p.expectToken(.semicolon);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (true) {
+        if (p.eob) return p.failExpected(.r_bracket);
+        const expr = try p.parseExpr(.r_bracket);
+        try p.scratch.append(p.gpa, expr);
+        switch (p.peekTag()) {
+            .semicolon => _ = p.nextToken(),
+            .r_bracket => {
+                _ = p.nextToken();
+                break;
+            },
+            else => {},
+        }
+    }
+
+    const expressions = p.scratch.items[scratch_top..];
+    switch (expressions.len) {
+        0 => return p.addNode(.{
+            .tag = .while_one,
+            .main_token = while_token,
+            .data = .{
+                .lhs = condition,
+                .rhs = 0,
+            },
+        }),
+        1 => return p.addNode(.{
+            .tag = .while_one,
+            .main_token = while_token,
+            .data = .{
+                .lhs = condition,
+                .rhs = expressions[0],
+            },
+        }),
+        else => {
+            return p.addNode(.{
+                .tag = .@"while",
+                .main_token = while_token,
+                .data = .{
+                    .lhs = condition,
+                    .rhs = try p.addExtra(try p.listToSpan(expressions)),
+                },
+            });
+        },
+    }
 }
 
 fn select(p: *Parse) Error!Node.Index {
