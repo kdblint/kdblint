@@ -335,52 +335,28 @@ fn block(p: *Parse) Error!Node.Index {
 
     while (true) {
         if (p.eob) return p.failExpected(.r_bracket);
-        if (p.eatToken(.r_bracket)) |_| break;
-        if (p.eatToken(.semicolon)) |_| continue;
         const expr = try p.parseExpr(.r_bracket);
-        if (expr > 0) {
-            try p.scratch.append(p.gpa, expr);
+        try p.scratch.append(p.gpa, expr);
+        switch (p.peekTag()) {
+            .semicolon => _ = p.nextToken(),
+            .r_bracket => {
+                _ = p.nextToken();
+                break;
+            },
+            else => {},
         }
     }
 
     const expressions = p.scratch.items[scratch_top..];
-    switch (expressions.len) {
-        0 => return p.addNode(.{
-            .tag = .block_two,
-            .main_token = l_bracket,
-            .data = .{
-                .lhs = 0,
-                .rhs = 0,
-            },
-        }),
-        1 => return p.addNode(.{
-            .tag = .block_two,
-            .main_token = l_bracket,
-            .data = .{
-                .lhs = expressions[0],
-                .rhs = 0,
-            },
-        }),
-        2 => return p.addNode(.{
-            .tag = .block_two,
-            .main_token = l_bracket,
-            .data = .{
-                .lhs = expressions[0],
-                .rhs = expressions[1],
-            },
-        }),
-        else => {
-            const span = try p.listToSpan(expressions);
-            return p.addNode(.{
-                .tag = .block,
-                .main_token = l_bracket,
-                .data = .{
-                    .lhs = span.start,
-                    .rhs = span.end,
-                },
-            });
+    const span = try p.listToSpan(expressions);
+    return p.addNode(.{
+        .tag = .block,
+        .main_token = l_bracket,
+        .data = .{
+            .lhs = span.start,
+            .rhs = span.end,
         },
-    }
+    });
 }
 
 fn do(p: *Parse) Error!Node.Index {
@@ -679,9 +655,8 @@ fn nextToken(p: *Parse) TokenIndex {
 }
 
 fn nextBlock(p: *Parse) Error!void {
-    // assert(p.eob);
     if (!p.eob) {
-        try p.warn(.expected_block);
+        try p.warn(.expected_end_of_block);
         while (!p.eob) {
             _ = p.nextToken();
         }
@@ -910,6 +885,14 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
             }
             try appendTags(tree, data.lhs, tags);
         },
+        .block => {
+            const data = tree.nodes.items(.data)[i];
+            for (tree.extra_data[data.lhs..data.rhs]) |node_i| {
+                if (node_i > 0) {
+                    try appendTags(tree, node_i, tags);
+                }
+            }
+        },
         else => |t| panic("{s}", .{@tagName(t)}),
     }
 }
@@ -1042,6 +1025,16 @@ test "call - implicit projection" {
         .identifier,
         .identifier,
     }, "({x+y};1)");
+}
+
+test "block" {
+    try testParse("[]", &.{ .implicit_return, .block }, "::");
+    try testParse("[0]", &.{ .implicit_return, .block, .number_literal }, "0");
+    try testParse("[0;]", &.{ .implicit_return, .block, .number_literal }, "(\";\";0;::)");
+    try testParse("[;1]", &.{ .implicit_return, .block, .number_literal }, "(\";\";::;1)");
+    try testParse("[0;1]", &.{ .implicit_return, .block, .number_literal, .number_literal }, "(\";\";0;1)");
+    try testParse("[0;1;]", &.{ .implicit_return, .block, .number_literal, .number_literal }, "(\";\";0;1;::)");
+    try testParse("[0;1;2]", &.{ .implicit_return, .block, .number_literal, .number_literal, .number_literal }, "(\";\";0;1;2)");
 }
 
 test {

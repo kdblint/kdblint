@@ -113,7 +113,7 @@ pub const Error = struct {
 
         expected_semi_after_arg,
         expected_expr,
-        expected_block,
+        expected_end_of_block,
         expected_prefix_expr,
         expected_infix_expr,
     };
@@ -355,8 +355,6 @@ pub const Node = struct {
         /// Same as lambda but there is known to be a semicolon before the rbrace.
         lambda_semicolon,
 
-        /// `[lhs;rhs]`. rhs or lhs can be omitted. main_token is `[`.
-        block_two,
         /// `[a;b;c]`. `extra_data[lhs..rhs]`. main_token is `[`.
         block,
 
@@ -726,28 +724,19 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
-        .block_two => {
-            const data = tree.getData(i);
-            var last_token = (if (data.rhs > 0) blk: {
-                break :blk tree.getLastToken(data.rhs);
-            } else if (data.lhs > 0) blk: {
-                break :blk tree.getLastToken(data.lhs);
-            } else blk: {
-                break :blk tree.getMainToken(i);
-            }) + 1;
-            while (true) : (last_token += 1) {
-                switch (tree.tokens.items(.tag)[last_token]) {
-                    .semicolon => {},
-                    .comment => {},
-                    else => break,
-                }
-            }
-            return last_token;
-        },
         .block => {
             const data = tree.getData(i);
-            const extra_data = tree.getExtraData(data.rhs - 1);
-            var last_token = tree.getLastToken(extra_data) + 1;
+            var last_token = (if (data.lhs == data.rhs) blk: {
+                break :blk tree.getMainToken(i);
+            } else blk: {
+                for (data.lhs..data.rhs, 1..) |_, temp_i| {
+                    const node_i = tree.getExtraData(data.rhs - temp_i);
+                    if (node_i > 0) {
+                        break :blk tree.getLastToken(node_i);
+                    }
+                }
+                break :blk tree.getMainToken(i);
+            }) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
                     .semicolon => {},
@@ -1030,8 +1019,6 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         .lambda_one_semicolon,
         .lambda,
         .lambda_semicolon,
-        .block_two,
-        .block,
         => {
             const start_token = tree.getMainToken(i);
             const start = tree.tokens.items(.loc)[start_token].start;
@@ -1041,6 +1028,29 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             const source = tree.source[start..end];
             try stream.print("{s}", .{source});
+        },
+        .block => {
+            const data = tree.getData(i);
+
+            if (data.rhs - data.lhs > 1) {
+                try stream.writeAll("(\";\";");
+            }
+
+            for (data.lhs..data.rhs) |extra_data_i| {
+                const node_i = tree.getExtraData(extra_data_i);
+                if (node_i == 0) {
+                    try stream.writeAll("::");
+                } else {
+                    try tree.print(node_i, stream, gpa);
+                }
+                if (extra_data_i < data.rhs - 1) {
+                    try stream.writeAll(";");
+                }
+            }
+
+            if (data.rhs - data.lhs > 1) {
+                try stream.writeAll(")");
+            }
         },
         .call_one => {
             const data = tree.getData(i);
@@ -1268,6 +1278,14 @@ test "getLastToken" {
     try testLastToken("{[x]}");
     try testLastToken("{[x;y]}");
     try testLastToken("{[x;y;z]}");
+
+    try testLastToken("{[][]}");
+    try testLastToken("{[][0]}");
+    try testLastToken("{[][0;]}");
+    try testLastToken("{[][;1]}");
+    try testLastToken("{[][0;1]}");
+    try testLastToken("{[][0;1;]}");
+    try testLastToken("{[][0;1;2]}");
 }
 
 test {
