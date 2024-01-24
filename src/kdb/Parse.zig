@@ -250,14 +250,62 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
 }
 
 fn grouping(p: *Parse) Error!Node.Index {
-    return p.addNode(.{
-        .tag = .grouped_expression,
-        .main_token = p.nextToken(),
-        .data = .{
-            .lhs = try p.expectExpr(.r_paren),
-            .rhs = try p.expectToken(.r_paren),
+    const l_paren = p.assertToken(.l_paren);
+    if (p.eatToken(.r_paren)) |r_paren| {
+        return p.addNode(.{
+            .tag = .empty_list,
+            .main_token = l_paren,
+            .data = .{
+                .lhs = 0,
+                .rhs = r_paren,
+            },
+        });
+    }
+
+    // TODO: Table
+    if (p.eatToken(.l_bracket)) |_| {
+        return error.ParseError;
+    }
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    var r_paren: Node.Index = undefined;
+    while (true) {
+        if (p.eob) return p.failExpected(.r_paren);
+        const expr = try p.parseExpr(.r_paren);
+        try p.scratch.append(p.gpa, expr);
+        switch (p.peekTag()) {
+            .semicolon => _ = p.nextToken(),
+            .r_paren => {
+                r_paren = p.nextToken();
+                break;
+            },
+            else => {},
+        }
+    }
+
+    const expressions = p.scratch.items[scratch_top..];
+    switch (expressions.len) {
+        1 => return p.addNode(.{
+            .tag = .grouped_expression,
+            .main_token = l_paren,
+            .data = .{
+                .lhs = expressions[0],
+                .rhs = r_paren,
+            },
+        }),
+        else => {
+            return p.addNode(.{
+                .tag = .list,
+                .main_token = l_paren,
+                .data = .{
+                    .lhs = try p.addExtra(try p.listToSpan(expressions)),
+                    .rhs = r_paren,
+                },
+            });
         },
-    });
+    }
 }
 
 fn lambda(p: *Parse) Error!Node.Index {
@@ -843,11 +891,15 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
     try tags.append(tag);
 
     switch (tree.nodes.items(.tag)[i]) {
-        .implicit_return => {
+        .implicit_return,
+        .grouped_expression,
+        => {
             const data = tree.nodes.items(.data)[i];
             try appendTags(tree, data.lhs, tags);
         },
-        .call_one, .add => {
+        .call_one,
+        .add,
+        => {
             const data = tree.nodes.items(.data)[i];
             if (data.rhs > 0) {
                 try appendTags(tree, data.rhs, tags);
@@ -872,12 +924,15 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
                 try appendTags(tree, node_i, tags);
             }
         },
-        .identifier, .number_literal => {},
+        .identifier,
+        .number_literal,
+        .empty_list,
+        => {},
         .call => {
             const data = tree.nodes.items(.data)[i];
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
-            for (sub_range.start..sub_range.end, 0..) |_, temp_i| {
-                const extra_data_i = sub_range.end - temp_i - 1;
+            for (sub_range.start..sub_range.end, 1..) |_, temp_i| {
+                const extra_data_i = sub_range.end - temp_i;
                 const node_i = tree.extra_data[extra_data_i];
                 if (node_i > 0) {
                     try appendTags(tree, node_i, tags);
@@ -888,6 +943,17 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .block => {
             const data = tree.nodes.items(.data)[i];
             for (tree.extra_data[data.lhs..data.rhs]) |node_i| {
+                if (node_i > 0) {
+                    try appendTags(tree, node_i, tags);
+                }
+            }
+        },
+        .list => {
+            const data = tree.nodes.items(.data)[i];
+            const sub_range = tree.extraData(data.lhs, Node.SubRange);
+            for (sub_range.start..sub_range.end, 1..) |_, temp_i| {
+                const extra_data_i = sub_range.end - temp_i;
+                const node_i = tree.extra_data[extra_data_i];
                 if (node_i > 0) {
                     try appendTags(tree, node_i, tags);
                 }
@@ -1035,6 +1101,16 @@ test "block" {
     try testParse("[0;1]", &.{ .implicit_return, .block, .number_literal, .number_literal }, "(\";\";0;1)");
     try testParse("[0;1;]", &.{ .implicit_return, .block, .number_literal, .number_literal }, "(\";\";0;1;::)");
     try testParse("[0;1;2]", &.{ .implicit_return, .block, .number_literal, .number_literal, .number_literal }, "(\";\";0;1;2)");
+}
+
+test "list" {
+    try testParse("()", &.{ .implicit_return, .empty_list }, "()");
+    try testParse("(0)", &.{ .implicit_return, .grouped_expression, .number_literal }, "0");
+    try testParse("(0;)", &.{ .implicit_return, .list, .number_literal }, "(enlist;0;::)");
+    try testParse("(;1)", &.{ .implicit_return, .list, .number_literal }, "(enlist;::;1)");
+    try testParse("(0;1)", &.{ .implicit_return, .list, .number_literal, .number_literal }, "(enlist;0;1)");
+    try testParse("(0;1;)", &.{ .implicit_return, .list, .number_literal, .number_literal }, "(enlist;0;1;::)");
+    try testParse("(0;1;2)", &.{ .implicit_return, .list, .number_literal, .number_literal, .number_literal }, "(enlist;0;1;2)");
 }
 
 test {

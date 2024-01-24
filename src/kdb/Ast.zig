@@ -137,6 +137,10 @@ pub const Node = struct {
 
         /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
         grouped_expression,
+        /// `()`. lhs is unused. main_token is the `(`; rhs is the token index of the `)`.
+        empty_list,
+        /// `(lhs)`. `SubRange[lhs]`. main_token is the `(`; rhs is the token index of the `)`.
+        list,
 
         /// Both lhs and rhs unused.
         number_literal,
@@ -559,16 +563,10 @@ fn getExtraData(tree: Ast, i: usize) Node.Index {
 fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
     switch (tree.getTag(i)) {
         .root => unreachable,
-        .grouped_expression => {
-            var last_token = tree.getLastToken(tree.getData(i).lhs) + 1;
-            while (true) : (last_token += 1) {
-                switch (tree.tokens.items(.tag)[last_token]) {
-                    .comment => {},
-                    else => break,
-                }
-            }
-            return last_token;
-        },
+        .grouped_expression,
+        .empty_list,
+        .list,
+        => return tree.getData(i).rhs,
         .number_literal => {
             var index = i;
             while (true) {
@@ -897,6 +895,24 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         .grouped_expression,
         .implicit_return,
         => try tree.print(tree.getData(i).lhs, stream, gpa),
+        .empty_list => try stream.writeAll("()"),
+        .list => {
+            const data = tree.getData(i);
+            try stream.writeAll("(enlist;");
+            const sub_range = tree.extraData(data.lhs, Node.SubRange);
+            for (sub_range.start..sub_range.end) |extra_data_i| {
+                const node_i = tree.getExtraData(extra_data_i);
+                if (node_i == 0) {
+                    try stream.writeAll("::");
+                } else {
+                    try tree.print(node_i, stream, gpa);
+                }
+                if (extra_data_i < sub_range.end - 1) {
+                    try stream.writeAll(";");
+                }
+            }
+            try stream.writeAll(")");
+        },
         .number_literal => {
             var index = i;
             while (true) {
@@ -1338,6 +1354,14 @@ test "getLastToken" {
     try testLastToken("{[][0;1]}");
     try testLastToken("{[][0;1;]}");
     try testLastToken("{[][0;1;2]}");
+
+    try testLastToken("{[]()}");
+    try testLastToken("{[](0)}");
+    try testLastToken("{[](0;)}");
+    try testLastToken("{[](;1)}");
+    try testLastToken("{[](0;1)}");
+    try testLastToken("{[](0;1;)}");
+    try testLastToken("{[](0;1;2)}");
 }
 
 test {
