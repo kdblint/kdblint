@@ -8,6 +8,7 @@ tokens: TokenList.Slice,
 /// references to the root node, this means 0 is available to indicate null.
 nodes: NodeList.Slice,
 extra_data: []Node.Index,
+table_columns: [][]const u8,
 mode: Mode = .q,
 
 errors: []const Error,
@@ -29,6 +30,8 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.tokens.deinit(gpa);
     tree.nodes.deinit(gpa);
     gpa.free(tree.extra_data);
+    for (tree.table_columns) |slice| gpa.free(slice);
+    gpa.free(tree.table_columns);
     gpa.free(tree.errors);
     tree.* = undefined;
 }
@@ -82,6 +85,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
+        .table_columns = try parser.table_columns.toOwnedSlice(gpa),
         .errors = try parser.errors.toOwnedSlice(gpa),
     };
 }
@@ -144,6 +148,8 @@ pub const Node = struct {
         empty_list,
         /// `(lhs)`. `SubRange[lhs]`. main_token is the `(`; rhs is the token index of the `)`.
         list,
+        /// `([]lhs)`. `Table[lhs]`. main_token is the `(`; rhs is the token index of the `)`.
+        table_literal,
 
         /// Both lhs and rhs unused.
         number_literal,
@@ -528,6 +534,14 @@ pub const Node = struct {
         /// Index into extra_data.
         end: Index,
     };
+
+    pub const Table = struct {
+        /// Index into table_columns.
+        column_start: Index,
+        /// Index into extra_data.
+        expr_start: Index,
+        len: u32,
+    };
 };
 
 fn getTokenTag(tree: Ast, i: Node.Index) Token.Tag {
@@ -569,6 +583,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         .grouped_expression,
         .empty_list,
         .list,
+        .table_literal,
         => return tree.getData(i).rhs,
         .number_literal => {
             var index = i;
@@ -915,6 +930,34 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
                 }
             }
             try stream.writeAll(")");
+        },
+        .table_literal => {
+            const data = tree.getData(i);
+            const table = tree.extraData(data.lhs, Node.Table);
+
+            var keys = std.ArrayList(u8).init(gpa);
+            defer keys.deinit();
+            try keys.append(',');
+            if (table.len == 1) {
+                try keys.writer().print(",`{s}", .{tree.table_columns[table.column_start]});
+            } else {
+                for (table.column_start..table.column_start + table.len) |table_columns_i| {
+                    const table_column = tree.table_columns[table_columns_i];
+                    try keys.writer().print("`{s}", .{table_column});
+                }
+            }
+
+            var values = std.ArrayList(u8).init(gpa);
+            defer values.deinit();
+            for (table.expr_start..table.expr_start + table.len) |extra_data_i| {
+                const node_i = tree.getExtraData(extra_data_i);
+                try tree.print(node_i, values.writer(), gpa);
+                if (extra_data_i < (table.expr_start + table.len) - 1) {
+                    try values.append(';');
+                }
+            }
+
+            try stream.print("(+:;(!;{s};(enlist;{s})))", .{ keys.items, values.items });
         },
         .number_literal => {
             var index = i;
