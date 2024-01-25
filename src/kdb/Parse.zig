@@ -14,14 +14,18 @@ ends_expr_tags: std.ArrayListUnmanaged(Token.Tag) = .{},
 errors: std.ArrayListUnmanaged(AstError) = .{},
 nodes: Ast.NodeList = .{},
 extra_data: std.ArrayListUnmanaged(Node.Index) = .{},
+table_columns: std.ArrayListUnmanaged([]const u8) = .{},
 scratch: std.ArrayListUnmanaged(Node.Index) = .{},
+table_scratch: std.ArrayListUnmanaged([]const u8) = .{},
 
 pub fn deinit(p: *Parse) void {
     p.ends_expr_tags.deinit(p.gpa);
     p.errors.deinit(p.gpa);
     p.nodes.deinit(p.gpa);
     p.extra_data.deinit(p.gpa);
+    p.table_columns.deinit(p.gpa);
     p.scratch.deinit(p.gpa);
+    p.table_scratch.deinit(p.gpa);
 }
 
 const Blocks = struct {
@@ -54,8 +58,19 @@ const OperInfo = struct {
 fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
     try p.extra_data.appendSlice(p.gpa, list);
     return Node.SubRange{
-        .start = @as(Node.Index, @intCast(p.extra_data.items.len - list.len)),
-        .end = @as(Node.Index, @intCast(p.extra_data.items.len)),
+        .start = @intCast(p.extra_data.items.len - list.len),
+        .end = @intCast(p.extra_data.items.len),
+    };
+}
+
+fn listToTable(p: *Parse, columns: [][]const u8, list: []const Node.Index) !Node.Table {
+    assert(columns.len == list.len);
+    try p.table_columns.appendSlice(p.gpa, columns);
+    try p.extra_data.appendSlice(p.gpa, list);
+    return Node.Table{
+        .column_start = @intCast(p.table_columns.items.len - columns.len),
+        .expr_start = @intCast(p.extra_data.items.len - list.len),
+        .len = @intCast(list.len),
     };
 }
 
@@ -266,8 +281,10 @@ fn grouping(p: *Parse) Error!Node.Index {
         });
     }
 
-    // TODO: Table
     if (p.eatToken(.l_bracket)) |_| {
+        if (p.eatToken(.r_bracket)) |_| return p.table(l_paren);
+
+        // TODO: Keyed table
         return error.ParseError;
     }
 
@@ -310,6 +327,58 @@ fn grouping(p: *Parse) Error!Node.Index {
             });
         },
     }
+}
+
+fn table(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
+    const table_scratch_top = p.table_scratch.items.len;
+    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (true) {
+        if (p.eob) return p.failExpected(.r_paren);
+        const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+            const identifier = p.assertToken(.identifier);
+            _ = p.assertToken(.colon);
+            break :blk identifier;
+        } else 0;
+        const expr = try p.expectExpr(.r_paren);
+        try p.scratch.append(p.gpa, expr);
+        try p.addTableColumn(identifier, expr, p.table_scratch.items[table_scratch_top..]);
+        switch (p.peekTag()) {
+            .semicolon => _ = p.nextToken(),
+            .r_paren => break,
+            else => {},
+        }
+    }
+    const r_paren = p.assertToken(.r_paren);
+
+    const columns = p.table_scratch.items[table_scratch_top..];
+    const expressions = p.scratch.items[scratch_top..];
+    return p.addNode(.{
+        .tag = .table_literal,
+        .main_token = l_paren,
+        .data = .{
+            .lhs = try p.addExtra(try p.listToTable(columns, expressions)),
+            .rhs = r_paren,
+        },
+    });
+}
+
+fn addTableColumn(p: *Parse, identifier: TokenIndex, expr: Node.Index, existing_columns: [][]const u8) Error!void {
+    _ = expr; // autofix
+    _ = existing_columns; // autofix
+    const source = if (identifier == 0) blk: {
+        // TODO: Determine column name based on expr.
+        break :blk "x";
+    } else blk: {
+        const loc = p.token_locs[identifier];
+        break :blk p.source[loc.start..loc.end];
+    };
+    const new_source = try p.gpa.dupe(u8, source);
+    errdefer p.gpa.free(new_source);
+    try p.table_scratch.append(p.gpa, new_source);
 }
 
 fn lambda(p: *Parse) Error!Node.Index {
@@ -663,15 +732,21 @@ fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
 }
 
 fn skipComments(p: *Parse) void {
-    while (p.token_tags[p.tok_i] == .comment) {
-        p.tok_i += 1;
-    }
+    while (p.token_tags[p.tok_i] == .comment) : (p.tok_i += 1) {}
 }
 
 fn peekTag(p: *Parse) Token.Tag {
     p.skipComments();
     // TODO: What if skipComments brought us to eof?
     return p.token_tags[p.tok_i];
+}
+
+fn peekNextTag(p: *Parse) Token.Tag {
+    p.skipComments();
+    var temp_i = p.tok_i + 1;
+    while (p.token_tags[temp_i] == .comment) : (temp_i += 1) {}
+    // TODO: What if skipComments brought us to eof?
+    return p.token_tags[temp_i];
 }
 
 fn eatToken(p: *Parse, tag: Token.Tag) ?TokenIndex {
