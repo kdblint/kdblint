@@ -1341,10 +1341,10 @@ fn testLastTokenMode(mode: Ast.Mode, source: [:0]const u8) !void {
     const data = tree.nodes.items(.data)[0];
     const i = tree.extra_data[data.lhs];
 
-    const start = tree.tokens.items(.loc)[tree.getMainToken(i)].start;
-    const end = tree.tokens.items(.loc)[tree.getLastToken(i)].end;
-    const actual = tree.source[start..end];
-    try std.testing.expectEqualSlices(u8, source[0..source.len], actual);
+    var actual = std.ArrayList(u8).init(std.testing.allocator);
+    defer actual.deinit();
+    try tree.print(i, actual.writer(), std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, source[0..source.len], actual.items);
 }
 
 test "getLastToken" {
