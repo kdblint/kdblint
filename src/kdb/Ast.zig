@@ -109,6 +109,7 @@ pub const Error = struct {
     extra: union {
         none: void,
         expected_tag: Token.Tag,
+        expected_string: []const u8,
     } = .{ .none = {} },
 
     pub const Tag = enum {
@@ -123,6 +124,9 @@ pub const Error = struct {
 
         not_yet_implemented,
         parse_error,
+
+        /// `expected_string` is populated.
+        expected_qsql_token,
     };
 };
 
@@ -521,6 +525,17 @@ pub const Node = struct {
         while_one,
         /// `while[lhs;rhs]`. `SubRange[rhs]`. main_token is `while`.
         @"while",
+
+        /// `select rhs`. `Select[rhs]`. main_token is `select`.
+        select,
+        /// `exec rhs`. `Exec[rhs]`. main_token is `exec`.
+        exec,
+        /// `update rhs`. `Update[rhs]`. main_token is `update`.
+        update,
+        /// `delete rhs`. `DeleteRows[rhs]`. main_token is `delete`.
+        delete_rows,
+        /// `delete rhs`. `DeleteCols[rhs]`. main_token is `delete`.
+        delete_cols,
     };
 
     pub const Data = struct {
@@ -540,6 +555,61 @@ pub const Node = struct {
         column_start: Index,
         /// Index into extra_data.
         expr_start: Index,
+        len: u32,
+    };
+
+    pub const Select = struct {
+        /// Index into extra_data.
+        from: Index,
+        /// Index into extra_data.
+        where: Index,
+        /// Index into extra_data.
+        by: Index,
+        /// Index into extra_data.
+        select: Index,
+        /// Index into extra_data.
+        limit: Index,
+        len: u32,
+    };
+
+    pub const Exec = struct {
+        /// Index into extra_data.
+        from: Index,
+        /// Index into extra_data.
+        where: Index,
+        /// Index into extra_data.
+        by: Index,
+        /// Index into extra_data.
+        select: Index,
+        len: u32,
+        distinct: bool,
+    };
+
+    pub const Update = struct {
+        /// Index into extra_data.
+        from: Index,
+        /// Index into extra_data.
+        where: Index,
+        /// Index into extra_data.
+        by: Index,
+        /// Index into extra_data.
+        select: Index,
+        len: u32,
+    };
+
+    pub const DeleteRows = struct {
+        /// Index into extra_data.
+        from: Index,
+        /// Index into extra_data.
+        where: Index,
+        len: u32,
+    };
+
+    pub const DeleteColumns = struct {
+        /// Index into extra_data.
+        from: Index,
+        /// Index into extra_data.
+        select: Index,
         len: u32,
     };
 };
@@ -904,6 +974,13 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
+
+        .select,
+        .exec,
+        .update,
+        .delete_rows,
+        .delete_cols,
+        => unreachable,
     }
 }
 
@@ -1303,6 +1380,55 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             try stream.print("(`{s};{s};{s})", .{ tree.getSource(i), lhs.items, rhs.items });
         },
+
+        .select => {
+            const data = tree.getData(i);
+            const select_node = tree.extraData(data.rhs, Node.Select);
+
+            var from = std.ArrayList(u8).init(gpa);
+            defer from.deinit();
+            const from_i = tree.getExtraData(select_node.from);
+            try tree.print(from_i, from.writer(), gpa);
+
+            var where = std.ArrayList(u8).init(gpa);
+            defer where.deinit();
+            const where_i = tree.getExtraData(select_node.where);
+            if (where_i == 0) {
+                try where.appendSlice("()");
+            } else {
+                try tree.print(where_i, where.writer(), gpa);
+            }
+
+            var by = std.ArrayList(u8).init(gpa);
+            defer by.deinit();
+            const by_i = tree.getExtraData(select_node.where);
+            if (by_i == 0) {
+                try by.appendSlice("0b");
+            } else {
+                try tree.print(by_i, by.writer(), gpa);
+            }
+
+            var select = std.ArrayList(u8).init(gpa);
+            defer select.deinit();
+            const select_i = tree.getExtraData(select_node.select);
+            if (select_i == 0) {
+                try select.appendSlice("()");
+            } else {
+                try tree.print(select_i, select.writer(), gpa);
+            }
+
+            if (select_node.len > 0) {
+                panic("NYI", .{});
+                try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, "LIMIT" });
+            } else {
+                try stream.print("(?;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
+            }
+        },
+        .exec,
+        .update,
+        .delete_rows,
+        .delete_cols,
+        => unreachable,
     }
 }
 

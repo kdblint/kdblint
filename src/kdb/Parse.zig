@@ -91,6 +91,11 @@ fn addExtra(p: *Parse, extra: anytype) Allocator.Error!Node.Index {
     return result;
 }
 
+fn addList(p: *Parse, list: []Node.Index) Allocator.Error!Node.Index {
+    try p.extra_data.appendSlice(p.gpa, list);
+    return @intCast(p.extra_data.items.len - list.len);
+}
+
 fn warnExpected(p: *Parse, expected_token: Token.Tag) error{OutOfMemory}!void {
     @setCold(true);
     try p.warnMsg(.{
@@ -618,6 +623,11 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .within,
         .wsum,
         .xexp,
+        .select,
+        .exec,
+        .update,
+        .delete_rows,
+        .delete_cols,
         => return null,
     }
 }
@@ -884,8 +894,60 @@ fn @"while"(p: *Parse) Error!Node.Index {
 }
 
 fn select(p: *Parse) Error!Node.Index {
-    _ = p; // autofix
-    return error.ParseError;
+    const select_token = p.assertToken(.keyword_select);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    // Limit expression
+    const limit_top = p.scratch.items.len;
+    if (p.eatToken(.l_bracket)) |l_bracket| {
+        _ = l_bracket; // autofix
+        _ = try p.expectToken(.r_bracket);
+    }
+
+    // Select phrase
+    const select_top = p.scratch.items.len;
+    if (true) {
+        //
+    }
+
+    // By phrase
+    const by_top = p.scratch.items.len;
+    if (p.eatIdentifier("by")) |by_token| {
+        _ = by_token; // autofix
+    }
+
+    // From phrase
+    const from_top = p.scratch.items.len;
+    const from = try p.expectIdentifier("from");
+    _ = from; // autofix
+    // TODO: THIS IS JUST FOR TESTING!
+    const from_expr = try Prefix(.identifier)(p);
+    try p.scratch.append(p.gpa, from_expr);
+
+    // Where phrase
+    const where_top = p.scratch.items.len;
+    if (p.eatIdentifier("where")) |where_token| {
+        _ = where_token; // autofix
+    }
+
+    const select_node = Node.Select{
+        .from = try p.addList(p.scratch.items[from_top..where_top]),
+        .where = try p.addList(p.scratch.items[where_top..]),
+        .by = try p.addList(p.scratch.items[by_top..from_top]),
+        .select = try p.addList(p.scratch.items[select_top..by_top]),
+        .limit = try p.addList(p.scratch.items[limit_top..select_top]),
+        .len = @intCast(select_top - limit_top),
+    };
+    return p.addNode(.{
+        .tag = .select,
+        .main_token = select_token,
+        .data = .{
+            .lhs = select_token,
+            .rhs = try p.addExtra(select_node),
+        },
+    });
 }
 
 fn exec(p: *Parse) Error!Node.Index {
@@ -1009,6 +1071,31 @@ fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
         });
     }
     return p.nextToken();
+}
+
+fn peekIdentifier(p: *Parse, identifier: []const u8) ?TokenIndex {
+    if (p.peekTag() != .identifier) return null;
+    const loc = p.token_locs[p.tok_i];
+    const source = p.source[loc.start..loc.end];
+    if (!std.mem.eql(u8, source, identifier)) return null;
+    return p.tok_i;
+}
+
+fn eatIdentifier(p: *Parse, identifier: []const u8) ?TokenIndex {
+    if (p.peekIdentifier(identifier)) |token_i| {
+        _ = p.nextToken();
+        return token_i;
+    }
+    return null;
+}
+
+fn expectIdentifier(p: *Parse, identifier: []const u8) Error!TokenIndex {
+    if (p.eatIdentifier(identifier)) |token_i| return token_i;
+    return p.failMsg(.{
+        .tag = .expected_qsql_token,
+        .token = p.tok_i,
+        .extra = .{ .expected_string = identifier },
+    });
 }
 
 fn nextToken(p: *Parse) TokenIndex {
