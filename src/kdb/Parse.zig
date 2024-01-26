@@ -282,7 +282,7 @@ fn grouping(p: *Parse) Error!Node.Index {
     }
 
     if (p.eatToken(.l_bracket)) |_| {
-        if (p.eatToken(.r_bracket)) |_| return p.table(l_paren);
+        if (p.eatToken(.r_bracket)) |_| return p.addTable(l_paren);
 
         // TODO: Keyed table
         return error.ParseError;
@@ -329,12 +329,15 @@ fn grouping(p: *Parse) Error!Node.Index {
     }
 }
 
-fn table(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
+fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
     const table_scratch_top = p.table_scratch.items.len;
     defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    var hash_map = std.StringHashMap(u32).init(p.gpa);
+    defer hash_map.deinit();
 
     while (true) {
         if (p.eob) return p.failExpected(.r_paren);
@@ -345,7 +348,7 @@ fn table(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
         } else 0;
         const expr = try p.expectExpr(.r_paren);
         try p.scratch.append(p.gpa, expr);
-        try p.addTableColumn(identifier, expr, p.table_scratch.items[table_scratch_top..]);
+        try p.addTableColumn(identifier, expr, &hash_map);
         switch (p.peekTag()) {
             .semicolon => _ = p.nextToken(),
             .r_paren => break,
@@ -366,19 +369,257 @@ fn table(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
     });
 }
 
-fn addTableColumn(p: *Parse, identifier: TokenIndex, expr: Node.Index, existing_columns: [][]const u8) Error!void {
-    _ = expr; // autofix
-    _ = existing_columns; // autofix
-    const source = if (identifier == 0) blk: {
-        // TODO: Determine column name based on expr.
+fn addTableColumn(p: *Parse, identifier: TokenIndex, expr: Node.Index, existing_columns: *std.StringHashMap(u32)) Error!void {
+    var source = if (identifier == 0) blk: {
+        if (p.findFirstIdentifier(expr)) |token_i| {
+            const loc = p.token_locs[token_i];
+            break :blk p.source[loc.start..loc.end];
+        }
         break :blk "x";
     } else blk: {
         const loc = p.token_locs[identifier];
         break :blk p.source[loc.start..loc.end];
     };
-    const new_source = try p.gpa.dupe(u8, source);
-    errdefer p.gpa.free(new_source);
-    try p.table_scratch.append(p.gpa, new_source);
+
+    const a = try existing_columns.getOrPut(source);
+    if (a.found_existing) {
+        source = try std.fmt.allocPrint(p.gpa, "{s}{d}", .{ source, a.value_ptr.* });
+        a.value_ptr.* += 1;
+    } else {
+        source = try p.gpa.dupe(u8, source);
+        a.value_ptr.* = 1;
+    }
+    errdefer p.gpa.free(source);
+
+    try p.table_scratch.append(p.gpa, source);
+}
+
+fn extraData(p: Parse, index: usize, comptime T: type) T {
+    const fields = std.meta.fields(T);
+    var result: T = undefined;
+    inline for (fields, 0..) |field, i| {
+        comptime assert(field.type == Node.Index);
+        @field(result, field.name) = p.extra_data.items[index + i];
+    }
+    return result;
+}
+
+fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
+    const tag: Node.Tag = p.nodes.items(.tag)[i];
+    switch (tag) {
+        .grouped_expression,
+        .implicit_return,
+        .@"return",
+        => return p.findFirstIdentifier(p.nodes.items(.data)[i].lhs),
+        .list => {
+            const data = p.nodes.items(.data)[i];
+            const sub_range = p.extraData(data.lhs, Node.SubRange);
+            for (sub_range.start..sub_range.end, 1..) |_, temp_i| {
+                const node_i = p.extra_data.items[sub_range.end - temp_i];
+                if (p.findFirstIdentifier(node_i)) |token_i| return token_i;
+            }
+            return null;
+        },
+        .identifier => return p.nodes.items(.main_token)[i],
+        .assign,
+        .global_assign,
+        .add,
+        .plus_assign,
+        .subtract,
+        .minus_assign,
+        .multiply,
+        .asterisk_assign,
+        .divide,
+        .percent_assign,
+        .dict,
+        .bang_assign,
+        .lesser,
+        .ampersand_assign,
+        .greater,
+        .pipe_assign,
+        .less_than,
+        .angle_bracket_left_assign,
+        .less_than_equal,
+        .not_equal,
+        .greater_than,
+        .angle_bracket_right_assign,
+        .greater_than_equal,
+        .equals,
+        .equal_assign,
+        .match,
+        .tilde_assign,
+        .join,
+        .comma_assign,
+        .fill,
+        .caret_assign,
+        .take,
+        .hash_assign,
+        .drop,
+        .underscore_assign,
+        .cast,
+        .dollar_assign,
+        .find,
+        .question_mark_assign,
+        .apply,
+        .at_assign,
+        .apply_n,
+        .dot_assign,
+        .file_text,
+        .zero_colon_assign,
+        .file_binary,
+        .one_colon_assign,
+        .dynamic_load,
+        .implicit_apply,
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        .call_one,
+        .bin_infix,
+        .binr_infix,
+        .cor_infix,
+        .cov_infix,
+        .div_infix,
+        .in_infix,
+        .insert_infix,
+        .like_infix,
+        .setenv_infix,
+        .ss_infix,
+        .wavg_infix,
+        .within_infix,
+        .wsum_infix,
+        .xexp_infix,
+        .do_one,
+        .if_one,
+        .while_one,
+        => return p.findFirstIdentifier(p.nodes.items(.data)[i].rhs),
+        .block => {
+            const data = p.nodes.items(.data)[i];
+            for (data.lhs..data.rhs, 1..) |_, temp_i| {
+                const node_i = p.extra_data.items[data.rhs - temp_i];
+                if (p.findFirstIdentifier(node_i)) |token_i| return token_i;
+            }
+            return null;
+        },
+        .call,
+        .do,
+        .@"if",
+        .@"while",
+        => {
+            const data = p.nodes.items(.data)[i];
+            const sub_range = p.extraData(data.rhs, Node.SubRange);
+            for (sub_range.start..sub_range.end, 1..) |_, temp_i| {
+                const node_i = p.extra_data.items[sub_range.end - temp_i];
+                if (p.findFirstIdentifier(node_i)) |token_i| return token_i;
+            }
+            return null;
+        },
+
+        .root,
+        .empty_list,
+        .table_literal,
+        .number_literal,
+        .string_literal,
+        .symbol_literal,
+        .symbol_list_literal,
+        .colon,
+        .colon_colon,
+        .plus,
+        .plus_colon,
+        .minus,
+        .minus_colon,
+        .asterisk,
+        .asterisk_colon,
+        .percent,
+        .percent_colon,
+        .bang,
+        .bang_colon,
+        .ampersand,
+        .ampersand_colon,
+        .pipe,
+        .pipe_colon,
+        .angle_bracket_left,
+        .angle_bracket_left_colon,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_colon,
+        .angle_bracket_right_equal,
+        .equal,
+        .equal_colon,
+        .tilde,
+        .tilde_colon,
+        .comma,
+        .comma_colon,
+        .caret,
+        .caret_colon,
+        .hash,
+        .hash_colon,
+        .underscore,
+        .underscore_colon,
+        .dollar,
+        .dollar_colon,
+        .question_mark,
+        .question_mark_colon,
+        .at,
+        .at_colon,
+        .dot,
+        .dot_colon,
+        .zero_colon,
+        .zero_colon_colon,
+        .one_colon,
+        .one_colon_colon,
+        .two_colon,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        .lambda_one,
+        .lambda_one_semicolon,
+        .lambda,
+        .lambda_semicolon,
+        .abs,
+        .acos,
+        .asin,
+        .atan,
+        .avg,
+        .cos,
+        .dev,
+        .enlist,
+        .exit,
+        .exp,
+        .getenv,
+        .hopen,
+        .last,
+        .log,
+        .max,
+        .min,
+        .prd,
+        .sin,
+        .sqrt,
+        .sum,
+        .tan,
+        .@"var",
+        .bin,
+        .binr,
+        .cor,
+        .cov,
+        .div,
+        .in,
+        .insert,
+        .like,
+        .setenv,
+        .ss,
+        .wavg,
+        .within,
+        .wsum,
+        .xexp,
+        => return null,
+    }
 }
 
 fn lambda(p: *Parse) Error!Node.Index {
@@ -966,10 +1207,10 @@ const Token = kdb.Token;
 const log = std.log.scoped(.kdbLint_Parse);
 
 fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
-    const tag = tree.nodes.items(.tag)[i];
+    const tag: Node.Tag = tree.nodes.items(.tag)[i];
     try tags.append(tag);
 
-    switch (tree.nodes.items(.tag)[i]) {
+    switch (tag) {
         .implicit_return,
         .grouped_expression,
         => {
@@ -978,6 +1219,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .call_one,
         .add,
+        .global_assign,
         => {
             const data = tree.nodes.items(.data)[i];
             if (data.rhs > 0) {
@@ -1006,6 +1248,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .identifier,
         .number_literal,
         .empty_list,
+        .sum,
         => {},
         .call => {
             const data = tree.nodes.items(.data)[i];
@@ -1037,6 +1280,19 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
                     try appendTags(tree, node_i, tags);
                 }
             }
+        },
+        .table_literal => {
+            const data = tree.nodes.items(.data)[i];
+            const table = tree.extraData(data.lhs, Node.Table);
+            for (table.expr_start..table.expr_start + table.len, 1..) |_, temp_i| {
+                const node_i = tree.extra_data[table.expr_start + table.len - temp_i];
+                try appendTags(tree, node_i, tags);
+            }
+        },
+        .implicit_apply => {
+            const data = tree.nodes.items(.data)[i];
+            try appendTags(tree, data.rhs, tags);
+            try appendTags(tree, data.lhs, tags);
         },
         else => |t| panic("{s}", .{@tagName(t)}),
     }
@@ -1190,6 +1446,20 @@ test "list" {
     try testParse("(0;1)", &.{ .implicit_return, .list, .number_literal, .number_literal }, "(enlist;0;1)");
     try testParse("(0;1;)", &.{ .implicit_return, .list, .number_literal, .number_literal }, "(enlist;0;1;::)");
     try testParse("(0;1;2)", &.{ .implicit_return, .list, .number_literal, .number_literal, .number_literal }, "(enlist;0;1;2)");
+}
+
+test "table" {
+    try testParse("([]())", &.{ .implicit_return, .table_literal, .empty_list }, "(+:;(!;,,`x;(enlist;())))");
+    try testParse("([]1 2)", &.{ .implicit_return, .table_literal, .number_literal }, "(+:;(!;,,`x;(enlist;1 2)))");
+    try testParse("([]a:1 2)", &.{ .implicit_return, .table_literal, .number_literal }, "(+:;(!;,,`a;(enlist;1 2)))");
+    try testParse("([]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .number_literal, .identifier }, "(+:;(!;,,`x;(enlist;(::;`a;1 2))))");
+    try testParse("([]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal }, "(+:;(!;,`a`b;(enlist;1 2;2)))");
+    try testParse("([]a)", &.{ .implicit_return, .table_literal, .identifier }, "(+:;(!;,,`a;(enlist;`a)))");
+    try testParse("([]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier }, "(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))))");
+    try testParse("([]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum }, "(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))))");
+    try testParse("([](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier }, "(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))))");
+    try testParse("([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)))");
+    try testParse("([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))))");
 }
 
 test {
