@@ -570,6 +570,8 @@ pub const Node = struct {
         /// Index into extra_data.
         limit: Index,
         len: u32,
+        /// TODO: Remove
+        has_by: u32,
     };
 
     pub const Exec = struct {
@@ -1392,20 +1394,30 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             var where = std.ArrayList(u8).init(gpa);
             defer where.deinit();
-            const where_i = tree.getExtraData(select_node.where);
-            if (where_i == 0) {
+            const where_slice = tree.extra_data[select_node.where..select_node.by];
+            if (where_slice.len == 0) {
                 try where.appendSlice("()");
             } else {
-                try tree.print(where_i, where.writer(), gpa);
+                var temp = std.ArrayList(u8).init(gpa);
+                defer temp.deinit();
+                try where.append(',');
+                if (where_slice.len > 1) try temp.append('(');
+                for (where_slice, 0..) |where_i, temp_i| {
+                    try tree.print(where_i, temp.writer(), gpa);
+                    if (temp_i < where_slice.len - 1) try temp.append(';');
+                }
+                if (where_slice.len > 1) try temp.append(')');
+                if (temp.items[0] != '(' or temp.items[1] == ')') try where.append(',');
+                try where.appendSlice(temp.items);
             }
 
             var by = std.ArrayList(u8).init(gpa);
             defer by.deinit();
-            const by_i = tree.getExtraData(select_node.where);
-            if (by_i == 0) {
-                try by.appendSlice("0b");
+            const by_slice = tree.extra_data[select_node.by..select_node.select];
+            if (by_slice.len == 0) {
+                try by.appendSlice(if (select_node.has_by != 0) "()!()" else "0b");
             } else {
-                try tree.print(by_i, by.writer(), gpa);
+                // try tree.print(by_i, by.writer(), gpa);
             }
 
             var select = std.ArrayList(u8).init(gpa);
@@ -1414,7 +1426,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
             if (select_i == 0) {
                 try select.appendSlice("()");
             } else {
-                try tree.print(select_i, select.writer(), gpa);
+                // try tree.print(select_i, select.writer(), gpa);
             }
 
             if (select_node.len > 0) {
