@@ -11,6 +11,7 @@ mode: Ast.Mode,
 tok_i: TokenIndex = 0,
 eob: bool = false,
 ends_expr_tags: std.ArrayListUnmanaged(Token.Tag) = .{},
+ends_sql_expr_identifiers: std.ArrayListUnmanaged(?SqlIdentifier) = .{},
 errors: std.ArrayListUnmanaged(AstError) = .{},
 nodes: Ast.NodeList = .{},
 extra_data: std.ArrayListUnmanaged(Node.Index) = .{},
@@ -20,6 +21,7 @@ table_scratch: std.ArrayListUnmanaged([]const u8) = .{},
 
 pub fn deinit(p: *Parse) void {
     p.ends_expr_tags.deinit(p.gpa);
+    p.ends_sql_expr_identifiers.deinit(p.gpa);
     p.errors.deinit(p.gpa);
     p.nodes.deinit(p.gpa);
     p.extra_data.deinit(p.gpa);
@@ -53,6 +55,13 @@ const OperInfo = struct {
     prefix: ?*const fn (*Parse) Error!Node.Index,
     infix: ?*const fn (*Parse, Node.Index) Error!Node.Index,
     prec: Precedence,
+};
+
+const SqlIdentifier = packed struct(u8) {
+    by: bool = false,
+    from: bool = false,
+    where: bool = false,
+    _: u5 = 0,
 };
 
 fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
@@ -215,15 +224,37 @@ fn parseBlock(p: *Parse) Error!Node.Index {
     return node;
 }
 
-fn parseExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
-    try p.ends_expr_tags.append(p.gpa, ends_expr);
+fn parseExpr(p: *Parse, comptime tag: Token.Tag) Error!Node.Index {
+    try p.ends_expr_tags.append(p.gpa, tag);
     defer _ = p.ends_expr_tags.pop();
+
+    try p.ends_sql_expr_identifiers.append(p.gpa, null);
+    defer _ = p.ends_sql_expr_identifiers.pop();
 
     return p.parsePrecedence(Precedence.secondary);
 }
 
-fn expectExpr(p: *Parse, ends_expr: Token.Tag) Error!Node.Index {
-    const node = try p.parseExpr(ends_expr);
+fn expectExpr(p: *Parse, comptime tag: Token.Tag) Error!Node.Index {
+    const node = try p.parseExpr(tag);
+    if (node == 0) {
+        return p.fail(.expected_expr);
+    } else {
+        return node;
+    }
+}
+
+fn parseSqlExpr(p: *Parse, comptime identifier: SqlIdentifier) Error!Node.Index {
+    try p.ends_expr_tags.append(p.gpa, .semicolon);
+    defer _ = p.ends_expr_tags.pop();
+
+    try p.ends_sql_expr_identifiers.append(p.gpa, identifier);
+    defer _ = p.ends_sql_expr_identifiers.pop();
+
+    return p.parsePrecedence(Precedence.secondary);
+}
+
+fn expectSqlExpr(p: *Parse, comptime identifier: SqlIdentifier) Error!Node.Index {
+    const node = try p.parseSqlExpr(identifier);
     if (node == 0) {
         return p.fail(.expected_expr);
     } else {
@@ -893,6 +924,10 @@ fn @"while"(p: *Parse) Error!Node.Index {
     }
 }
 
+// TODO: select a,by from([]a:0 1;by:2 3)
+//               ^
+// TODO: select from x where
+//                         ^
 fn select(p: *Parse) Error!Node.Index {
     const select_token = p.assertToken(.keyword_select);
 
@@ -901,35 +936,49 @@ fn select(p: *Parse) Error!Node.Index {
 
     // Limit expression
     const limit_top = p.scratch.items.len;
-    if (p.eatToken(.l_bracket)) |l_bracket| {
-        _ = l_bracket; // autofix
+    if (p.eatToken(.l_bracket)) |_| {
         _ = try p.expectToken(.r_bracket);
     }
 
     // Select phrase
     const select_top = p.scratch.items.len;
-    if (true) {
-        //
+    while (true) {
+        const expr = try p.parseSqlExpr(.{ .by = true, .from = true });
+        if (expr == 0) break;
+        try p.scratch.append(p.gpa, expr);
+        if (p.eatToken(.comma)) |_| continue;
+        break;
     }
 
     // By phrase
     const by_top = p.scratch.items.len;
-    if (p.eatIdentifier("by")) |by_token| {
-        _ = by_token; // autofix
+    const has_by = p.eatIdentifier("by") != null;
+    if (has_by) {
+        while (true) {
+            const expr = try p.parseSqlExpr(.{ .from = true });
+            if (expr == 0) break;
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
     }
 
     // From phrase
     const from_top = p.scratch.items.len;
-    const from = try p.expectIdentifier("from");
-    _ = from; // autofix
-    // TODO: THIS IS JUST FOR TESTING!
-    const from_expr = try Prefix(.identifier)(p);
+    _ = try p.expectIdentifier("from");
+    const from_expr = try p.expectSqlExpr(.{ .where = true });
     try p.scratch.append(p.gpa, from_expr);
 
     // Where phrase
     const where_top = p.scratch.items.len;
-    if (p.eatIdentifier("where")) |where_token| {
-        _ = where_token; // autofix
+    if (p.eatIdentifier("where")) |_| {
+        while (true) {
+            const expr = try p.parseSqlExpr(.{});
+            if (expr == 0) break;
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
     }
 
     const select_node = Node.Select{
@@ -939,6 +988,7 @@ fn select(p: *Parse) Error!Node.Index {
         .select = try p.addList(p.scratch.items[select_top..by_top]),
         .limit = try p.addList(p.scratch.items[limit_top..select_top]),
         .len = @intCast(select_top - limit_top),
+        .has_by = @intFromBool(has_by),
     };
     return p.addNode(.{
         .tag = .select,
@@ -1126,6 +1176,19 @@ fn getRule(p: *Parse) OperInfo {
     const tag = p.peekTag();
     if (p.ends_expr_tags.getLastOrNull()) |t| if (tag == t or tag == .semicolon) {
         return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+    };
+    if (p.ends_sql_expr_identifiers.getLastOrNull()) |i| if (i != null) {
+        switch (tag) {
+            .identifier => {
+                const loc = p.token_locs[p.tok_i];
+                const source = p.source[loc.start..loc.end];
+                if (i.?.by and std.mem.eql(u8, source, "by")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+                if (i.?.from and std.mem.eql(u8, source, "from")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+                if (i.?.where and std.mem.eql(u8, source, "where")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+            },
+            .comma => return .{ .prefix = NoOp(false), .infix = null, .prec = .none },
+            else => {},
+        }
     };
     return operTable[@intFromEnum(tag)];
 }
@@ -1381,6 +1444,27 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
             try appendTags(tree, data.rhs, tags);
             try appendTags(tree, data.lhs, tags);
         },
+        .select => {
+            const data = tree.nodes.items(.data)[i];
+            const select_node = tree.extraData(data.rhs, Node.Select);
+
+            const from_i = tree.extra_data[select_node.from];
+            try appendTags(tree, from_i, tags);
+
+            for (tree.extra_data[select_node.where..select_node.by]) |where_i| {
+                try appendTags(tree, where_i, tags);
+            }
+
+            for (tree.extra_data[select_node.by..select_node.select]) |by_i| {
+                try appendTags(tree, by_i, tags);
+            }
+
+            for (tree.extra_data[select_node.select..select_node.limit]) |select_i| {
+                try appendTags(tree, select_i, tags);
+            }
+
+            if (select_node.len > 0) unreachable;
+        },
         else => |t| panic("{s}", .{@tagName(t)}),
     }
 }
@@ -1547,6 +1631,15 @@ test "table" {
     try testParse("([](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier }, "(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))))");
     try testParse("([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)))");
     try testParse("([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))))");
+}
+
+test "select" {
+    try testParse("select from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();0b;())");
+    try testParse("select by from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();()!();())");
+    try testParse("select from x where 1b", &.{ .implicit_return, .select, .identifier, .number_literal }, "(?;`x;,,1b;0b;())");
+    try testParse("select by from x where 1b", &.{ .implicit_return, .select, .identifier, .number_literal }, "(?;`x;,,1b;()!();())");
+    try testParse("select from x where 1b,0b", &.{ .implicit_return, .select, .identifier, .number_literal, .number_literal }, "(?;`x;,(1b;0b);0b;())");
+    try testParse("select by from x where 1b,0b", &.{ .implicit_return, .select, .identifier, .number_literal, .number_literal }, "(?;`x;,(1b;0b);()!();())");
 }
 
 test {
