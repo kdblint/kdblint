@@ -570,10 +570,9 @@ pub const Node = struct {
         /// Index into extra_data.
         select: Index,
         /// Index into extra_data.
-        limit: Index,
-        len: u32,
-        /// TODO: Remove
-        has_by: u32,
+        limit_start: Index,
+        /// Index into extra_data.
+        limit_end: Index,
     };
 
     pub const Exec = struct {
@@ -1396,7 +1395,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             var where = std.ArrayList(u8).init(gpa);
             defer where.deinit();
-            const where_slice = tree.extra_data[select_node.where..select_node.by];
+            const where_slice = tree.extra_data[select_node.where..if (select_node.by > 0) select_node.by else select_node.select];
             if (where_slice.len == 0) {
                 try where.appendSlice("()");
             } else {
@@ -1415,23 +1414,27 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             var by = std.ArrayList(u8).init(gpa);
             defer by.deinit();
-            const by_slice = tree.extra_data[select_node.by..select_node.select];
-            if (by_slice.len == 0) {
-                try by.appendSlice(if (select_node.has_by != 0) "()!()" else "0b");
+            if (select_node.by == 0) { // undefined by phrase
+                try by.appendSlice("0b");
             } else {
-                // try tree.print(by_i, by.writer(), gpa);
+                const by_slice = tree.extra_data[select_node.by..select_node.select];
+                if (by_slice.len == 0) {
+                    try by.appendSlice("()!()");
+                } else {
+                    // try tree.print(by_i, by.writer(), gpa);
+                }
             }
 
             var select = std.ArrayList(u8).init(gpa);
             defer select.deinit();
-            const select_slice = tree.extra_data[select_node.select..select_node.limit];
+            const select_slice = tree.extra_data[select_node.select..select_node.limit_start];
             if (select_slice.len == 0) {
                 try select.appendSlice("()");
             } else {
                 // try tree.print(select_i, select.writer(), gpa);
             }
 
-            if (select_node.len > 0) {
+            if (select_node.limit_end > select_node.limit_start) {
                 panic("NYI", .{});
                 try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, "LIMIT" });
             } else {
