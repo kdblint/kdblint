@@ -954,12 +954,13 @@ fn select(p: *Parse) Error!Node.Index {
     const by_top = p.scratch.items.len;
     const has_by = p.eatIdentifier("by") != null;
     if (has_by) {
-        while (true) {
-            const expr = try p.parseSqlExpr(.{ .from = true });
-            if (expr == 0) break;
+        const expr = try p.parseSqlExpr(.{ .from = true });
+        if (expr > 0) {
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            while (p.eatToken(.comma) != null) {
+                const sql_expr = try p.expectSqlExpr(.{ .from = true });
+                try p.scratch.append(p.gpa, sql_expr);
+            }
         }
     }
 
@@ -973,8 +974,7 @@ fn select(p: *Parse) Error!Node.Index {
     const where_top = p.scratch.items.len;
     if (p.eatIdentifier("where")) |_| {
         while (true) {
-            const expr = try p.parseSqlExpr(.{});
-            if (expr == 0) break;
+            const expr = try p.expectSqlExpr(.{});
             try p.scratch.append(p.gpa, expr);
             if (p.eatToken(.comma)) |_| continue;
             break;
@@ -1635,11 +1635,17 @@ test "table" {
 
 test "select" {
     try testParse("select from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();0b;())");
+    try testParse("select a,b from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();0b;`a`b!`a`b)");
     try testParse("select by from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();()!();())");
-    try testParse("select from x where 1b", &.{ .implicit_return, .select, .identifier, .number_literal }, "(?;`x;,,1b;0b;())");
-    try testParse("select by from x where 1b", &.{ .implicit_return, .select, .identifier, .number_literal }, "(?;`x;,,1b;()!();())");
-    try testParse("select from x where 1b,0b", &.{ .implicit_return, .select, .identifier, .number_literal, .number_literal }, "(?;`x;,(1b;0b);0b;())");
-    try testParse("select by from x where 1b,0b", &.{ .implicit_return, .select, .identifier, .number_literal, .number_literal }, "(?;`x;,(1b;0b);()!();())");
+    try testParse("select a,b by from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();()!();`a`b!`a`b)");
+    try testParse("select by c,d from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;())");
+    try testParse("select a,b by c,d from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;`a`b!`a`b)");
+    try testParse("select from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);0b;())");
+    try testParse("select a,b from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);0b;`a`b!`a`b)");
+    try testParse("select by from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);()!();())");
+    try testParse("select a,b by from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);()!();`a`b!`a`b)");
+    try testParse("select by c,d from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;())");
+    try testParse("select a,b by c,d from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;`a`b!`a`b)");
 }
 
 test {
