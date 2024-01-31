@@ -984,11 +984,10 @@ fn select(p: *Parse) Error!Node.Index {
     const select_node = Node.Select{
         .from = try p.addList(p.scratch.items[from_top..where_top]),
         .where = try p.addList(p.scratch.items[where_top..]),
-        .by = try p.addList(p.scratch.items[by_top..from_top]),
+        .by = if (has_by) try p.addList(p.scratch.items[by_top..from_top]) else 0,
         .select = try p.addList(p.scratch.items[select_top..by_top]),
-        .limit = try p.addList(p.scratch.items[limit_top..select_top]),
-        .len = @intCast(select_top - limit_top),
-        .has_by = @intFromBool(has_by),
+        .limit_start = try p.addList(p.scratch.items[limit_top..select_top]),
+        .limit_end = @intCast(p.extra_data.items.len),
     };
     return p.addNode(.{
         .tag = .select,
@@ -1451,19 +1450,23 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
             const from_i = tree.extra_data[select_node.from];
             try appendTags(tree, from_i, tags);
 
-            for (tree.extra_data[select_node.where..select_node.by]) |where_i| {
+            for (tree.extra_data[select_node.where..if (select_node.by > 0) select_node.by else select_node.select]) |where_i| {
                 try appendTags(tree, where_i, tags);
             }
 
-            for (tree.extra_data[select_node.by..select_node.select]) |by_i| {
-                try appendTags(tree, by_i, tags);
+            if (select_node.by > 0) {
+                for (tree.extra_data[select_node.by..select_node.select]) |by_i| {
+                    try appendTags(tree, by_i, tags);
+                }
             }
 
-            for (tree.extra_data[select_node.select..select_node.limit]) |select_i| {
+            for (tree.extra_data[select_node.select..select_node.limit_start]) |select_i| {
                 try appendTags(tree, select_i, tags);
             }
 
-            if (select_node.len > 0) unreachable;
+            for (tree.extra_data[select_node.limit_start..select_node.limit_end]) |limit_i| {
+                try appendTags(tree, limit_i, tags);
+            }
         },
         else => |t| panic("{s}", .{@tagName(t)}),
     }
