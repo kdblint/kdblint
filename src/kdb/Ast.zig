@@ -127,6 +127,8 @@ pub const Error = struct {
 
         /// `expected_string` is populated.
         expected_qsql_token,
+
+        expected_select_phrase,
     };
 };
 
@@ -1422,8 +1424,8 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             var select = std.ArrayList(u8).init(gpa);
             defer select.deinit();
-            const select_i = tree.getExtraData(select_node.select);
-            if (select_i == 0) {
+            const select_slice = tree.extra_data[select_node.select..select_node.limit];
+            if (select_slice.len == 0) {
                 try select.appendSlice("()");
             } else {
                 // try tree.print(select_i, select.writer(), gpa);
