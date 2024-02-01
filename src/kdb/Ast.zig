@@ -128,7 +128,9 @@ pub const Error = struct {
         /// `expected_string` is populated.
         expected_qsql_token,
 
+        expected_from,
         expected_select_phrase,
+        expected_by_phrase,
     };
 };
 
@@ -567,8 +569,12 @@ pub const Node = struct {
         where: Index,
         /// Index into extra_data.
         by: Index,
+        /// Index into table_columns.
+        by_columns: Index,
         /// Index into extra_data.
         select: Index,
+        /// Index into table_columns.
+        select_columns: Index,
         /// Index into extra_data.
         limit_start: Index,
         /// Index into extra_data.
@@ -1420,8 +1426,22 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
                 const by_slice = tree.extra_data[select_node.by..select_node.select];
                 if (by_slice.len == 0) {
                     try by.appendSlice("()!()");
+                } else if (by_slice.len == 1) {
+                    try by.appendSlice("(,`");
+                    try by.appendSlice(tree.table_columns[select_node.by_columns]);
+                    try by.appendSlice(")!");
+                    for (by_slice) |by_i| {
+                        try tree.print(by_i, by.writer(), gpa);
+                    }
                 } else {
-                    // try tree.print(by_i, by.writer(), gpa);
+                    for (tree.table_columns[select_node.by_columns .. select_node.by_columns + by_slice.len]) |column| {
+                        try by.append('`');
+                        try by.appendSlice(column);
+                    }
+                    try by.append('!');
+                    for (by_slice) |by_i| {
+                        try tree.print(by_i, by.writer(), gpa);
+                    }
                 }
             }
 
@@ -1430,8 +1450,22 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
             const select_slice = tree.extra_data[select_node.select..select_node.limit_start];
             if (select_slice.len == 0) {
                 try select.appendSlice("()");
+            } else if (select_slice.len == 1) {
+                try select.appendSlice("(,`");
+                try select.appendSlice(tree.table_columns[select_node.select_columns]);
+                try select.appendSlice(")!");
+                for (select_slice) |select_i| {
+                    try tree.print(select_i, select.writer(), gpa);
+                }
             } else {
-                // try tree.print(select_i, select.writer(), gpa);
+                for (tree.table_columns[select_node.select_columns .. select_node.select_columns + select_slice.len]) |column| {
+                    try select.append('`');
+                    try select.appendSlice(column);
+                }
+                try select.append('!');
+                for (select_slice) |select_i| {
+                    try tree.print(select_i, select.writer(), gpa);
+                }
             }
 
             if (select_node.limit_end > select_node.limit_start) {
