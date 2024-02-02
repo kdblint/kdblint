@@ -579,6 +579,8 @@ pub const Node = struct {
         limit_start: Index,
         /// Index into extra_data.
         limit_end: Index,
+        /// bool
+        distinct: u32,
     };
 
     pub const Exec = struct {
@@ -993,7 +995,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
     }
 }
 
-pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
+pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocator.Error!void {
     switch (tree.getTag(i)) {
         .root => unreachable,
         .grouped_expression,
@@ -1420,28 +1422,18 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
 
             var by = std.ArrayList(u8).init(gpa);
             defer by.deinit();
-            if (select_node.by == 0) { // undefined by phrase
+            if (select_node.distinct != 0) {
+                try by.appendSlice("1b");
+            } else if (select_node.by == 0) { // undefined by phrase
                 try by.appendSlice("0b");
             } else {
                 const by_slice = tree.extra_data[select_node.by..select_node.select];
                 if (by_slice.len == 0) {
                     try by.appendSlice("()!()");
-                } else if (by_slice.len == 1) {
-                    try by.appendSlice("(,`");
-                    try by.appendSlice(tree.table_columns[select_node.by_columns]);
-                    try by.appendSlice(")!");
-                    for (by_slice) |by_i| {
-                        try tree.print(by_i, by.writer(), gpa);
-                    }
                 } else {
-                    for (tree.table_columns[select_node.by_columns .. select_node.by_columns + by_slice.len]) |column| {
-                        try by.append('`');
-                        try by.appendSlice(column);
-                    }
+                    try tree.printColumns(select_node.by_columns, by_slice.len, by.writer());
                     try by.append('!');
-                    for (by_slice) |by_i| {
-                        try tree.print(by_i, by.writer(), gpa);
-                    }
+                    try tree.printList(by_slice, by.writer(), gpa);
                 }
             }
 
@@ -1450,22 +1442,10 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
             const select_slice = tree.extra_data[select_node.select..select_node.limit_start];
             if (select_slice.len == 0) {
                 try select.appendSlice("()");
-            } else if (select_slice.len == 1) {
-                try select.appendSlice("(,`");
-                try select.appendSlice(tree.table_columns[select_node.select_columns]);
-                try select.appendSlice(")!");
-                for (select_slice) |select_i| {
-                    try tree.print(select_i, select.writer(), gpa);
-                }
             } else {
-                for (tree.table_columns[select_node.select_columns .. select_node.select_columns + select_slice.len]) |column| {
-                    try select.append('`');
-                    try select.appendSlice(column);
-                }
+                try tree.printColumns(select_node.select_columns, select_slice.len, select.writer());
                 try select.append('!');
-                for (select_slice) |select_i| {
-                    try tree.print(select_i, select.writer(), gpa);
-                }
+                try tree.printList(select_slice, select.writer(), gpa);
             }
 
             if (select_node.limit_end > select_node.limit_start) {
@@ -1480,6 +1460,64 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) !void {
         .delete_rows,
         .delete_cols,
         => unreachable,
+    }
+}
+
+fn printColumns(tree: Ast, start: Node.Index, len: usize, stream: anytype) Allocator.Error!void {
+    const columns = tree.table_columns[start .. start + len];
+    assert(columns.len > 0);
+    if (columns.len == 1) {
+        try stream.print("(,`{s})", .{columns[0]});
+    } else {
+        for (columns) |column| {
+            try stream.print("`{s}", .{column});
+        }
+    }
+}
+
+fn printList(tree: Ast, list: []Node.Index, stream: anytype, gpa: Allocator) Allocator.Error!void {
+    switch (list.len) {
+        0 => {
+            try stream.writeAll("()");
+        },
+        1 => {
+            try stream.writeAll(",");
+            for (list) |i| {
+                try tree.print(i, stream, gpa);
+            }
+        },
+        else => {
+            var hash_set = std.AutoHashMap(Node.Tag, void).init(gpa);
+            defer hash_set.deinit();
+
+            try hash_set.put(tree.getTag(list[0]), {});
+            for (list[1..]) |i| {
+                const tag = tree.getTag(i);
+                const result = try hash_set.getOrPut(tag);
+                if (!result.found_existing) break;
+            } else {
+                var iter = hash_set.keyIterator();
+                const tag = iter.next().?.*;
+                switch (tag) {
+                    .identifier => {
+                        for (list) |i| {
+                            try tree.print(i, stream, gpa);
+                        }
+                        return;
+                    },
+                    else => {},
+                }
+            }
+
+            try stream.writeAll("(");
+            for (list, 0..) |i, temp_i| {
+                try tree.print(i, stream, gpa);
+                if (temp_i < list.len - 1) {
+                    try stream.writeAll(";");
+                }
+            }
+            try stream.writeAll(")");
+        },
     }
 }
 
