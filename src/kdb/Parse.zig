@@ -61,7 +61,8 @@ const SqlIdentifier = packed struct(u8) {
     by: bool = false,
     from: bool = false,
     where: bool = false,
-    _: u5 = 0,
+    distinct: bool = false,
+    _: u4 = 0,
 };
 
 fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
@@ -947,7 +948,54 @@ fn select(p: *Parse) Error!Node.Index {
 
     // Limit expression
     const limit_top = p.scratch.items.len;
-    if (p.eatToken(.l_bracket)) |_| {
+    var distinct = false;
+    if (p.peekIdentifier(.{ .distinct = true })) |_| {
+        var found_by = false;
+        var counter = struct {
+            paren: u32 = 0,
+            brace: u32 = 0,
+            bracket: u32 = 0,
+        }{};
+        // Skip ahead to find by clause.
+        var i = p.tok_i + 1;
+        var skipped_tokens: u32 = 0;
+        while (true) : (i += 1) {
+            switch (p.token_tags[i]) {
+                .comment => continue,
+                .l_paren => counter.paren += 1,
+                .r_paren => counter.paren = @max(0, @as(i32, @intCast(counter.paren)) - 1),
+                .l_brace => counter.brace += 1,
+                .r_brace => counter.brace = @max(0, @as(i32, @intCast(counter.brace)) - 1),
+                .l_bracket => counter.bracket += 1,
+                .r_bracket => counter.bracket = @max(0, @as(i32, @intCast(counter.bracket)) - 1),
+                .identifier => {
+                    if (counter.paren == 0 and counter.brace == 0 and counter.bracket == 0) {
+                        if (p.identifierEql("by", i)) {
+                            i += 1;
+                            while (true) : (i += 1) {
+                                if (p.token_tags[i] != .comment) break;
+                                if (p.token_eobs[i]) break;
+                            }
+                            if (!p.identifierEql("from", i)) {
+                                found_by = true;
+                            }
+                            break;
+                        } else if (p.identifierEql("from", i)) {
+                            break;
+                        }
+                    }
+                },
+                else => {},
+            }
+            if (p.token_eobs[i]) break;
+            skipped_tokens += 1;
+        }
+
+        if (!found_by or skipped_tokens == 0) {
+            _ = p.assertToken(.identifier);
+            distinct = true;
+        }
+    } else if (p.eatToken(.l_bracket)) |_| {
         _ = try p.expectToken(.r_bracket);
     }
 
@@ -1028,6 +1076,7 @@ fn select(p: *Parse) Error!Node.Index {
         .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..by_columns_top]),
         .limit_start = try p.addList(p.scratch.items[limit_top..select_top]),
         .limit_end = @intCast(p.extra_data.items.len),
+        .distinct = @intFromBool(distinct and !has_by),
     };
     return p.addNode(.{
         .tag = .select,
@@ -1163,13 +1212,11 @@ fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
 }
 
 fn peekIdentifier(p: *Parse, comptime identifier: SqlIdentifier) ?TokenIndex {
-    if (p.peekTag() == .identifier) {
-        const loc = p.token_locs[p.tok_i];
-        const source = p.source[loc.start..loc.end];
-        if (identifier.by) if (std.mem.eql(u8, source, "by")) return p.tok_i;
-        if (identifier.from) if (std.mem.eql(u8, source, "from")) return p.tok_i;
-        if (identifier.where) if (std.mem.eql(u8, source, "where")) return p.tok_i;
-    }
+    if (p.peekTag() != .identifier) return null;
+    if (identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
+    if (identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
+    if (identifier.where) if (p.identifierEql("where", p.tok_i)) return p.tok_i;
+    if (identifier.distinct) if (p.identifierEql("distinct", p.tok_i)) return p.tok_i;
     return null;
 }
 
@@ -1188,6 +1235,15 @@ fn expectIdentifier(p: *Parse, comptime identifier: SqlIdentifier) Error!TokenIn
         .token = p.tok_i,
         .extra = .{ .expected_string = if (identifier.by) "by" else if (identifier.from) "from" else if (identifier.where) "where" else unreachable },
     });
+}
+
+fn identifierEql(p: *Parse, comptime slice: []const u8, i: Node.Index) bool {
+    if (p.token_tags[i] == .identifier) {
+        const loc = p.token_locs[i];
+        const source = p.source[loc.start..loc.end];
+        return std.mem.eql(u8, source, slice);
+    }
+    return false;
 }
 
 fn nextToken(p: *Parse) TokenIndex {
@@ -1442,6 +1498,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .empty_list,
         .sum,
         .symbol_literal,
+        .symbol_list_literal,
         => {},
         .call => {
             const data = tree.nodes.items(.data)[i];
@@ -1682,29 +1739,46 @@ test "table" {
 
 test "select" {
     try testParse("select from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();0b;())");
-    try testParse("select a from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;(,`a)!`a)");
+    try testParse("select a from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;(,`a)!,`a)");
     try testParse("select a,b from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();0b;`a`b!`a`b)");
     try testParse("select by from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();()!();())");
-    try testParse("select a by from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();()!();(,`a)!`a)");
+    try testParse("select a by from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();()!();(,`a)!,`a)");
     try testParse("select a,b by from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();()!();`a`b!`a`b)");
-    try testParse("select by c from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();(,`c)!`c;())");
+    try testParse("select by c from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();(,`c)!,`c;())");
     try testParse("select by c,d from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;())");
-    try testParse("select a by c from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();(,`c)!`c;(,`a)!`a)");
+    try testParse("select a by c from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();(,`c)!,`c;(,`a)!,`a)");
     try testParse("select a,b by c,d from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;`a`b!`a`b)");
     try testParse("select from x where e", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;,,`e;0b;())");
     try testParse("select from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);0b;())");
-    try testParse("select a from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;0b;(,`a)!`a)");
+    try testParse("select a from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;0b;(,`a)!,`a)");
     try testParse("select a,b from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);0b;`a`b!`a`b)");
     try testParse("select by from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);()!();())");
-    try testParse("select a by from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;()!();(,`a)!`a)");
+    try testParse("select a by from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;()!();(,`a)!,`a)");
     try testParse("select a,b by from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);()!();`a`b!`a`b)");
-    try testParse("select by c from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!`c;())");
+    try testParse("select by c from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!,`c;())");
     try testParse("select by c,d from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;())");
-    try testParse("select a by c from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!`c;(,`a)!`a)");
+    try testParse("select a by c from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!,`c;(,`a)!,`a)");
     try testParse("select a,b by c,d from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;`a`b!`a`b)");
 
-    if (true) return error.SkipZigTest;
-    try testParse("select`test from x", &.{ .implicit_return, .select, .identifier, .symbol_literal }, "(?;`x;();0b;(,`x)!,,`test)");
+    try testParse("select`a from x", &.{ .implicit_return, .select, .identifier, .symbol_literal }, "(?;`x;();0b;(,`x)!,,`a)");
+    try testParse("select`a`b from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal }, "(?;`x;();0b;(,`x)!,,`a`b)");
+    try testParse("select`a,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_literal }, "(?;`x;();0b;`x`x1!(,`a;,`c))");
+    try testParse("select`a,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_list_literal }, "(?;`x;();0b;`x`x1!(,`a;,`c`d))");
+    try testParse("select`a`b,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_literal }, "(?;`x;();0b;`x`x1!(,`a`b;,`c))");
+    try testParse("select`a`b,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_list_literal }, "(?;`x;();0b;`x`x1!(,`a`b;,`c`d))");
+    try testParse("select by`a from x", &.{ .implicit_return, .select, .identifier, .symbol_literal }, "(?;`x;();(,`x)!,,`a;())");
+    try testParse("select by`a`b from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal }, "(?;`x;();(,`x)!,,`a`b;())");
+    try testParse("select by`a,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_literal }, "(?;`x;();`x`x1!(,`a;,`c);())");
+    try testParse("select by`a,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_list_literal }, "(?;`x;();`x`x1!(,`a;,`c`d);())");
+    try testParse("select by`a`b,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_literal }, "(?;`x;();`x`x1!(,`a`b;,`c);())");
+    try testParse("select by`a`b,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_list_literal }, "(?;`x;();`x`x1!(,`a`b;,`c`d);())");
+
+    try testParse("select distinct from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();1b;())");
+    try testParse("select distinct a from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();1b;(,`a)!,`a)");
+    try testParse("select distinct by from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();()!();())");
+    try testParse("select distinct a by from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();()!();(,`a)!,`a)");
+    try testParse("select distinct by b from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();(,`b)!,`b;())");
+    try testParse("select distinct a by b from x", &.{ .implicit_return, .select, .identifier, .identifier, .implicit_apply, .identifier, .identifier }, "(?;`x;();(,`b)!,`b;(,`a)!,(`distinct;`a))");
 }
 
 test {
