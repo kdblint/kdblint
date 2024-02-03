@@ -563,22 +563,23 @@ pub const Node = struct {
     };
 
     pub const Select = struct {
-        /// Index into extra_data.
         from: Index,
         /// Index into extra_data.
         where: Index,
+        /// bool
+        has_by: u32,
         /// Index into extra_data.
         by: Index,
         /// Index into table_columns.
         by_columns: Index,
         /// Index into extra_data.
         select: Index,
+        /// Index into extra_data.
+        select_end: Index,
         /// Index into table_columns.
         select_columns: Index,
-        /// Index into extra_data.
-        limit_start: Index,
-        /// Index into extra_data.
-        limit_end: Index,
+        limit: Index,
+        order: Index,
         /// bool
         distinct: u32,
     };
@@ -1398,12 +1399,11 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
-            const from_i = tree.getExtraData(select_node.from);
-            try tree.print(from_i, from.writer(), gpa);
+            try tree.print(select_node.from, from.writer(), gpa);
 
             var where = std.ArrayList(u8).init(gpa);
             defer where.deinit();
-            const where_slice = tree.extra_data[select_node.where..if (select_node.by > 0) select_node.by else select_node.select];
+            const where_slice = tree.extra_data[select_node.where..select_node.by];
             if (where_slice.len == 0) {
                 try where.appendSlice("()");
             } else {
@@ -1424,7 +1424,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             defer by.deinit();
             if (select_node.distinct != 0) {
                 try by.appendSlice("1b");
-            } else if (select_node.by == 0) { // undefined by phrase
+            } else if (select_node.has_by == 0) {
                 try by.appendSlice("0b");
             } else {
                 const by_slice = tree.extra_data[select_node.by..select_node.select];
@@ -1439,7 +1439,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
 
             var select = std.ArrayList(u8).init(gpa);
             defer select.deinit();
-            const select_slice = tree.extra_data[select_node.select..select_node.limit_start];
+            const select_slice = tree.extra_data[select_node.select..select_node.select_end];
             if (select_slice.len == 0) {
                 try select.appendSlice("()");
             } else {
@@ -1448,9 +1448,18 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try tree.printList(select_slice, select.writer(), gpa);
             }
 
-            if (select_node.limit_end > select_node.limit_start) {
-                panic("NYI", .{});
-                try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, "LIMIT" });
+            if (select_node.limit > 0) {
+                var limit = std.ArrayList(u8).init(gpa);
+                defer limit.deinit();
+                try tree.print(select_node.limit, limit.writer(), gpa);
+
+                if (select_node.order > 0) {
+                    try stream.print("(?;{s};{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, limit.items, "ORDER" });
+                } else {
+                    try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, limit.items });
+                }
+            } else if (select_node.order > 0) {
+                try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, "ORDER" });
             } else {
                 try stream.print("(?;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
             }
