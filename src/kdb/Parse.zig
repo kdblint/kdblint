@@ -95,8 +95,8 @@ fn addExtra(p: *Parse, extra: anytype) Allocator.Error!Node.Index {
     try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
     const result = @as(u32, @intCast(p.extra_data.items.len));
     inline for (fields) |field| {
-        comptime assert(field.type == Node.Index);
-        p.extra_data.appendAssumeCapacity(@field(extra, field.name));
+        comptime assert(field.type == Node.Index or field.type == Node.SelectData);
+        p.extra_data.appendAssumeCapacity(@bitCast(@field(extra, field.name)));
     }
     return result;
 }
@@ -948,8 +948,9 @@ fn select(p: *Parse) Error!Node.Index {
 
     // Limit expression
     var distinct = false;
+    var ascending = false;
     var limit_expr: Node.Index = 0;
-    const order_expr: Node.Index = 0;
+    var order_tok: TokenIndex = 0;
     if (p.peekIdentifier(.{ .distinct = true })) |_| {
         var found_by = false;
         var counter = struct {
@@ -998,22 +999,32 @@ fn select(p: *Parse) Error!Node.Index {
         }
     } else if (p.eatToken(.l_bracket)) |_| {
         switch (p.peekTag()) {
-            .angle_bracket_left => {
-                unreachable;
+            .angle_bracket_left, .angle_bracket_left_colon, .angle_bracket_left_equal, .angle_bracket_left_right => {
+                _ = p.nextToken();
+                ascending = true;
+                order_tok = try p.expectToken(.identifier);
             },
-            .angle_bracket_right => {
-                unreachable;
+            .angle_bracket_right, .angle_bracket_right_colon, .angle_bracket_right_equal => {
+                _ = p.nextToken();
+                ascending = false;
+                order_tok = try p.expectToken(.identifier);
             },
             else => {
                 limit_expr = try p.expectExpr(.r_bracket);
-                switch (p.peekTag()) {
-                    .angle_bracket_left => {
-                        unreachable;
-                    },
-                    .angle_bracket_right => {
-                        unreachable;
-                    },
-                    else => {},
+                if (p.eatToken(.semicolon)) |_| {
+                    switch (p.peekTag()) {
+                        .angle_bracket_left, .angle_bracket_left_colon, .angle_bracket_left_equal, .angle_bracket_left_right => {
+                            _ = p.nextToken();
+                            ascending = true;
+                            order_tok = try p.expectToken(.identifier);
+                        },
+                        .angle_bracket_right, .angle_bracket_right_colon, .angle_bracket_right_equal => {
+                            _ = p.nextToken();
+                            ascending = false;
+                            order_tok = try p.expectToken(.identifier);
+                        },
+                        else => {},
+                    }
                 }
             },
         }
@@ -1089,15 +1100,18 @@ fn select(p: *Parse) Error!Node.Index {
     const select_node = Node.Select{
         .from = from_expr,
         .where = try p.addList(p.scratch.items[where_top..]),
-        .has_by = @intFromBool(has_by),
         .by = try p.addList(p.scratch.items[by_top..where_top]),
         .by_columns = try p.addColumnList(p.table_scratch.items[by_columns_top..]),
         .select = try p.addList(p.scratch.items[select_top..by_top]),
         .select_end = @intCast(p.extra_data.items.len),
         .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..by_columns_top]),
         .limit = limit_expr,
-        .order = order_expr,
-        .distinct = @intFromBool(distinct and !has_by),
+        .order = order_tok,
+        .data = .{
+            .has_by = has_by,
+            .distinct = distinct and !has_by,
+            .ascending = ascending,
+        },
     };
     return p.addNode(.{
         .tag = .select,
@@ -1575,7 +1589,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
                 try appendTags(tree, where_i, tags);
             }
 
-            if (select_node.has_by != 0) {
+            if (select_node.data.has_by) {
                 for (tree.extra_data[select_node.by..select_node.select]) |by_i| {
                     try appendTags(tree, by_i, tags);
                 }
@@ -1590,7 +1604,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
             }
 
             if (select_node.order > 0) {
-                try appendTags(tree, select_node.order, tags);
+                try tags.append(.identifier);
             }
         },
         else => |t| panic("{s}", .{@tagName(t)}),
@@ -1807,18 +1821,16 @@ test "select" {
     try testParse("select[1]from x", &.{ .implicit_return, .select, .identifier, .number_literal }, "(?;`x;();0b;();1)");
     try testParse("select[a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();`a)");
 
-    if (true) return error.SkipZigTest;
+    try testParse("select[1;<a]from x", &.{ .implicit_return, .select, .identifier, .number_literal, .identifier }, "(?;`x;();0b;();1;,(<:;`a))");
+    try testParse("select[a;<b]from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();0b;();`a;,(<:;`b))");
 
-    try testParse("select[1;<a]from x", &.{ .implicit_return, .select, .identifier, .number_literal }, "(?;`x;();0b;();1;,(<:;`a))");
-    try testParse("select[a;<b]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();`a;,(<:;`b))");
-
-    try testParse("select[<a]from x", &.{ .implicit_return, .select, .identifier, .angle_bracket_left, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[<:a]from x", &.{ .implicit_return, .select, .identifier, .angle_bracket_left_colon, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[<=a]from x", &.{ .implicit_return, .select, .identifier, .angle_bracket_left_equal, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[<>a]from x", &.{ .implicit_return, .select, .identifier, .angle_bracket_left_right, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[>a]from x", &.{ .implicit_return, .select, .identifier, .angle_bracket_right, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
-    try testParse("select[>:a]from x", &.{ .implicit_return, .select, .identifier, .angle_bracket_right_colon, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
-    try testParse("select[>=a]from x", &.{ .implicit_return, .select, .identifier, .angle_bracket_right_equal, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
+    try testParse("select[<a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
+    try testParse("select[<:a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
+    try testParse("select[<=a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
+    try testParse("select[<>a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
+    try testParse("select[>a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
+    try testParse("select[>:a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
+    try testParse("select[>=a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
 }
 
 test {
