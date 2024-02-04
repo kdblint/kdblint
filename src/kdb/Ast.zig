@@ -94,8 +94,8 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
     inline for (fields, 0..) |field, i| {
-        comptime assert(field.type == Node.Index);
-        @field(result, field.name) = tree.extra_data[index + i];
+        comptime assert(field.type == Node.Index or field.type == Node.SelectData);
+        @field(result, field.name) = @bitCast(tree.extra_data[index + i]);
     }
     return result;
 }
@@ -566,8 +566,6 @@ pub const Node = struct {
         from: Index,
         /// Index into extra_data.
         where: Index,
-        /// bool
-        has_by: u32,
         /// Index into extra_data.
         by: Index,
         /// Index into table_columns.
@@ -579,9 +577,16 @@ pub const Node = struct {
         /// Index into table_columns.
         select_columns: Index,
         limit: Index,
-        order: Index,
-        /// bool
-        distinct: u32,
+        order: TokenIndex,
+        /// SelectStruct
+        data: SelectData,
+    };
+
+    pub const SelectData = packed struct(u32) {
+        has_by: bool,
+        distinct: bool,
+        ascending: bool,
+        _: u29 = 0,
     };
 
     pub const Exec = struct {
@@ -1422,11 +1427,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
 
             var by = std.ArrayList(u8).init(gpa);
             defer by.deinit();
-            if (select_node.distinct != 0) {
-                try by.appendSlice("1b");
-            } else if (select_node.has_by == 0) {
-                try by.appendSlice("0b");
-            } else {
+            if (select_node.data.has_by) {
                 const by_slice = tree.extra_data[select_node.by..select_node.select];
                 if (by_slice.len == 0) {
                     try by.appendSlice("()!()");
@@ -1435,6 +1436,10 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                     try by.append('!');
                     try tree.printList(by_slice, by.writer(), gpa);
                 }
+            } else if (select_node.data.distinct) {
+                try by.appendSlice("1b");
+            } else {
+                try by.appendSlice("0b");
             }
 
             var select = std.ArrayList(u8).init(gpa);
@@ -1448,18 +1453,28 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try tree.printList(select_slice, select.writer(), gpa);
             }
 
-            if (select_node.limit > 0) {
+            if (select_node.order > 0) {
+                var limit = std.ArrayList(u8).init(gpa);
+                defer limit.deinit();
+                if (select_node.limit > 0) {
+                    try tree.print(select_node.limit, limit.writer(), gpa);
+                } else {
+                    try limit.appendSlice("0W");
+                }
+
+                var order = std.ArrayList(u8).init(gpa);
+                defer order.deinit();
+                const c: u8 = if (select_node.data.ascending) '<' else '>';
+                const loc = tree.tokens.items(.loc)[select_node.order];
+                try order.writer().print(",({c}:;`{s})", .{ c, tree.source[loc.start..loc.end] });
+
+                try stream.print("(?;{s};{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, limit.items, order.items });
+            } else if (select_node.limit > 0) {
                 var limit = std.ArrayList(u8).init(gpa);
                 defer limit.deinit();
                 try tree.print(select_node.limit, limit.writer(), gpa);
 
-                if (select_node.order > 0) {
-                    try stream.print("(?;{s};{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, limit.items, "ORDER" });
-                } else {
-                    try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, limit.items });
-                }
-            } else if (select_node.order > 0) {
-                try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, "ORDER" });
+                try stream.print("(?;{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, limit.items });
             } else {
                 try stream.print("(?;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
             }
