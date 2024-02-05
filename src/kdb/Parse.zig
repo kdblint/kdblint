@@ -95,7 +95,7 @@ fn addExtra(p: *Parse, extra: anytype) Allocator.Error!Node.Index {
     try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
     const result = @as(u32, @intCast(p.extra_data.items.len));
     inline for (fields) |field| {
-        comptime assert(field.type == Node.Index or field.type == Node.SelectData);
+        comptime assert(field.type == Node.Index or field.type == Node.SelectData or field.type == Node.ExecData);
         p.extra_data.appendAssumeCapacity(@bitCast(@field(extra, field.name)));
     }
     return result;
@@ -1006,7 +1006,6 @@ fn select(p: *Parse) Error!Node.Index {
             },
             .angle_bracket_right, .angle_bracket_right_colon, .angle_bracket_right_equal => {
                 _ = p.nextToken();
-                ascending = false;
                 order_tok = try p.expectToken(.identifier);
             },
             else => {
@@ -1020,7 +1019,6 @@ fn select(p: *Parse) Error!Node.Index {
                         },
                         .angle_bracket_right, .angle_bracket_right_colon, .angle_bracket_right_equal => {
                             _ = p.nextToken();
-                            ascending = false;
                             order_tok = try p.expectToken(.identifier);
                         },
                         else => {},
@@ -1124,8 +1122,146 @@ fn select(p: *Parse) Error!Node.Index {
 }
 
 fn exec(p: *Parse) Error!Node.Index {
-    _ = p; // autofix
-    return error.ParseError;
+    const exec_token = p.assertToken(.keyword_exec);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    const table_scratch_top = p.scratch.items.len;
+    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+
+    var hash_map = std.StringHashMap(u32).init(p.gpa);
+    defer hash_map.deinit();
+
+    const ColumnData = struct {
+        identifier: TokenIndex,
+        expr: Node.Index,
+    };
+
+    // Select phrase
+    const select_top = p.scratch.items.len;
+    const select_columns_top = p.table_scratch.items.len;
+    var select_columns = std.ArrayList(ColumnData).init(p.gpa);
+    defer select_columns.deinit();
+    if (p.peekIdentifier(.{ .by = true, .from = true }) == null) {
+        while (true) {
+            if (p.eob) return p.fail(.expected_from);
+            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+                if (p.peekIdentifier(.{ .by = true, .from = true })) |_| return p.fail(.expected_select_phrase);
+                const identifier = p.assertToken(.identifier);
+                _ = p.assertToken(.colon);
+                break :blk identifier;
+            } else 0;
+            const expr = try p.expectSqlExpr(.{ .by = true, .from = true });
+            try p.scratch.append(p.gpa, expr);
+            try select_columns.append(.{
+                .identifier = identifier,
+                .expr = expr,
+            });
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
+    }
+    var has_select_columns = select_columns.items.len > 1;
+    switch (select_columns.items.len) {
+        0 => {},
+        1 => {
+            const column = select_columns.items[0];
+            if (column.identifier > 0) {
+                has_select_columns = true;
+                const loc = p.token_locs[column.identifier];
+                const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
+                errdefer p.gpa.free(source);
+                try p.table_scratch.append(p.gpa, source);
+            }
+        },
+        else => {
+            for (select_columns.items) |column| {
+                try p.addTableColumn(column.identifier, column.expr, &hash_map);
+            }
+        },
+    }
+
+    // By phrase
+    const by_top = p.scratch.items.len;
+    const by_columns_top = p.table_scratch.items.len;
+    var by_columns = std.ArrayList(ColumnData).init(p.gpa);
+    defer by_columns.deinit();
+    if (p.eatIdentifier(.{ .by = true })) |_| {
+        while (true) {
+            if (p.eob) return p.fail(.expected_from);
+            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+                if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_by_phrase);
+                const identifier = p.assertToken(.identifier);
+                _ = p.assertToken(.colon);
+                break :blk identifier;
+            } else 0;
+            const expr = try p.expectSqlExpr(.{ .from = true });
+            try p.scratch.append(p.gpa, expr);
+            try by_columns.append(.{
+                .identifier = identifier,
+                .expr = expr,
+            });
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
+    }
+    var has_by_columns = by_columns.items.len > 1;
+    switch (by_columns.items.len) {
+        0 => {},
+        1 => {
+            const column = by_columns.items[0];
+            if (column.identifier > 0) {
+                has_by_columns = true;
+                const loc = p.token_locs[column.identifier];
+                const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
+                errdefer p.gpa.free(source);
+                try p.table_scratch.append(p.gpa, source);
+            }
+        },
+        else => {
+            for (by_columns.items) |column| {
+                try p.addTableColumn(column.identifier, column.expr, &hash_map);
+            }
+        },
+    }
+
+    // From phrase
+    _ = try p.expectIdentifier(.{ .from = true });
+    const from_expr = try p.expectSqlExpr(.{ .where = true });
+
+    // Where phrase
+    const where_top = p.scratch.items.len;
+    if (p.eatIdentifier(.{ .where = true })) |_| {
+        while (true) {
+            const expr = try p.expectSqlExpr(.{});
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
+    }
+
+    const exec_node = Node.Exec{
+        .from = from_expr,
+        .where = try p.addList(p.scratch.items[where_top..]),
+        .by = try p.addList(p.scratch.items[by_top..where_top]),
+        .by_columns = try p.addColumnList(p.table_scratch.items[by_columns_top..]),
+        .select = try p.addList(p.scratch.items[select_top..by_top]),
+        .select_end = @intCast(p.extra_data.items.len),
+        .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..by_columns_top]),
+        .data = .{
+            .has_by_columns = has_by_columns,
+            .has_select_columns = has_select_columns,
+        },
+    };
+    return p.addNode(.{
+        .tag = .exec,
+        .main_token = exec_token,
+        .data = .{
+            .lhs = exec_token,
+            .rhs = try p.addExtra(exec_node),
+        },
+    });
 }
 
 fn update(p: *Parse) Error!Node.Index {
@@ -1607,6 +1743,24 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
                 try tags.append(.identifier);
             }
         },
+        .exec => {
+            const data = tree.nodes.items(.data)[i];
+            const exec_node = tree.extraData(data.rhs, Node.Exec);
+
+            try appendTags(tree, exec_node.from, tags);
+
+            for (tree.extra_data[exec_node.where..exec_node.by]) |where_i| {
+                try appendTags(tree, where_i, tags);
+            }
+
+            for (tree.extra_data[exec_node.by..exec_node.select]) |by_i| {
+                try appendTags(tree, by_i, tags);
+            }
+
+            for (tree.extra_data[exec_node.select..exec_node.select_end]) |select_i| {
+                try appendTags(tree, select_i, tags);
+            }
+        },
         else => |t| panic("{s}", .{@tagName(t)}),
     }
 }
@@ -1831,6 +1985,47 @@ test "select" {
     try testParse("select[>a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
     try testParse("select[>:a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
     try testParse("select[>=a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
+}
+
+test "exec" {
+    try testParse("exec from x", &.{ .implicit_return, .exec, .identifier }, "(?;`x;();();())");
+    try testParse("exec a from x", &.{ .implicit_return, .exec, .identifier, .identifier }, "(?;`x;();();,`a)");
+    try testParse("exec a:a from x", &.{ .implicit_return, .exec, .identifier, .identifier }, "(?;`x;();();(,`a)!,`a)");
+    try testParse("exec a,b from x", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;();();`a`b!`a`b)");
+    try testParse("exec by c from x", &.{ .implicit_return, .exec, .identifier, .identifier }, "(?;`x;();,`c;())");
+    try testParse("exec by c:c from x", &.{ .implicit_return, .exec, .identifier, .identifier }, "(?;`x;();(,`c)!,`c;())");
+    try testParse("exec by c,d from x", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;())");
+    try testParse("exec a by c from x", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;();,`c;,`a)");
+    try testParse("exec a:a by c from x", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;();,`c;(,`a)!,`a)");
+    try testParse("exec a by c:c from x", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;();(,`c)!,`c;,`a)");
+    try testParse("exec a:a by c:c from x", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;();(,`c)!,`c;(,`a)!,`a)");
+    try testParse("exec a,b by c,d from x", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;`a`b!`a`b)");
+    try testParse("exec from x where e", &.{ .implicit_return, .exec, .identifier, .identifier }, "(?;`x;,,`e;();())");
+    try testParse("exec from x where e,f", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);();())");
+    try testParse("exec a from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;,,`e;();,`a)");
+    try testParse("exec a:a from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;,,`e;();(,`a)!,`a)");
+    try testParse("exec a,b from x where e,f", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);();`a`b!`a`b)");
+    try testParse("exec by c from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;,,`e;,`c;())");
+    try testParse("exec by c:c from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!,`c;())");
+    try testParse("exec by c,d from x where e,f", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;())");
+    try testParse("exec a by c from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,,`e;,`c;,`a)");
+    try testParse("exec a:a by c from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,,`e;,`c;(,`a)!,`a)");
+    try testParse("exec a by c:c from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!,`c;,`a)");
+    try testParse("exec a:a by c:c from x where e", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!,`c;(,`a)!,`a)");
+    try testParse("exec a,b by c,d from x where e,f", &.{ .implicit_return, .exec, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;`a`b!`a`b)");
+
+    try testParse("exec`a from x", &.{ .implicit_return, .exec, .identifier, .symbol_literal }, "(?;`x;();();,,`a)");
+    try testParse("exec`a`b from x", &.{ .implicit_return, .exec, .identifier, .symbol_list_literal }, "(?;`x;();();,,`a`b)");
+    try testParse("exec`a,`c from x", &.{ .implicit_return, .exec, .identifier, .symbol_literal, .symbol_literal }, "(?;`x;();();`x`x1!(,`a;,`c))");
+    try testParse("exec`a,`c`d from x", &.{ .implicit_return, .exec, .identifier, .symbol_literal, .symbol_list_literal }, "(?;`x;();();`x`x1!(,`a;,`c`d))");
+    try testParse("exec`a`b,`c from x", &.{ .implicit_return, .exec, .identifier, .symbol_list_literal, .symbol_literal }, "(?;`x;();();`x`x1!(,`a`b;,`c))");
+    try testParse("exec`a`b,`c`d from x", &.{ .implicit_return, .exec, .identifier, .symbol_list_literal, .symbol_list_literal }, "(?;`x;();();`x`x1!(,`a`b;,`c`d))");
+    try testParse("exec by`a from x", &.{ .implicit_return, .exec, .identifier, .symbol_literal }, "(?;`x;();,,`a;())");
+    try testParse("exec by`a`b from x", &.{ .implicit_return, .exec, .identifier, .symbol_list_literal }, "(?;`x;();,,`a`b;())");
+    try testParse("exec by`a,`c from x", &.{ .implicit_return, .exec, .identifier, .symbol_literal, .symbol_literal }, "(?;`x;();`x`x1!(,`a;,`c);())");
+    try testParse("exec by`a,`c`d from x", &.{ .implicit_return, .exec, .identifier, .symbol_literal, .symbol_list_literal }, "(?;`x;();`x`x1!(,`a;,`c`d);())");
+    try testParse("exec by`a`b,`c from x", &.{ .implicit_return, .exec, .identifier, .symbol_list_literal, .symbol_literal }, "(?;`x;();`x`x1!(,`a`b;,`c);())");
+    try testParse("exec by`a`b,`c`d from x", &.{ .implicit_return, .exec, .identifier, .symbol_list_literal, .symbol_list_literal }, "(?;`x;();`x`x1!(,`a`b;,`c`d);())");
 }
 
 test {

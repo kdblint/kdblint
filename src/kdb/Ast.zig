@@ -94,7 +94,7 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
     inline for (fields, 0..) |field, i| {
-        comptime assert(field.type == Node.Index or field.type == Node.SelectData);
+        comptime assert(field.type == Node.Index or field.type == Node.SelectData or field.type == Node.ExecData);
         @field(result, field.name) = @bitCast(tree.extra_data[index + i]);
     }
     return result;
@@ -562,6 +562,13 @@ pub const Node = struct {
         len: u32,
     };
 
+    pub const SelectData = packed struct(u32) {
+        has_by: bool,
+        distinct: bool,
+        ascending: bool,
+        _: u29 = 0,
+    };
+
     pub const Select = struct {
         from: Index,
         /// Index into extra_data.
@@ -582,24 +589,27 @@ pub const Node = struct {
         data: SelectData,
     };
 
-    pub const SelectData = packed struct(u32) {
-        has_by: bool,
-        distinct: bool,
-        ascending: bool,
-        _: u29 = 0,
+    pub const ExecData = packed struct(u32) {
+        has_by_columns: bool,
+        has_select_columns: bool,
+        _: u30 = 0,
     };
 
     pub const Exec = struct {
-        /// Index into extra_data.
         from: Index,
         /// Index into extra_data.
         where: Index,
         /// Index into extra_data.
         by: Index,
+        /// Index into table_columns.
+        by_columns: Index,
         /// Index into extra_data.
         select: Index,
-        len: u32,
-        distinct: bool,
+        /// Index into extra_data.
+        select_end: Index,
+        /// Index into table_columns.
+        select_columns: Index,
+        data: ExecData,
     };
 
     pub const Update = struct {
@@ -1479,7 +1489,61 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try stream.print("(?;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
             }
         },
-        .exec,
+        .exec => {
+            const data = tree.getData(i);
+            const exec_node = tree.extraData(data.rhs, Node.Exec);
+
+            var from = std.ArrayList(u8).init(gpa);
+            defer from.deinit();
+            try tree.print(exec_node.from, from.writer(), gpa);
+
+            var where = std.ArrayList(u8).init(gpa);
+            defer where.deinit();
+            const where_slice = tree.extra_data[exec_node.where..exec_node.by];
+            if (where_slice.len == 0) {
+                try where.appendSlice("()");
+            } else {
+                var temp = std.ArrayList(u8).init(gpa);
+                defer temp.deinit();
+                try where.append(',');
+                if (where_slice.len > 1) try temp.append('(');
+                for (where_slice, 0..) |where_i, temp_i| {
+                    try tree.print(where_i, temp.writer(), gpa);
+                    if (temp_i < where_slice.len - 1) try temp.append(';');
+                }
+                if (where_slice.len > 1) try temp.append(')');
+                if (temp.items[0] != '(' or temp.items[1] == ')') try where.append(',');
+                try where.appendSlice(temp.items);
+            }
+
+            var by = std.ArrayList(u8).init(gpa);
+            defer by.deinit();
+            const by_slice = tree.extra_data[exec_node.by..exec_node.select];
+            if (by_slice.len == 0) {
+                try by.appendSlice("()");
+            } else if (exec_node.data.has_by_columns) {
+                try tree.printColumns(exec_node.by_columns, by_slice.len, by.writer());
+                try by.append('!');
+                try tree.printList(by_slice, by.writer(), gpa);
+            } else {
+                try tree.printList(by_slice, by.writer(), gpa);
+            }
+
+            var select = std.ArrayList(u8).init(gpa);
+            defer select.deinit();
+            const select_slice = tree.extra_data[exec_node.select..exec_node.select_end];
+            if (select_slice.len == 0) {
+                try select.appendSlice("()");
+            } else if (exec_node.data.has_select_columns) {
+                try tree.printColumns(exec_node.select_columns, select_slice.len, select.writer());
+                try select.append('!');
+                try tree.printList(select_slice, select.writer(), gpa);
+            } else {
+                try tree.printList(select_slice, select.writer(), gpa);
+            }
+
+            try stream.print("(?;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
+        },
         .update,
         .delete_rows,
         .delete_cols,
