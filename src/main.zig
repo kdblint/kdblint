@@ -4,6 +4,7 @@ const types = lsp.types;
 const DocumentStore = @import("DocumentStore.zig");
 const diff = @import("diff.zig");
 const Server = @import("Server.zig");
+const diagnostics = @import("features/diagnostics.zig");
 
 const log = std.log.scoped(.kdbLint);
 
@@ -69,21 +70,25 @@ const Context = struct {
 
     pub fn @"textDocument/didOpen"(conn: *Connection, value: types.DidOpenTextDocumentParams) !void {
         log.debug("textDocument/didOpen {s}", .{value.textDocument.uri});
+        conn.context.server.start = diagnostics.now();
         try conn.context.server.@"textDocument/didOpen"(value);
     }
 
     pub fn @"textDocument/didChange"(conn: *Connection, value: types.DidChangeTextDocumentParams) !void {
         log.debug("textDocument/didChange {s}", .{value.textDocument.uri});
+        conn.context.server.start = diagnostics.now();
         try conn.context.server.@"textDocument/didChange"(value);
     }
 
     pub fn @"textDocument/didSave"(conn: *Connection, value: types.DidSaveTextDocumentParams) !void {
         log.debug("textDocument/didSave {s}", .{value.textDocument.uri});
+        conn.context.server.start = diagnostics.now();
         try conn.context.server.@"textDocument/didSave"(value);
     }
 
     pub fn @"textDocument/didClose"(conn: *Connection, value: types.DidCloseTextDocumentParams) !void {
         log.debug("textDocument/didClose {s}", .{value.textDocument.uri});
+        conn.context.server.start = diagnostics.now();
         try conn.context.server.@"textDocument/didClose"(value);
     }
 };

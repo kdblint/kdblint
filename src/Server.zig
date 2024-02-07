@@ -15,6 +15,7 @@ const Server = @This();
 allocator: std.mem.Allocator,
 document_store: DocumentStore,
 position_encoding: types.PositionEncodingKind = .@"utf-16",
+start: std.time.Instant,
 
 /// private fields
 conn: *Connection = undefined,
@@ -55,6 +56,7 @@ pub fn create(allocator: std.mem.Allocator) !*Server {
         .document_store = .{
             .allocator = allocator,
         },
+        .start = diagnostics_gen.now(),
         .job_queue = std.fifo.LinearFifo(Job, .Dynamic).init(allocator),
     };
     return server;

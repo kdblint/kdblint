@@ -219,7 +219,7 @@ fn parseBlocks(p: *Parse) Allocator.Error!Blocks {
 }
 
 fn parseBlock(p: *Parse) Error!Node.Index {
-    var node = try p.parseExpr(.semicolon);
+    var node = try p.expectExpr(.semicolon);
     if (p.eatToken(.semicolon)) |_| {} else {
         node = try p.addNode(.{
             .tag = .implicit_return,
@@ -944,7 +944,7 @@ fn select(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.scratch.items.len;
+    const table_scratch_top = p.table_scratch.items.len;
     defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
 
     var hash_map = std.StringHashMap(u32).init(p.gpa);
@@ -1131,7 +1131,7 @@ fn exec(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.scratch.items.len;
+    const table_scratch_top = p.table_scratch.items.len;
     defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
 
     var hash_map = std.StringHashMap(u32).init(p.gpa);
@@ -1274,7 +1274,7 @@ fn update(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.scratch.items.len;
+    const table_scratch_top = p.table_scratch.items.len;
     defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
 
     var hash_map = std.StringHashMap(u32).init(p.gpa);

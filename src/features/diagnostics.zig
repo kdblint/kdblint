@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const lsp = @import("lsp");
 const types = lsp.types;
 
@@ -9,6 +10,18 @@ const DocumentStore = @import("../DocumentStore.zig");
 const offsets = @import("../offsets.zig");
 
 const log = std.log.scoped(.kdbLint_diagnostics);
+
+const zero_instant = std.time.Instant{
+    .timestamp = if (switch (builtin.os.tag) {
+        .wasi => builtin.link_libc,
+        .windows, .uefi => false,
+        else => true,
+    }) .{ .tv_nsec = 0, .tv_sec = 0 } else 0,
+};
+
+pub fn now() std.time.Instant {
+    return std.time.Instant.now() catch zero_instant;
+}
 
 pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *DocumentStore.Handle) error{OutOfMemory}!types.PublishDiagnosticsParams {
     std.debug.assert(server.client_capabilities.supports_publish_diagnostics);
@@ -31,6 +44,14 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
             .message = try buffer.toOwnedSlice(arena),
         });
     }
+
+    const tokenize_ms: f64 = @as(f64, @floatFromInt(tree.tokenize_duration)) / std.time.ns_per_ms;
+    const parse_ms: f64 = @as(f64, @floatFromInt(tree.parse_duration)) / std.time.ns_per_ms;
+    const full_ms: f64 = @as(f64, @floatFromInt(now().since(server.start))) / std.time.ns_per_ms;
+
+    log.debug("Tokenize duration: {d:.2}ms", .{tokenize_ms});
+    log.debug("Parse duration: {d:.2}ms", .{parse_ms});
+    log.debug("Full duration: {d:.2}ms", .{full_ms});
 
     return .{
         .uri = handle.uri,
