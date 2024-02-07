@@ -12,6 +12,9 @@ table_columns: [][]const u8,
 
 errors: []const Error,
 
+tokenize_duration: u64,
+parse_duration: u64,
+
 pub const TokenIndex = u32;
 pub const ByteOffset = u32;
 
@@ -58,6 +61,7 @@ pub const ParseSettings = struct {
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
 pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allocator.Error!Ast {
+    const tokenize_start = diagnostics.now();
     var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
@@ -71,7 +75,9 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allo
         try tokens.append(gpa, token);
         if (token.tag == .eof) break;
     }
+    const tokenize_duration = diagnostics.now().since(tokenize_start);
 
+    const parse_start = diagnostics.now();
     var parser: Parse = .{
         .source = source,
         .gpa = gpa,
@@ -89,6 +95,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allo
     try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
 
     try parser.parseRoot();
+    const parse_duration = diagnostics.now().since(parse_start);
 
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
@@ -98,6 +105,8 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allo
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
         .table_columns = try parser.table_columns.toOwnedSlice(gpa),
         .errors = try parser.errors.toOwnedSlice(gpa),
+        .tokenize_duration = tokenize_duration,
+        .parse_duration = parse_duration,
     };
 }
 
@@ -642,19 +651,19 @@ pub const Node = struct {
     };
 
     pub const DeleteRows = struct {
-        /// Index into extra_data.
         from: Index,
         /// Index into extra_data.
         where: Index,
-        len: u32,
+        /// Index into extra_data.
+        where_end: Index,
     };
 
     pub const DeleteColumns = struct {
-        /// Index into extra_data.
         from: Index,
         /// Index into extra_data.
         select: Index,
-        len: u32,
+        /// Index into extra_data.
+        select_end: Index,
     };
 };
 
@@ -1019,12 +1028,55 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             return last_token;
         },
 
-        .select,
-        .exec,
-        .update,
-        .delete_rows,
-        .delete_cols,
-        => unreachable,
+        .select => {
+            const data = tree.getData(i);
+            const select_node = tree.extraData(data.rhs, Node.Select);
+
+            if (select_node.by > select_node.where) {
+                const node = tree.getExtraData(select_node.by - 1);
+                return tree.getLastToken(node);
+            }
+
+            return tree.getLastToken(select_node.from);
+        },
+        .exec => {
+            const data = tree.getData(i);
+            const exec_node = tree.extraData(data.rhs, Node.Exec);
+
+            if (exec_node.by > exec_node.where) {
+                const node = tree.getExtraData(exec_node.by - 1);
+                return tree.getLastToken(node);
+            }
+
+            return tree.getLastToken(exec_node.from);
+        },
+        .update => {
+            const data = tree.getData(i);
+            const update_node = tree.extraData(data.rhs, Node.Update);
+
+            if (update_node.by > update_node.where) {
+                const node = tree.getExtraData(update_node.by - 1);
+                return tree.getLastToken(node);
+            }
+
+            return tree.getLastToken(update_node.from);
+        },
+        .delete_rows => {
+            const data = tree.getData(i);
+            const delete_node = tree.extraData(data.rhs, Node.DeleteRows);
+
+            if (delete_node.where_end > delete_node.where) {
+                const node = tree.getExtraData(delete_node.where_end - 1);
+                return tree.getLastToken(node);
+            }
+
+            return tree.getLastToken(delete_node.from);
+        },
+        .delete_cols => {
+            const data = tree.getData(i);
+            const delete_node = tree.extraData(data.rhs, Node.DeleteColumns);
+            return tree.getLastToken(delete_node.from);
+        },
     }
 }
 
@@ -1695,6 +1747,7 @@ const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
 const panic = std.debug.panic;
 const assert = std.debug.assert;
+const diagnostics = @import("../features/diagnostics.zig");
 
 const log = std.log.scoped(.kdbLint_Ast);
 
