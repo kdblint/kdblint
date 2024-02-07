@@ -68,7 +68,11 @@ pub const Handle = struct {
     }
 
     fn parseTree(allocator: std.mem.Allocator, new_text: [:0]const u8) error{OutOfMemory}!kdb.Ast {
-        var tree = try kdb.Ast.parse(allocator, new_text, .q);
+        // TODO: Use settings config
+        var tree = try kdb.Ast.parse(allocator, new_text, .{
+            .version = .v4_0,
+            .language = .q,
+        });
         errdefer tree.deinit(allocator);
 
         // remove unused capacity

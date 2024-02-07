@@ -9,7 +9,6 @@ tokens: TokenList.Slice,
 nodes: NodeList.Slice,
 extra_data: []Node.Index,
 table_columns: [][]const u8,
-mode: Mode = .q,
 
 errors: []const Error,
 
@@ -42,11 +41,23 @@ pub const RenderError = error{
     OutOfMemory,
 };
 
-pub const Mode = enum { k, q };
+pub const Version = enum {
+    v4_0,
+};
+
+pub const Language = enum {
+    k,
+    q,
+};
+
+pub const ParseSettings = struct {
+    version: Version,
+    language: Language,
+};
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!Ast {
+pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allocator.Error!Ast {
     var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
@@ -54,7 +65,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     const estimated_token_count = source.len / 8;
     try tokens.ensureTotalCapacity(gpa, estimated_token_count);
 
-    var tokenizer = Tokenizer.init(source, mode);
+    var tokenizer = Tokenizer.init(source, settings.language);
     while (true) {
         const token = tokenizer.next();
         try tokens.append(gpa, token);
@@ -67,7 +78,8 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .token_tags = tokens.items(.tag),
         .token_locs = tokens.items(.loc),
         .token_eobs = tokens.items(.eob),
-        .mode = mode,
+        .version = settings.version,
+        .language = settings.language,
     };
     defer parser.deinit();
 
@@ -81,7 +93,6 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
         .source = source,
-        .mode = mode,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
@@ -1688,13 +1699,36 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.kdbLint_Ast);
 
 fn testLastToken(source: [:0]const u8) !void {
-    inline for (&.{ .k, .q }) |mode| {
-        try testLastTokenMode(mode, source);
+    inline for (&.{.v4_0}) |version| {
+        inline for (&.{ .k, .q }) |language| {
+            try testLastTokenSettings(.{
+                .version = version,
+                .language = language,
+            }, source);
+        }
     }
 }
 
-fn testLastTokenMode(mode: Ast.Mode, source: [:0]const u8) !void {
-    var tree = try parse(std.testing.allocator, source, mode);
+fn testLastTokenVersion(version: Ast.Version, source: [:0]const u8) !void {
+    inline for (&.{ .k, .q }) |language| {
+        try testLastTokenSettings(.{
+            .version = version,
+            .language = language,
+        }, source);
+    }
+}
+
+fn testLastTokenLanguage(language: Ast.Language, source: [:0]const u8) !void {
+    inline for (&.{.v4_0}) |version| {
+        try testLastTokenSettings(.{
+            .version = version,
+            .language = language,
+        }, source);
+    }
+}
+
+fn testLastTokenSettings(settings: Ast.ParseSettings, source: [:0]const u8) !void {
+    var tree = try parse(std.testing.allocator, source, settings);
     defer tree.deinit(std.testing.allocator);
 
     const data = tree.nodes.items(.data)[0];
