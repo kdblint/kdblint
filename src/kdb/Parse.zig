@@ -435,7 +435,7 @@ fn addTableColumn(p: *Parse, identifier: TokenIndex, expr: Node.Index, existing_
         source = try p.gpa.dupe(u8, source);
         a.value_ptr.* = 1;
     }
-    errdefer p.gpa.free(source);
+    errdefer p.gpa.free(source); // TODO: leak
 
     try p.table_scratch.append(p.gpa, source);
 }
@@ -1175,7 +1175,7 @@ fn exec(p: *Parse) Error!Node.Index {
                 has_select_columns = true;
                 const loc = p.token_locs[column.identifier];
                 const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
-                errdefer p.gpa.free(source);
+                errdefer p.gpa.free(source); // TODO: leak
                 try p.table_scratch.append(p.gpa, source);
             }
         },
@@ -1219,7 +1219,7 @@ fn exec(p: *Parse) Error!Node.Index {
                 has_by_columns = true;
                 const loc = p.token_locs[column.identifier];
                 const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
-                errdefer p.gpa.free(source);
+                errdefer p.gpa.free(source); // TODO: leak
                 try p.table_scratch.append(p.gpa, source);
             }
         },
@@ -1352,9 +1352,77 @@ fn update(p: *Parse) Error!Node.Index {
     });
 }
 
+// TODO: Tests
 fn delete(p: *Parse) Error!Node.Index {
-    _ = p; // autofix
-    return error.ParseError;
+    const delete_token = p.assertToken(.keyword_delete);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    const table_scratch_top = p.table_scratch.items.len;
+    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+
+    if (p.eatIdentifier(.{ .from = true })) |_| {
+        // From phrase
+        const from_expr = try p.expectSqlExpr(.{ .where = true });
+
+        // Where phrase
+        const where_top = p.scratch.items.len;
+        if (p.eatIdentifier(.{ .where = true })) |_| {
+            while (true) {
+                const expr = try p.expectSqlExpr(.{});
+                try p.scratch.append(p.gpa, expr);
+                if (p.eatToken(.comma)) |_| continue;
+                break;
+            }
+        }
+
+        const delete_node = Node.DeleteRows{
+            .from = from_expr,
+            .where = try p.addList(p.scratch.items[where_top..]),
+            .where_end = @intCast(p.extra_data.items.len),
+        };
+        return p.addNode(.{
+            .tag = .delete_rows,
+            .main_token = delete_token,
+            .data = .{
+                .lhs = delete_token,
+                .rhs = try p.addExtra(delete_node),
+            },
+        });
+    } else {
+        // Select phrase
+        const select_columns_top = p.table_scratch.items.len;
+        while (true) {
+            if (p.eob) return p.fail(.expected_from);
+            if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_from);
+            const identifier = try p.expectToken(.identifier);
+            const loc = p.token_locs[identifier];
+            const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
+            errdefer p.gpa.free(source); // TODO: leak
+            try p.table_scratch.append(p.gpa, source);
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
+
+        // From phrase
+        _ = try p.expectIdentifier(.{ .from = true });
+        const from_expr = try p.expectSqlExpr(.{ .where = true });
+
+        const delete_node = Node.DeleteColumns{
+            .from = from_expr,
+            .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..]),
+            .select_columns_end = @intCast(p.table_columns.items.len),
+        };
+        return p.addNode(.{
+            .tag = .delete_cols,
+            .main_token = delete_token,
+            .data = .{
+                .lhs = delete_token,
+                .rhs = try p.addExtra(delete_node),
+            },
+        });
+    }
 }
 
 fn applyNumber(p: *Parse, lhs: Node.Index) Error!Node.Index {

@@ -660,10 +660,10 @@ pub const Node = struct {
 
     pub const DeleteColumns = struct {
         from: Index,
-        /// Index into extra_data.
-        select: Index,
-        /// Index into extra_data.
-        select_end: Index,
+        /// Index into table_columns.
+        select_columns: Index,
+        /// Index into table_columns.
+        select_columns_end: Index,
     };
 };
 
