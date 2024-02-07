@@ -7,7 +7,8 @@ source: []const u8,
 token_tags: []const Token.Tag,
 token_locs: []const Token.Loc,
 token_eobs: []const bool,
-mode: Ast.Mode,
+version: Ast.Version,
+language: Ast.Language,
 tok_i: TokenIndex = 0,
 eob: bool = false,
 ends_expr_tags: std.ArrayListUnmanaged(Token.Tag) = .{},
@@ -1866,13 +1867,36 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
 }
 
 fn testParse(source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
-    inline for (&.{ .k, .q }) |mode| {
-        try testParseMode(mode, source, expected_tags, expected_parse_tree);
+    inline for (&.{.v4_0}) |version| {
+        inline for (&.{ .k, .q }) |language| {
+            try testParseSettings(.{
+                .version = version,
+                .language = language,
+            }, source, expected_tags, expected_parse_tree);
+        }
     }
 }
 
-fn testParseMode(comptime mode: Ast.Mode, source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
-    var tree = try Ast.parse(std.testing.allocator, source, mode);
+fn testParseVersion(version: Ast.Version, source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
+    inline for (&.{ .k, .q }) |language| {
+        try testParseSettings(.{
+            .version = version,
+            .language = language,
+        }, source, expected_tags, expected_parse_tree);
+    }
+}
+
+fn testParseLanguage(language: Ast.Language, source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
+    inline for (&.{.v4_0}) |version| {
+        try testParseSettings(.{
+            .version = version,
+            .language = language,
+        }, source, expected_tags, expected_parse_tree);
+    }
+}
+
+fn testParseSettings(settings: Ast.ParseSettings, source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
+    var tree = try Ast.parse(std.testing.allocator, source, settings);
     defer tree.deinit(std.testing.allocator);
 
     const errors = try std.testing.allocator.alloc(Ast.Error.Tag, tree.errors.len);

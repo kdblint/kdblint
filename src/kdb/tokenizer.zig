@@ -1,6 +1,6 @@
 const std = @import("std");
 const Ast = @import("Ast.zig");
-const Mode = Ast.Mode;
+const Language = Ast.Language;
 
 pub const Token = struct {
     tag: Tag,
@@ -336,7 +336,7 @@ pub const Tokenizer = struct {
     braces_count: u32 = 0,
     brackets_count: u32 = 0,
 
-    mode: Mode,
+    language: Language,
 
     /// private field
     impl: struct {
@@ -350,12 +350,12 @@ pub const Tokenizer = struct {
         std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.loc.start..token.loc.end] });
     }
 
-    pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
+    pub fn init(buffer: [:0]const u8, language: Language) Tokenizer {
         // Skip the UTF-8 BOM if present
         const src_start: usize = if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0;
         var tokenizer = Tokenizer{
             .buffer = buffer,
-            .mode = mode,
+            .language = language,
             .impl = .{
                 .index = src_start,
                 .line = 0,
@@ -916,7 +916,7 @@ pub const Tokenizer = struct {
                         state = .symbol_handle;
                     },
                     '_' => {
-                        if (self.mode == .k) break;
+                        if (self.language == .k) break;
                     },
                     else => break,
                 },
@@ -927,7 +927,7 @@ pub const Tokenizer = struct {
                     },
                     'a'...'z', 'A'...'Z', '0'...'9', '.', ':', '/' => {},
                     '_' => {
-                        if (self.mode == .k) break;
+                        if (self.language == .k) break;
                     },
                     else => break,
                 },
@@ -935,7 +935,7 @@ pub const Tokenizer = struct {
                 .identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '0'...'9', '.' => {},
                     '_' => {
-                        if (self.mode == .k) {
+                        if (self.language == .k) {
                             if (Token.getKeyword(self.buffer[result.loc.start..self.impl.index])) |tag| {
                                 result.tag = tag;
                             }
@@ -1168,12 +1168,13 @@ pub const Tokenizer = struct {
 };
 
 fn testTokenize(source: [:0]const u8, expected: []const Token) !void {
-    try testTokenizeMode(.k, source, expected);
-    try testTokenizeMode(.q, source, expected);
+    inline for (&.{ .k, .q }) |language| {
+        try testTokenizeLanguage(language, source, expected);
+    }
 }
 
-fn testTokenizeMode(mode: Mode, source: [:0]const u8, expected: []const Token) !void {
-    var tokenizer = Tokenizer.init(source, mode);
+fn testTokenizeLanguage(language: Language, source: [:0]const u8, expected: []const Token) !void {
+    var tokenizer = Tokenizer.init(source, language);
 
     const actual = try std.testing.allocator.alloc(Token, expected.len);
     defer std.testing.allocator.free(actual);
@@ -1616,15 +1617,15 @@ test "tokenize symbol" {
         .{ .tag = .identifier, .loc = .{ .start = 26, .end = 31 }, .eob = true },
     });
 
-    try testTokenizeMode(.k, "`symbol_with_underscore", &.{
+    try testTokenizeLanguage(.k, "`symbol_with_underscore", &.{
         .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 7 }, .eob = false },
         .{ .tag = .underscore, .loc = .{ .start = 7, .end = 8 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = false },
         .{ .tag = .underscore, .loc = .{ .start = 12, .end = 13 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 13, .end = 23 }, .eob = true },
     });
-    try testTokenizeMode(.q, "`symbol_with_underscore", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 23 }, .eob = true }});
-    try testTokenizeMode(.k, "`_symbol_with_leading_underscore", &.{
+    try testTokenizeLanguage(.q, "`symbol_with_underscore", &.{.{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 23 }, .eob = true }});
+    try testTokenizeLanguage(.k, "`_symbol_with_leading_underscore", &.{
         .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .underscore, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 2, .end = 8 }, .eob = false },
@@ -1635,7 +1636,7 @@ test "tokenize symbol" {
         .{ .tag = .underscore, .loc = .{ .start = 21, .end = 22 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 22, .end = 32 }, .eob = true },
     });
-    try testTokenizeMode(.q, "`_symbol_with_leading_underscore", &.{
+    try testTokenizeLanguage(.q, "`_symbol_with_leading_underscore", &.{
         .{ .tag = .symbol_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .underscore, .loc = .{ .start = 1, .end = 2 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 2, .end = 32 }, .eob = true },
@@ -1663,15 +1664,15 @@ test "tokenize identifier" {
     try testTokenize("identifier.with.dot", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 19 }, .eob = true }});
     try testTokenize(".identifier.with.leading.dot", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 28 }, .eob = true }});
 
-    try testTokenizeMode(.k, "identifier_with_underscore", &.{
+    try testTokenizeLanguage(.k, "identifier_with_underscore", &.{
         .{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = false },
         .{ .tag = .underscore, .loc = .{ .start = 10, .end = 11 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 11, .end = 15 }, .eob = false },
         .{ .tag = .underscore, .loc = .{ .start = 15, .end = 16 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 16, .end = 26 }, .eob = true },
     });
-    try testTokenizeMode(.q, "identifier_with_underscore", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 26 }, .eob = true }});
-    try testTokenizeMode(.k, "_identifier_with_leading_underscore", &.{
+    try testTokenizeLanguage(.q, "identifier_with_underscore", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 26 }, .eob = true }});
+    try testTokenizeLanguage(.k, "_identifier_with_leading_underscore", &.{
         .{ .tag = .underscore, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 1, .end = 11 }, .eob = false },
         .{ .tag = .underscore, .loc = .{ .start = 11, .end = 12 }, .eob = false },
@@ -1681,7 +1682,7 @@ test "tokenize identifier" {
         .{ .tag = .underscore, .loc = .{ .start = 24, .end = 25 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 25, .end = 35 }, .eob = true },
     });
-    try testTokenizeMode(.q, "_identifier_with_leading_underscore", &.{
+    try testTokenizeLanguage(.q, "_identifier_with_leading_underscore", &.{
         .{ .tag = .underscore, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 1, .end = 35 }, .eob = true },
     });
