@@ -1352,7 +1352,8 @@ fn update(p: *Parse) Error!Node.Index {
     });
 }
 
-// TODO: Tests
+// TODO: delete a from x where 1b
+//                       ^
 fn delete(p: *Parse) Error!Node.Index {
     const delete_token = p.assertToken(.keyword_delete);
 
@@ -1930,6 +1931,26 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
                 try appendTags(tree, select_i, tags);
             }
         },
+        .delete_rows => {
+            const data = tree.nodes.items(.data)[i];
+            const delete_node = tree.extraData(data.rhs, Node.DeleteRows);
+
+            try appendTags(tree, delete_node.from, tags);
+
+            for (tree.extra_data[delete_node.where..delete_node.where_end]) |where_i| {
+                try appendTags(tree, where_i, tags);
+            }
+        },
+        .delete_cols => {
+            const data = tree.nodes.items(.data)[i];
+            const delete_node = tree.extraData(data.rhs, Node.DeleteColumns);
+
+            try appendTags(tree, delete_node.from, tags);
+
+            for (tree.extra_data[delete_node.select_columns..delete_node.select_columns_end]) |_| {
+                try tags.append(.identifier);
+            }
+        },
         else => |t| panic("{s}", .{@tagName(t)}),
     }
 }
@@ -2236,6 +2257,17 @@ test "update" {
     try testParse("update`a,`c`d from x", &.{ .implicit_return, .update, .identifier, .symbol_literal, .symbol_list_literal }, "(!;`x;();0b;`x`x1!(,`a;,`c`d))");
     try testParse("update`a`b,`c from x", &.{ .implicit_return, .update, .identifier, .symbol_list_literal, .symbol_literal }, "(!;`x;();0b;`x`x1!(,`a`b;,`c))");
     try testParse("update`a`b,`c`d from x", &.{ .implicit_return, .update, .identifier, .symbol_list_literal, .symbol_list_literal }, "(!;`x;();0b;`x`x1!(,`a`b;,`c`d))");
+}
+
+test "delete rows" {
+    try testParse("delete from x", &.{ .implicit_return, .delete_rows, .identifier }, "(!;`x;();0b;`symbol$())");
+    try testParse("delete from x where a", &.{ .implicit_return, .delete_rows, .identifier, .identifier }, "(!;`x;,,`a;0b;`symbol$())");
+    try testParse("delete from x where a,b", &.{ .implicit_return, .delete_rows, .identifier, .identifier, .identifier }, "(!;`x;,(`a;`b);0b;`symbol$())");
+}
+
+test "delete columns" {
+    try testParse("delete a from x", &.{ .implicit_return, .delete_cols, .identifier, .identifier }, "(!;`x;();0b;,,`a)");
+    try testParse("delete a,b from x", &.{ .implicit_return, .delete_cols, .identifier, .identifier, .identifier }, "(!;`x;();0b;,`a`b)");
 }
 
 test {
