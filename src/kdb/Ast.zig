@@ -1664,9 +1664,60 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
 
             try stream.print("(!;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
         },
-        .delete_rows,
-        .delete_cols,
-        => unreachable,
+        .delete_rows => {
+            const data = tree.getData(i);
+            const delete_node = tree.extraData(data.rhs, Node.DeleteRows);
+
+            var from = std.ArrayList(u8).init(gpa);
+            defer from.deinit();
+            try tree.print(delete_node.from, from.writer(), gpa);
+
+            var where = std.ArrayList(u8).init(gpa);
+            defer where.deinit();
+            const where_slice = tree.extra_data[delete_node.where..delete_node.where_end];
+            if (where_slice.len == 0) {
+                try where.appendSlice("()");
+            } else {
+                var temp = std.ArrayList(u8).init(gpa);
+                defer temp.deinit();
+                try where.append(',');
+                if (where_slice.len > 1) try temp.append('(');
+                for (where_slice, 0..) |where_i, temp_i| {
+                    try tree.print(where_i, temp.writer(), gpa);
+                    if (temp_i < where_slice.len - 1) try temp.append(';');
+                }
+                if (where_slice.len > 1) try temp.append(')');
+                if (temp.items[0] != '(' or temp.items[1] == ')') try where.append(',');
+                try where.appendSlice(temp.items);
+            }
+
+            try stream.print("(!;{s};{s};0b;`symbol$())", .{ from.items, where.items });
+        },
+        .delete_cols => {
+            const data = tree.getData(i);
+            const delete_node = tree.extraData(data.rhs, Node.DeleteColumns);
+
+            var from = std.ArrayList(u8).init(gpa);
+            defer from.deinit();
+            try tree.print(delete_node.from, from.writer(), gpa);
+
+            var select = std.ArrayList(u8).init(gpa);
+            defer select.deinit();
+            const select_slice = tree.table_columns[delete_node.select_columns..delete_node.select_columns_end];
+            if (select_slice.len == 0) {
+                try select.appendSlice("()");
+            } else {
+                if (select_slice.len == 1) {
+                    try select.append(',');
+                }
+                try select.append(',');
+                for (select_slice) |column| {
+                    try select.writer().print("`{s}", .{column});
+                }
+            }
+
+            try stream.print("(!;{s};();0b;{s})", .{ from.items, select.items });
+        },
     }
 }
 
