@@ -6,6 +6,10 @@
             .url = "https://github.com/dstrachan/zig-lsp/archive/dc6470f5ef41b3412a9e4ca0125a0863e27661ec.tar.gz",
             .hash = "12208ee1853d29313cda2c26d79022157a0a3b66fc379405036103683063876449b5",
         },
+        .diffz = .{
+            .url = "https://github.com/dstrachan/diffz/archive/8dc40a1418b7530d283320e64d94cd1e0cbd36da.tar.gz",
+            .hash = "12201d140c25bb0271deb11e338e36c348c9ce40ccf8d7bffe620eef9d4ac5e9b096",
+        },
     },
     .paths = .{
         "",
