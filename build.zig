@@ -8,6 +8,9 @@ pub fn build(b: *std.Build) void {
     const zig_lsp = b.dependency("zig-lsp", .{});
     const zig_lsp_module = zig_lsp.module("zig-lsp");
 
+    const diffz = b.dependency("diffz", .{});
+    const diffz_module = diffz.module("diffz");
+
     const full_build = b.option(bool, "full", "Full Build") orelse false;
     if (full_build) {
         inline for (&.{
@@ -18,10 +21,10 @@ pub fn build(b: *std.Build) void {
             .{ .tag = .windows, .arch = .aarch64 },
             .{ .tag = .windows, .arch = .x86_64 },
         }) |resolved_target| {
-            install(b, resolved_target.tag, resolved_target.arch, optimize, zig_lsp_module);
+            install(b, resolved_target.tag, resolved_target.arch, optimize, zig_lsp_module, diffz_module);
         }
     } else {
-        install(b, builtin.os.tag, builtin.cpu.arch, optimize, zig_lsp_module);
+        install(b, builtin.os.tag, builtin.cpu.arch, optimize, zig_lsp_module, diffz_module);
     }
 
     const exe_unit_tests = b.addTest(.{
@@ -30,6 +33,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe_unit_tests.root_module.addImport("lsp", zig_lsp_module);
+    exe_unit_tests.root_module.addImport("diffz", diffz_module);
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -42,6 +46,7 @@ fn install(
     comptime arch: std.Target.Cpu.Arch,
     optimize: std.builtin.OptimizeMode,
     lsp_module: *std.Build.Module,
+    diffz_module: *std.Build.Module,
 ) void {
     const exe = b.addExecutable(.{
         .name = "kdblint",
@@ -53,6 +58,7 @@ fn install(
         .optimize = optimize,
     });
     exe.root_module.addImport("lsp", lsp_module);
+    exe.root_module.addImport("diffz", diffz_module);
 
     b.getInstallStep().dependOn(&b.addInstallArtifact(exe, .{
         .dest_dir = .{
