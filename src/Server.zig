@@ -122,6 +122,7 @@ pub fn initialize(server: *Server, request: types.InitializeParams) !types.Initi
             .positionEncoding = server.position_encoding,
             .textDocumentSync = .{ .TextDocumentSyncKind = types.TextDocumentSyncKind.Incremental },
             .notebookDocumentSync = .{ .NotebookDocumentSyncOptions = .{ .notebookSelector = &.{} } },
+            .documentFormattingProvider = .{ .bool = true },
         },
         .serverInfo = .{
             .name = "kdbLint Language Server",
@@ -190,6 +191,23 @@ pub fn @"textDocument/didSave"(server: *Server, notification: types.DidSaveTextD
 
 pub fn @"textDocument/didClose"(server: *Server, notification: types.DidCloseTextDocumentParams) !void {
     server.document_store.closeDocument(notification.textDocument.uri);
+}
+
+pub fn @"textDocument/formatting"(server: *Server, request: types.DocumentFormattingParams) !?[]types.TextEdit {
+    const handle = server.document_store.getHandle(request.textDocument.uri) orelse return null;
+
+    if (handle.tree.errors.len != 0) return null;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(server.allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const formatted = try handle.tree.render(arena);
+
+    if (std.mem.eql(u8, handle.tree.source, formatted)) return null;
+
+    const text_edits = try diff.edits(arena, handle.tree.source, formatted, server.position_encoding);
+    return text_edits.items;
 }
 
 pub fn processJob(server: *Server, job: Job) void {

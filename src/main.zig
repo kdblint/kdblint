@@ -91,6 +91,12 @@ const Context = struct {
         conn.context.server.start = diagnostics.now();
         try conn.context.server.@"textDocument/didClose"(value);
     }
+
+    pub fn @"textDocument/formatting"(conn: *Connection, _: types.RequestId, value: types.DocumentFormattingParams) !?[]types.TextEdit {
+        log.debug("textDocument/formatting {s}", .{value.textDocument.uri});
+        conn.context.server.start = diagnostics.now();
+        return conn.context.server.@"textDocument/formatting"(value);
+    }
 };
 
 test {
