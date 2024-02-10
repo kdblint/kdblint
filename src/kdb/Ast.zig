@@ -110,6 +110,24 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allo
     };
 }
 
+/// `gpa` is used for allocating the resulting formatted source code, as well as
+/// for allocating extra stack memory if needed, because this function utilizes recursion.
+/// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
+/// Caller owns the returned slice of bytes, allocated with `gpa`.
+pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    try tree.renderToArrayList(&buffer, .{});
+    return buffer.toOwnedSlice();
+}
+
+pub const Fixups = private_render.Fixups;
+
+pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
+    return private_render.renderTree(buffer, tree, fixups);
+}
+
 pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
@@ -121,6 +139,12 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
         @field(result, field.name) = @bitCast(tree.extra_data[index + i]);
     }
     return result;
+}
+
+pub fn rootDecls(tree: Ast) []const Node.Index {
+    // Root is always index 0.
+    const nodes_data = tree.nodes.items(.data);
+    return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
 }
 
 pub const Error = struct {
@@ -700,14 +724,240 @@ fn getExtraData(tree: Ast, i: usize) Node.Index {
     return tree.extra_data[i];
 }
 
-fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
+pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
     switch (tree.getTag(i)) {
         .root => unreachable,
+
+        .grouped_expression,
+        .empty_list,
+        .list,
+        .table_literal,
+        .number_literal,
+        .string_literal,
+        .symbol_literal,
+        .symbol_list_literal,
+        .identifier,
+        => return tree.getMainToken(i),
+
+        .assign,
+        .global_assign,
+        .add,
+        .plus_assign,
+        .subtract,
+        .minus_assign,
+        .multiply,
+        .asterisk_assign,
+        .divide,
+        .percent_assign,
+        .dict,
+        .bang_assign,
+        .lesser,
+        .ampersand_assign,
+        .greater,
+        .pipe_assign,
+        .less_than,
+        .angle_bracket_left_assign,
+        .less_than_equal,
+        .not_equal,
+        .greater_than,
+        .angle_bracket_right_assign,
+        .greater_than_equal,
+        .equals,
+        .equal_assign,
+        .match,
+        .tilde_assign,
+        .join,
+        .comma_assign,
+        .fill,
+        .caret_assign,
+        .take,
+        .hash_assign,
+        .drop,
+        .underscore_assign,
+        .cast,
+        .dollar_assign,
+        .find,
+        .question_mark_assign,
+        .apply,
+        .at_assign,
+        .apply_n,
+        .dot_assign,
+        .file_text,
+        .zero_colon_assign,
+        .file_binary,
+        .one_colon_assign,
+        .dynamic_load,
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+
+        .bin_infix,
+        .binr_infix,
+        .cor_infix,
+        .cov_infix,
+        .div_infix,
+        .in_infix,
+        .insert_infix,
+        .like_infix,
+        .setenv_infix,
+        .ss_infix,
+        .wavg_infix,
+        .within_infix,
+        .wsum_infix,
+        .xexp_infix,
+        => {
+            const data = tree.getData(i);
+            return tree.firstToken(data.lhs);
+        },
+
+        .colon,
+        .colon_colon,
+        .plus,
+        .plus_colon,
+        .minus,
+        .minus_colon,
+        .asterisk,
+        .asterisk_colon,
+        .percent,
+        .percent_colon,
+        .bang,
+        .bang_colon,
+        .ampersand,
+        .ampersand_colon,
+        .pipe,
+        .pipe_colon,
+        .angle_bracket_left,
+        .angle_bracket_left_colon,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_colon,
+        .angle_bracket_right_equal,
+        .equal,
+        .equal_colon,
+        .tilde,
+        .tilde_colon,
+        .comma,
+        .comma_colon,
+        .caret,
+        .caret_colon,
+        .hash,
+        .hash_colon,
+        .underscore,
+        .underscore_colon,
+        .dollar,
+        .dollar_colon,
+        .question_mark,
+        .question_mark_colon,
+        .at,
+        .at_colon,
+        .dot,
+        .dot_colon,
+        .zero_colon,
+        .zero_colon_colon,
+        .one_colon,
+        .one_colon_colon,
+        .two_colon,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => return tree.getMainToken(i),
+
+        .implicit_apply => {
+            const data = tree.getData(i);
+            return tree.firstToken(data.lhs);
+        },
+
+        .lambda_one,
+        .lambda_one_semicolon,
+        .lambda,
+        .lambda_semicolon,
+        .block,
+        => {
+            return tree.getMainToken(i);
+        },
+
+        .call_one,
+        .call,
+        .do,
+        .@"if",
+        .@"while",
+        .implicit_return,
+        => {
+            const data = tree.getData(i);
+            return tree.firstToken(data.lhs);
+        },
+
+        .@"return" => unreachable,
+
+        .abs,
+        .acos,
+        .asin,
+        .atan,
+        .avg,
+        .cos,
+        .dev,
+        .enlist,
+        .exit,
+        .exp,
+        .getenv,
+        .hopen,
+        .last,
+        .log,
+        .max,
+        .min,
+        .prd,
+        .sin,
+        .sqrt,
+        .sum,
+        .tan,
+        .@"var",
+
+        .bin,
+        .binr,
+        .cor,
+        .cov,
+        .div,
+        .in,
+        .insert,
+        .like,
+        .setenv,
+        .ss,
+        .wavg,
+        .within,
+        .wsum,
+        .xexp,
+
+        .do_one,
+        .if_one,
+        .while_one,
+
+        .select,
+        .exec,
+        .update,
+        .delete_rows,
+        .delete_cols,
+        => return tree.getMainToken(i),
+    }
+}
+
+pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
+    switch (tree.getTag(i)) {
+        .root => unreachable,
+
         .grouped_expression,
         .empty_list,
         .list,
         .table_literal,
         => return tree.getData(i).rhs,
+
         .number_literal => {
             var index = i;
             while (true) {
@@ -718,11 +968,13 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
                 index = data.rhs;
             }
         },
+
         .string_literal,
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
         => return tree.getMainToken(i),
+
         .assign,
         .global_assign,
         .add,
@@ -796,10 +1048,11 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         => {
             const data = tree.getData(i);
             if (data.rhs > 0) {
-                return tree.getLastToken(data.rhs);
+                return tree.lastToken(data.rhs);
             }
             return tree.getMainToken(i);
         },
+
         .colon,
         .colon_colon,
         .plus,
@@ -855,19 +1108,21 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         .backslash,
         .backslash_colon,
         => return tree.getMainToken(i),
+
         .implicit_apply => {
             const data = tree.getData(i);
             if (data.rhs > 0) {
-                return tree.getLastToken(data.rhs);
+                return tree.lastToken(data.rhs);
             }
             unreachable;
         },
+
         .lambda_one,
         .lambda_one_semicolon,
         => {
             const data = tree.getData(i);
             var last_token = (if (data.rhs > 0) blk: {
-                break :blk tree.getLastToken(data.rhs);
+                break :blk tree.lastToken(data.rhs);
             } else if (data.lhs > 0) blk: {
                 const sub_range = tree.extraData(data.lhs, Node.SubRange);
                 break :blk tree.getExtraData(sub_range.end - 1);
@@ -886,13 +1141,14 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
+
         .lambda,
         .lambda_semicolon,
         => {
             const data = tree.getData(i);
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
             const node_i = tree.getExtraData(sub_range.end - 1);
-            var last_token = tree.getLastToken(node_i) + 1;
+            var last_token = tree.lastToken(node_i) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
                     .semicolon => {},
@@ -902,6 +1158,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
+
         .block => {
             const data = tree.getData(i);
             var last_token = (if (data.lhs == data.rhs) blk: {
@@ -910,7 +1167,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
                 for (data.lhs..data.rhs, 1..) |_, temp_i| {
                     const node_i = tree.getExtraData(data.rhs - temp_i);
                     if (node_i > 0) {
-                        break :blk tree.getLastToken(node_i);
+                        break :blk tree.lastToken(node_i);
                     }
                 }
                 break :blk tree.getMainToken(i);
@@ -924,10 +1181,11 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
+
         .call_one => {
             const data = tree.getData(i);
             var last_token = (if (data.rhs > 0) blk: {
-                break :blk tree.getLastToken(data.rhs);
+                break :blk tree.lastToken(data.rhs);
             } else blk: {
                 break :blk tree.getMainToken(i);
             }) + 1;
@@ -939,6 +1197,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
+
         .call,
         .do,
         .@"if",
@@ -955,7 +1214,7 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
                     extra_data_i -= 1;
                     node_i = tree.getExtraData(extra_data_i);
                 }
-                break :blk if (node_i == 0) tree.getMainToken(i) else tree.getLastToken(node_i);
+                break :blk if (node_i == 0) tree.getMainToken(i) else tree.lastToken(node_i);
             }) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
@@ -966,7 +1225,9 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
             }
             return last_token;
         },
-        .implicit_return => return tree.getLastToken(tree.getData(i).lhs),
+
+        .implicit_return => return tree.lastToken(tree.getData(i).lhs),
+
         .@"return" => unreachable,
 
         .abs,
@@ -1014,9 +1275,9 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
         => {
             const data = tree.getData(i);
             var last_token = (if (data.rhs > 0) blk: {
-                break :blk tree.getLastToken(data.rhs);
+                break :blk tree.lastToken(data.rhs);
             } else blk: {
-                break :blk tree.getLastToken(data.lhs);
+                break :blk tree.lastToken(data.lhs);
             }) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
@@ -1034,48 +1295,52 @@ fn getLastToken(tree: Ast, i: Node.Index) TokenIndex {
 
             if (select_node.by > select_node.where) {
                 const node = tree.getExtraData(select_node.by - 1);
-                return tree.getLastToken(node);
+                return tree.lastToken(node);
             }
 
-            return tree.getLastToken(select_node.from);
+            return tree.lastToken(select_node.from);
         },
+
         .exec => {
             const data = tree.getData(i);
             const exec_node = tree.extraData(data.rhs, Node.Exec);
 
             if (exec_node.by > exec_node.where) {
                 const node = tree.getExtraData(exec_node.by - 1);
-                return tree.getLastToken(node);
+                return tree.lastToken(node);
             }
 
-            return tree.getLastToken(exec_node.from);
+            return tree.lastToken(exec_node.from);
         },
+
         .update => {
             const data = tree.getData(i);
             const update_node = tree.extraData(data.rhs, Node.Update);
 
             if (update_node.by > update_node.where) {
                 const node = tree.getExtraData(update_node.by - 1);
-                return tree.getLastToken(node);
+                return tree.lastToken(node);
             }
 
-            return tree.getLastToken(update_node.from);
+            return tree.lastToken(update_node.from);
         },
+
         .delete_rows => {
             const data = tree.getData(i);
             const delete_node = tree.extraData(data.rhs, Node.DeleteRows);
 
             if (delete_node.where_end > delete_node.where) {
                 const node = tree.getExtraData(delete_node.where_end - 1);
-                return tree.getLastToken(node);
+                return tree.lastToken(node);
             }
 
-            return tree.getLastToken(delete_node.from);
+            return tree.lastToken(delete_node.from);
         },
+
         .delete_cols => {
             const data = tree.getData(i);
             const delete_node = tree.extraData(data.rhs, Node.DeleteColumns);
-            return tree.getLastToken(delete_node.from);
+            return tree.lastToken(delete_node.from);
         },
     }
 }
@@ -1310,7 +1575,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             const start_token = tree.getMainToken(i);
             const start = tree.tokens.items(.loc)[start_token].start;
 
-            const last_token = tree.getLastToken(i);
+            const last_token = tree.lastToken(i);
             const end = tree.tokens.items(.loc)[last_token].end;
 
             const source = tree.source[start..end];
@@ -1799,6 +2064,7 @@ const Parse = @import("Parse.zig");
 const panic = std.debug.panic;
 const assert = std.debug.assert;
 const diagnostics = @import("../features/diagnostics.zig");
+const private_render = @import("./render.zig");
 
 const log = std.log.scoped(.kdbLint_Ast);
 

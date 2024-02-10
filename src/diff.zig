@@ -1,6 +1,64 @@
 const std = @import("std");
 const types = @import("lsp").types;
 const offsets = @import("offsets.zig");
+const DiffMatchPatch = @import("diffz");
+
+const dmp = DiffMatchPatch{
+    .diff_timeout = 250,
+};
+
+pub const Error = error{OutOfMemory};
+
+pub fn edits(
+    allocator: std.mem.Allocator,
+    before: []const u8,
+    after: []const u8,
+    encoding: offsets.Encoding,
+) Error!std.ArrayListUnmanaged(types.TextEdit) {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const diffs = try dmp.diff(arena.allocator(), before, after, true);
+
+    var edit_count: usize = 0;
+    for (diffs.items) |diff| {
+        switch (diff.operation) {
+            .delete => edit_count += 1,
+            .equal => continue,
+            .insert => edit_count += 1,
+        }
+    }
+
+    var eds = std.ArrayListUnmanaged(types.TextEdit){};
+    try eds.ensureTotalCapacity(allocator, edit_count);
+    errdefer {
+        for (eds.items) |edit| allocator.free(edit.newText);
+        eds.deinit(allocator);
+    }
+
+    var offset: usize = 0;
+    for (diffs.items) |diff| {
+        const start = offset;
+        switch (diff.operation) {
+            .delete => {
+                offset += diff.text.len;
+                eds.appendAssumeCapacity(.{
+                    .range = offsets.locToRange(before, .{ .start = start, .end = offset }, encoding),
+                    .newText = "",
+                });
+            },
+            .equal => {
+                offset += diff.text.len;
+            },
+            .insert => {
+                eds.appendAssumeCapacity(.{
+                    .range = offsets.locToRange(before, .{ .start = start, .end = start }, encoding),
+                    .newText = try allocator.dupe(u8, diff.text),
+                });
+            },
+        }
+    }
+    return eds;
+}
 
 pub fn applyContentChanges(
     allocator: std.mem.Allocator,
