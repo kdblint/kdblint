@@ -128,6 +128,20 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) 
     return private_render.renderTree(buffer, tree, fixups);
 }
 
+pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
+    const token_tags = tree.tokens.items(.tag);
+    const token_tag = token_tags[token_index];
+
+    // Many tokens can be determined entirely by their tag.
+    if (token_tag.lexeme()) |lexeme| {
+        return lexeme;
+    }
+
+    const token_locs = tree.tokens.items(.loc);
+    const loc = token_locs[token_index];
+    return tree.source[loc.start..loc.end];
+}
+
 pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
@@ -145,6 +159,12 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
     // Root is always index 0.
     const nodes_data = tree.nodes.items(.data);
     return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
+}
+
+pub fn tokensOnSameLine(tree: Ast, token1: TokenIndex, token2: TokenIndex) bool {
+    const token_locs = tree.tokens.items(.loc);
+    const source = tree.source[token_locs[token1].start..token_locs[token2].start];
+    return std.mem.indexOfScalar(u8, source, '\n') == null;
 }
 
 pub const Error = struct {

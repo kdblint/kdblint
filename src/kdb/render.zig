@@ -7,9 +7,12 @@ const kdb = @import("../kdb.zig");
 const Ast = kdb.Ast;
 const Token = kdb.Token;
 const primitives = kdb.primitives;
+const panic = std.debug.panic;
 
 const indent_delta = 4;
 const asm_indent_delta = 2;
+
+const log = std.log.scoped(.kdbLint_render);
 
 pub const Error = Ast.RenderError;
 
@@ -86,19 +89,235 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
         .indent_delta = indent_delta,
         .underlying_writer = buffer.writer(),
     };
-    const r: Render = .{
+    var r: Render = .{
         .gpa = buffer.allocator,
         .ais = &auto_indenting_stream,
         .tree = tree,
         .fixups = fixups,
     };
-    _ = r; // autofix
 
-    // try renderMembers(&r, r.tree.rootDecls());
+    try renderBlocks(&r, r.tree.rootDecls());
 
     if (auto_indenting_stream.disabled_offset) |disabled_offset| {
         try writeFixingWhitespace(auto_indenting_stream.underlying_writer, tree.source[disabled_offset..]);
     }
+}
+
+fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
+    try renderBlock(r, blocks[0], .newline);
+    for (blocks[1..]) |block| {
+        try renderExtraNewline(r, block);
+        try renderBlock(r, block, .newline);
+    }
+}
+
+fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
+    const tree = r.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const datas = tree.nodes.items(.data);
+    switch (node_tags[decl]) {
+        .implicit_return => try renderExpression(r, datas[decl].lhs, space),
+        else => try renderExpression(r, decl, .semicolon),
+    }
+}
+
+fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    _ = token_tags; // autofix
+    const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    switch (node_tags[node]) {
+        .number_literal => return renderToken(r, main_tokens[node], space),
+        .add => {
+            const infix = datas[node];
+            try renderExpression(r, infix.lhs, .space);
+            const op_token = main_tokens[node];
+            if (tree.tokensOnSameLine(op_token, op_token + 1)) {
+                try renderToken(r, op_token, .space);
+            } else {
+                ais.pushIndent();
+                try renderToken(r, op_token, .newline);
+                ais.popIndent();
+            }
+            ais.pushIndentOneShot();
+            return renderExpression(r, infix.rhs, space);
+        },
+        else => |t| panic("renderExpression: {s}", .{@tagName(t)}),
+    }
+}
+
+fn renderToken(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const lexeme = tokenSliceForRender(tree, token_index);
+    try ais.writer().writeAll(lexeme);
+    try renderSpace(r, token_index, lexeme.len, space);
+}
+
+fn renderSpace(r: *Render, token_index: Ast.TokenIndex, lexeme_len: usize, space: Space) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const token_tags = tree.tokens.items(.tag);
+    const token_locs = tree.tokens.items(.loc);
+
+    const token_start = token_locs[token_index].start;
+
+    if (space == .skip) return;
+
+    if (space == .comma and token_tags[token_index + 1] != .comma) {
+        try ais.writer().writeByte(',');
+    }
+
+    const comment = try renderComments(r, token_start + lexeme_len, token_locs[token_index + 1].start);
+    switch (space) {
+        .none => {},
+        .space => if (!comment) try ais.writer().writeByte(' '),
+        .newline => if (!comment) try ais.insertNewline(),
+
+        .comma => if (token_tags[token_index + 1] == .comma) {
+            try renderToken(r, token_index + 1, .newline);
+        } else if (!comment) {
+            try ais.insertNewline();
+        },
+
+        .comma_space => if (token_tags[token_index + 1] == .comma) {
+            try renderToken(r, token_index + 1, .space);
+        } else if (!comment) {
+            try ais.writer().writeByte(' ');
+        },
+
+        .semicolon => if (token_tags[token_index + 1] == .semicolon) {
+            try renderToken(r, token_index + 1, .newline);
+        } else if (!comment) {
+            try ais.insertNewline();
+        },
+
+        .skip => unreachable,
+    }
+}
+
+const Space = enum {
+    /// Output the token lexeme only.
+    none,
+    /// Output the token lexeme followed by a single space.
+    space,
+    /// Output the token lexeme followed by a newline.
+    newline,
+    /// If the next token is a comma, render it as well. If not, insert one.
+    /// In either case, a newline will be inserted afterwards.
+    comma,
+    /// Additionally consume the next token if it is a comma.
+    /// In either case, a space will be inserted afterwards.
+    comma_space,
+    /// Additionally consume the next token if it is a semicolon.
+    /// In either case, a newline will be inserted afterwards.
+    semicolon,
+    /// Skip rendering whitespace and comments. If this is used, the caller
+    /// *must* handle whitespace and comments manually.
+    skip,
+};
+
+/// Assumes that start is the first byte past the previous token and
+/// that end is the last byte before the next token.
+fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
+    const tree = r.tree;
+    const ais = r.ais;
+
+    var index: usize = start;
+    while (mem.indexOf(u8, tree.source[index..end], "//")) |offset| {
+        const comment_start = index + offset;
+
+        // If there is no newline, the comment ends with EOF
+        const newline_index = mem.indexOfScalar(u8, tree.source[comment_start..end], '\n');
+        const newline = if (newline_index) |i| comment_start + i else null;
+
+        const untrimmed_comment = tree.source[comment_start .. newline orelse tree.source.len];
+        const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.whitespace);
+
+        // Don't leave any whitespace at the start of the file
+        if (index != 0) {
+            if (index == start and mem.containsAtLeast(u8, tree.source[index..comment_start], 2, "\n")) {
+                // Leave up to one empty line before the first comment
+                try ais.insertNewline();
+                try ais.insertNewline();
+            } else if (mem.indexOfScalar(u8, tree.source[index..comment_start], '\n') != null) {
+                // Respect the newline directly before the comment.
+                // Note: This allows an empty line between comments
+                try ais.insertNewline();
+            } else if (index == start) {
+                // Otherwise if the first comment is on the same line as
+                // the token before it, prefix it with a single space.
+                try ais.writer().writeByte(' ');
+            }
+        }
+
+        index = 1 + (newline orelse end - 1);
+
+        const comment_content = mem.trimLeft(u8, trimmed_comment["//".len..], &std.ascii.whitespace);
+        if (ais.disabled_offset != null and mem.eql(u8, comment_content, "zig fmt: on")) {
+            // Write the source for which formatting was disabled directly
+            // to the underlying writer, fixing up invalid whitespace.
+            const disabled_source = tree.source[ais.disabled_offset.?..comment_start];
+            try writeFixingWhitespace(ais.underlying_writer, disabled_source);
+            // Write with the canonical single space.
+            try ais.underlying_writer.writeAll("// zig fmt: on\n");
+            ais.disabled_offset = null;
+        } else if (ais.disabled_offset == null and mem.eql(u8, comment_content, "zig fmt: off")) {
+            // Write with the canonical single space.
+            try ais.writer().writeAll("// zig fmt: off\n");
+            ais.disabled_offset = index;
+        } else {
+            // Write the comment minus trailing whitespace.
+            try ais.writer().print("{s}\n", .{trimmed_comment});
+        }
+    }
+
+    if (index != start and mem.containsAtLeast(u8, tree.source[index - 1 .. end], 2, "\n")) {
+        // Don't leave any whitespace at the end of the file
+        if (end != tree.source.len) {
+            try ais.insertNewline();
+        }
+    }
+
+    return index != start;
+}
+
+fn renderExtraNewline(r: *Render, node: Ast.Node.Index) Error!void {
+    return renderExtraNewlineToken(r, r.tree.firstToken(node));
+}
+
+/// Check if there is an empty line immediately before the given token. If so, render it.
+fn renderExtraNewlineToken(r: *Render, token_index: Ast.TokenIndex) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const token_locs = tree.tokens.items(.loc);
+    const token_loc = token_locs[token_index];
+    if (token_loc.start == 0) return;
+    const prev_token_end = if (token_index == 0)
+        0
+    else
+        token_locs[token_index - 1].end;
+
+    // If there is a immediately preceding comment,
+    // skip it because required extra newline has already been rendered.
+    if (token_index > 0 and tree.tokens.items(.tag)[token_index - 1] == .comment) return;
+
+    // Iterate backwards to the end of the previous token, stopping if a
+    // non-whitespace character is encountered or two newlines have been found.
+    var i = token_loc.start - 1;
+    var newlines: u2 = 0;
+    while (std.ascii.isWhitespace(tree.source[i])) : (i -= 1) {
+        if (tree.source[i] == '\n') newlines += 1;
+        if (newlines == 2) return ais.insertNewline();
+        if (i == prev_token_end) break;
+    }
+}
+
+fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
+    return tree.tokenSlice(token_index);
 }
 
 fn writeFixingWhitespace(writer: std.ArrayList(u8).Writer, slice: []const u8) Error!void {

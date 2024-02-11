@@ -95,7 +95,9 @@ const Context = struct {
     pub fn @"textDocument/formatting"(conn: *Connection, _: types.RequestId, value: types.DocumentFormattingParams) !?[]types.TextEdit {
         log.debug("textDocument/formatting {s}", .{value.textDocument.uri});
         conn.context.server.start = diagnostics.now();
-        return conn.context.server.@"textDocument/formatting"(value);
+        var arena_allocator = std.heap.ArenaAllocator.init(conn.allocator);
+        defer arena_allocator.deinit();
+        return conn.context.server.@"textDocument/formatting"(arena_allocator.allocator(), value);
     }
 };
 

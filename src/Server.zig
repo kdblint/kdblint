@@ -193,20 +193,16 @@ pub fn @"textDocument/didClose"(server: *Server, notification: types.DidCloseTex
     server.document_store.closeDocument(notification.textDocument.uri);
 }
 
-pub fn @"textDocument/formatting"(server: *Server, request: types.DocumentFormattingParams) !?[]types.TextEdit {
+pub fn @"textDocument/formatting"(server: *Server, gpa: std.mem.Allocator, request: types.DocumentFormattingParams) !?[]types.TextEdit {
     const handle = server.document_store.getHandle(request.textDocument.uri) orelse return null;
 
     if (handle.tree.errors.len != 0) return null;
 
-    var arena_allocator = std.heap.ArenaAllocator.init(server.allocator);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
-    const formatted = try handle.tree.render(arena);
+    const formatted = try handle.tree.render(gpa);
 
     if (std.mem.eql(u8, handle.tree.source, formatted)) return null;
 
-    const text_edits = try diff.edits(arena, handle.tree.source, formatted, server.position_encoding);
+    const text_edits = try diff.edits(gpa, handle.tree.source, formatted, server.position_encoding);
     return text_edits.items;
 }
 
