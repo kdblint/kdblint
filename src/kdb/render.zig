@@ -81,6 +81,7 @@ const Render = struct {
     ais: *Ais,
     tree: Ast,
     fixups: Fixups,
+    prev_token: Ast.TokenIndex,
 };
 
 pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!void {
@@ -94,6 +95,7 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
         .ais = &auto_indenting_stream,
         .tree = tree,
         .fixups = fixups,
+        .prev_token = 0,
     };
 
     try renderBlocks(&r, r.tree.rootDecls());
@@ -121,17 +123,37 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
     }
 }
 
+// TODO: Render comments in weird places.
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
-    _ = token_tags; // autofix
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
     const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    log.debug("tag = {s} ({s})", .{ @tagName(node_tags[node]), @tagName(space) });
     switch (node_tags[node]) {
-        .number_literal => return renderToken(r, main_tokens[node], space),
-        .add => {
+        .number_literal => {
+            const main_token = main_tokens[node];
+            const loc = token_locs[main_token];
+            if (tree.source[loc.start] == '-') {
+                switch (token_tags[r.prev_token]) {
+                    .r_bracket => {
+                        try ais.writer().writeByte(' ');
+                    },
+                    else => {},
+                }
+            }
+            return renderToken(r, main_token, space);
+        },
+        .add,
+        .subtract,
+        .multiply,
+        .divide,
+        .dict,
+        .lesser,
+        => {
             const infix = datas[node];
             try renderExpression(r, infix.lhs, .space);
             const op_token = main_tokens[node];
@@ -145,7 +167,62 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             ais.pushIndentOneShot();
             return renderExpression(r, infix.rhs, space);
         },
+        .minus => {
+            try renderToken(r, node, space);
+        },
+        inline .lambda_one, .lambda_one_semicolon => |t| {
+            const l_brace = main_tokens[node];
+            try renderToken(r, l_brace, .none);
+
+            const data = datas[node];
+            if (nextTag(r, .l_bracket)) |l_bracket| {
+                try renderToken(r, l_bracket, .none);
+            }
+            if (data.lhs > 0) {
+                unreachable;
+                // const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+                // _ = sub_range; // autofix
+            }
+            if (nextTag(r, .r_bracket)) |r_bracket| {
+                try renderToken(r, r_bracket, .none);
+            }
+
+            if (data.rhs > 0) {
+                try renderExpression(r, data.rhs, if (t == .lambda_one) .none else .none); // TODO: .semicolon
+                if (t == .lambda_one_semicolon) {
+                    if (nextTag(r, .semicolon)) |semicolon| {
+                        log.debug("semicolon", .{});
+                        try renderToken(r, semicolon, .none);
+                    }
+                }
+            }
+
+            if (nextTag(r, .r_brace)) |r_brace| {
+                log.debug("r_brace", .{});
+                try renderToken(r, r_brace, space);
+            }
+        },
+        .implicit_apply => {
+            const data = datas[node];
+            const is_negative = node_tags[data.rhs] == .number_literal and
+                tree.source[token_locs[main_tokens[data.rhs]].start] == '-';
+            try renderExpression(r, data.lhs, if (is_negative) .space else .none);
+            try renderExpression(r, data.rhs, space);
+        },
+        .identifier => try renderToken(r, main_tokens[node], space),
         else => |t| panic("renderExpression: {s}", .{@tagName(t)}),
+    }
+}
+
+fn nextTag(r: *Render, comptime expected_tag: Token.Tag) ?Ast.TokenIndex {
+    const token_tags: []Token.Tag = r.tree.tokens.items(.tag);
+    var i = r.prev_token + 1;
+    while (true) : (i += 1) {
+        if (token_tags[i] == expected_tag) return i;
+        switch (token_tags[i]) {
+            .comment, .semicolon => continue,
+            else => return null,
+        }
     }
 }
 
@@ -153,8 +230,10 @@ fn renderToken(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void
     const tree = r.tree;
     const ais = r.ais;
     const lexeme = tokenSliceForRender(tree, token_index);
+    log.debug("renderToken = '{s}' ({s})", .{ lexeme, @tagName(space) });
     try ais.writer().writeAll(lexeme);
     try renderSpace(r, token_index, lexeme.len, space);
+    r.prev_token = token_index;
 }
 
 fn renderSpace(r: *Render, token_index: Ast.TokenIndex, lexeme_len: usize, space: Space) Error!void {

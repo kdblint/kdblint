@@ -188,6 +188,7 @@ pub const Error = struct {
         expected_end_of_block,
         expected_prefix_expr,
         expected_infix_expr,
+        expected_whitespace,
 
         not_yet_implemented,
         parse_error,
