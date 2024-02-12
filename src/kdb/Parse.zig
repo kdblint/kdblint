@@ -689,6 +689,12 @@ fn lambda(p: *Parse) Error!Node.Index {
             }
         }
         _ = try p.expectToken(.r_bracket);
+
+        // Ensure there is whitespace between r_bracket and minus.
+        if (p.language == .q and p.peekTag() == .minus) {
+            // TODO: error is misleading, whitespace doesn't fix this.
+            return p.fail(.expected_whitespace);
+        }
     }
 
     const body_top = p.scratch.items.len;
@@ -1491,6 +1497,21 @@ fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
     }
 }
 
+fn subtract(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    switch (p.nodes.items(.tag)[lhs]) {
+        .lambda_one, .lambda_one_semicolon, .lambda, .lambda_semicolon => {
+            const loc = p.token_locs[p.tok_i];
+
+            // Ensure there is whitespace between r_brace and minus.
+            if (p.source[loc.start] == '-' and !std.ascii.isWhitespace(p.source[loc.start - 1])) {
+                return p.fail(.expected_whitespace);
+            }
+        },
+        else => {},
+    }
+    return Infix(.subtract)(p, lhs);
+}
+
 fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
     return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].start], '\n') == null;
 }
@@ -1649,7 +1670,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .colon_colon = .{ .prefix = Prefix(.colon_colon), .infix = Infix(.global_assign), .prec = .secondary },
     .plus = .{ .prefix = Prefix(.plus), .infix = Infix(.add), .prec = .secondary },
     .plus_colon = .{ .prefix = Prefix(.plus_colon), .infix = Infix(.plus_assign), .prec = .secondary },
-    .minus = .{ .prefix = Prefix(.minus), .infix = Infix(.subtract), .prec = .secondary },
+    .minus = .{ .prefix = Prefix(.minus), .infix = subtract, .prec = .secondary },
     .minus_colon = .{ .prefix = Prefix(.minus_colon), .infix = Infix(.minus_assign), .prec = .secondary },
     .asterisk = .{ .prefix = Prefix(.asterisk), .infix = Infix(.multiply), .prec = .secondary },
     .asterisk_colon = .{ .prefix = Prefix(.asterisk_colon), .infix = Infix(.asterisk_assign), .prec = .secondary },
@@ -1790,6 +1811,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .call_one,
         .add,
+        .subtract,
         .global_assign,
         => {
             const data = tree.nodes.items(.data)[i];
@@ -1822,6 +1844,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .sum,
         .symbol_literal,
         .symbol_list_literal,
+        .minus,
         => {},
         .call => {
             const data = tree.nodes.items(.data)[i];
@@ -2011,6 +2034,47 @@ fn testParseSettings(settings: Ast.ParseSettings, source: [:0]const u8, expected
     try std.testing.expectEqualSlices(u8, expected_parse_tree, parse_tree.items);
 }
 
+fn testParseError(source: [:0]const u8, expected_tags: []const Ast.Error.Tag) !void {
+    inline for (&.{.v4_0}) |version| {
+        inline for (&.{ .k, .q }) |language| {
+            try testParseErrorSettings(.{
+                .version = version,
+                .language = language,
+            }, source, expected_tags);
+        }
+    }
+}
+
+fn testParseErrorVersion(version: Ast.Version, source: [:0]const u8, expected_tags: []const Ast.Error.Tag) !void {
+    inline for (&.{ .k, .q }) |language| {
+        try testParseErrorSettings(.{
+            .version = version,
+            .language = language,
+        }, source, expected_tags);
+    }
+}
+
+fn testParseErrorLanguage(language: Ast.Language, source: [:0]const u8, expected_tags: []const Ast.Error.Tag) !void {
+    inline for (&.{.v4_0}) |version| {
+        try testParseErrorSettings(.{
+            .version = version,
+            .language = language,
+        }, source, expected_tags);
+    }
+}
+
+fn testParseErrorSettings(settings: Ast.ParseSettings, source: [:0]const u8, expected_tags: []const Ast.Error.Tag) !void {
+    var tree = try Ast.parse(std.testing.allocator, source, settings);
+    defer tree.deinit(std.testing.allocator);
+
+    const errors = try std.testing.allocator.alloc(Ast.Error.Tag, tree.errors.len);
+    defer std.testing.allocator.free(errors);
+    for (tree.errors, 0..) |err, i| {
+        errors[i] = err.tag;
+    }
+    try std.testing.expectEqualSlices(Ast.Error.Tag, expected_tags, errors);
+}
+
 test "expressions" {
     try testParse("1", &.{ .implicit_return, .number_literal }, "1");
     try testParse("1;", &.{.number_literal}, "1");
@@ -2039,6 +2103,39 @@ test "lambda" {
         .identifier,
         .identifier,
     }, "{x;y;}");
+    try testParse("{-1}", &.{ .implicit_return, .lambda_one, .number_literal }, "{-1}");
+    try testParse("{-1;}", &.{ .implicit_return, .lambda_one_semicolon, .number_literal }, "{-1;}");
+    try testParseErrorLanguage(.q, "{[]-1}", &.{ .expected_whitespace, .parse_error });
+    try testParseErrorLanguage(.q, "{[]-1;}", &.{ .expected_whitespace, .parse_error });
+    try testParseLanguage(.k, "{[]-1}", &.{ .implicit_return, .lambda_one, .number_literal }, "{[]-1}");
+    try testParseLanguage(.k, "{[]-1;}", &.{ .implicit_return, .lambda_one_semicolon, .number_literal }, "{[]-1;}");
+    try testParse("{[] -1}", &.{ .implicit_return, .lambda_one, .number_literal }, "{[] -1}");
+    try testParse("{[] -1;}", &.{ .implicit_return, .lambda_one_semicolon, .number_literal }, "{[] -1;}");
+}
+
+test "implicit apply" {
+    try testParse("{x}a", &.{
+        .implicit_return,
+        .implicit_apply,
+        .identifier,
+        .lambda_one,
+        .identifier,
+    }, "({x};`a)");
+    try testParse("{x}1", &.{
+        .implicit_return,
+        .implicit_apply,
+        .number_literal,
+        .lambda_one,
+        .identifier,
+    }, "({x};1)");
+    try testParseError("{x}-1", &.{ .expected_whitespace, .parse_error });
+    try testParse("{x} -1", &.{
+        .implicit_return,
+        .implicit_apply,
+        .number_literal,
+        .lambda_one,
+        .identifier,
+    }, "({x};-1)");
 }
 
 test "call" {
@@ -2065,6 +2162,14 @@ test "call" {
         .identifier,
         .identifier,
     }, "({x+y};1;`a)");
+    try testParse("{1}[]-1", &.{
+        .implicit_return,
+        .subtract,
+        .number_literal,
+        .call_one,
+        .lambda_one,
+        .number_literal,
+    }, "(-;({1};::);1)");
 }
 
 test "call - explicit projection" {
