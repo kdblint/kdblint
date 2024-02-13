@@ -74,6 +74,14 @@ fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
     };
 }
 
+fn listToParams(p: *Parse, list: []const Node.Index) !Node.Params {
+    try p.extra_data.appendSlice(p.gpa, list);
+    return Node.Params{
+        .start = @intCast(p.extra_data.items.len - list.len),
+        .end = @intCast(p.extra_data.items.len),
+    };
+}
+
 fn listToTable(p: *Parse, columns: [][]const u8, list: []const Node.Index) !Node.Table {
     assert(columns.len == list.len);
     try p.table_columns.appendSlice(p.gpa, columns);
@@ -690,10 +698,12 @@ fn lambda(p: *Parse) Error!Node.Index {
         }
         _ = try p.expectToken(.r_bracket);
 
-        // Ensure there is whitespace between r_bracket and minus.
-        if (p.language == .q and p.peekTag() == .minus) {
-            // TODO: error is misleading, whitespace doesn't fix this.
-            return p.fail(.expected_whitespace);
+        // Ensure there is whitespace between r_bracket and negative number.
+        if (p.language == .q and p.peekTag() == .number_literal) {
+            const loc = p.token_locs[p.tok_i];
+            if (p.source[loc.start] == '-' and !std.ascii.isWhitespace(p.source[loc.start - 1])) {
+                return p.fail(.expected_whitespace);
+            }
         }
     }
 
@@ -1497,21 +1507,6 @@ fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
     }
 }
 
-fn subtract(p: *Parse, lhs: Node.Index) Error!Node.Index {
-    switch (p.nodes.items(.tag)[lhs]) {
-        .lambda_one, .lambda_one_semicolon, .lambda, .lambda_semicolon => {
-            const loc = p.token_locs[p.tok_i];
-
-            // Ensure there is whitespace between r_brace and minus.
-            if (p.source[loc.start] == '-' and !std.ascii.isWhitespace(p.source[loc.start - 1])) {
-                return p.fail(.expected_whitespace);
-            }
-        },
-        else => {},
-    }
-    return Infix(.subtract)(p, lhs);
-}
-
 fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
     return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].start], '\n') == null;
 }
@@ -1670,7 +1665,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .colon_colon = .{ .prefix = Prefix(.colon_colon), .infix = Infix(.global_assign), .prec = .secondary },
     .plus = .{ .prefix = Prefix(.plus), .infix = Infix(.add), .prec = .secondary },
     .plus_colon = .{ .prefix = Prefix(.plus_colon), .infix = Infix(.plus_assign), .prec = .secondary },
-    .minus = .{ .prefix = Prefix(.minus), .infix = subtract, .prec = .secondary },
+    .minus = .{ .prefix = Prefix(.minus), .infix = Infix(.subtract), .prec = .secondary },
     .minus_colon = .{ .prefix = Prefix(.minus_colon), .infix = Infix(.minus_assign), .prec = .secondary },
     .asterisk = .{ .prefix = Prefix(.asterisk), .infix = Infix(.multiply), .prec = .secondary },
     .asterisk_colon = .{ .prefix = Prefix(.asterisk_colon), .infix = Infix(.asterisk_assign), .prec = .secondary },
@@ -2128,14 +2123,6 @@ test "implicit apply" {
         .lambda_one,
         .identifier,
     }, "({x};1)");
-    try testParseError("{x}-1", &.{ .expected_whitespace, .parse_error });
-    try testParse("{x} -1", &.{
-        .implicit_return,
-        .implicit_apply,
-        .number_literal,
-        .lambda_one,
-        .identifier,
-    }, "({x};-1)");
 }
 
 test "call" {

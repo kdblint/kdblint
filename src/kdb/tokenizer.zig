@@ -332,6 +332,11 @@ pub const Tokenizer = struct {
 
     is_first: bool = true,
 
+    start_lambda: bool = false,
+    start_table: bool = false,
+    start_bracket: bool = false,
+    end_bracket: bool = false,
+
     parens_count: u32 = 0,
     braces_count: u32 = 0,
     brackets_count: u32 = 0,
@@ -543,6 +548,9 @@ pub const Tokenizer = struct {
                         result.tag = .l_paren;
                         self.advance();
                         self.parens_count += 1;
+                        self.start_table = true;
+                        self.start_bracket = false;
+                        self.end_bracket = false;
                         break;
                     },
                     ')' => {
@@ -555,6 +563,9 @@ pub const Tokenizer = struct {
                         result.tag = .l_brace;
                         self.advance();
                         self.braces_count += 1;
+                        self.start_lambda = true;
+                        self.start_bracket = false;
+                        self.end_bracket = false;
                         break;
                     },
                     '}' => {
@@ -567,12 +578,23 @@ pub const Tokenizer = struct {
                         result.tag = .l_bracket;
                         self.advance();
                         self.brackets_count += 1;
+                        if (self.start_lambda) {
+                            self.start_lambda = false;
+                            self.start_bracket = true;
+                        } else if (self.start_table) {
+                            self.start_table = false;
+                            self.start_bracket = true;
+                        }
                         break;
                     },
                     ']' => {
                         result.tag = .r_bracket;
                         self.advance();
                         self.brackets_count = @max(0, @as(i32, @intCast(self.brackets_count)) - 1);
+                        if (self.start_bracket) {
+                            self.start_bracket = false;
+                            self.end_bracket = true;
+                        }
                         break;
                     },
                     ';' => {
@@ -737,7 +759,7 @@ pub const Tokenizer = struct {
                             break;
                         }
 
-                        if (self.impl.index >= 2) switch (self.buffer[self.impl.index - 2]) {
+                        if (!self.end_bracket and self.impl.index >= 2) switch (self.buffer[self.impl.index - 2]) {
                             ' ', '\t', '\n', '\r', '(', '{', '[', ';' => {},
                             else => break,
                         };
@@ -747,7 +769,7 @@ pub const Tokenizer = struct {
                         self.advance();
                     },
                     '0'...'9' => {
-                        if (self.impl.index >= 2) switch (self.buffer[self.impl.index - 2]) {
+                        if (!self.end_bracket and self.impl.index >= 2) switch (self.buffer[self.impl.index - 2]) {
                             ' ', '\t', '\n', '\r', '(', '{', '[', ';' => {},
                             else => break,
                         };
@@ -1095,6 +1117,34 @@ pub const Tokenizer = struct {
             self.parens_count = 0;
             self.braces_count = 0;
             self.brackets_count = 0;
+        }
+
+        if (self.start_lambda and switch (result.tag) {
+            .l_brace, .comment => false,
+            else => true,
+        }) {
+            self.start_lambda = false;
+            self.start_bracket = false;
+            self.end_bracket = false;
+        }
+
+        if (self.start_table and switch (result.tag) {
+            .l_paren, .comment => false,
+            else => true,
+        }) {
+            self.start_table = false;
+            self.start_bracket = false;
+            self.end_bracket = false;
+        }
+
+        if (self.end_bracket and switch (result.tag) {
+            .r_bracket, .comment => false,
+            else => true,
+        }) {
+            self.start_lambda = false;
+            self.start_table = false;
+            self.start_bracket = false;
+            self.end_bracket = false;
         }
 
         return result;
@@ -1539,6 +1589,71 @@ test "tokenize negative number" {
         .{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = false },
         .{ .tag = .minus, .loc = .{ .start = 10, .end = 11 }, .eob = false },
         .{ .tag = .number_literal, .loc = .{ .start = 11, .end = 13 }, .eob = true },
+    });
+    try testTokenize("{1}[]-1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 6, .end = 7 }, .eob = true },
+    });
+    try testTokenize("{1}[]- 1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 5, .end = 6 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 7, .end = 8 }, .eob = true },
+    });
+    try testTokenize("{1}[] - 1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .minus, .loc = .{ .start = 6, .end = 7 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 9 }, .eob = true },
+    });
+    try testTokenize("{1}[] -1", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 4, .end = 5 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 6, .end = 8 }, .eob = true },
+    });
+    try testTokenize("{[]-1}", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 5, .end = 6 }, .eob = true },
+    });
+    try testTokenize("{[x]-1}", &.{
+        .{ .tag = .l_brace, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 6 }, .eob = false },
+        .{ .tag = .r_brace, .loc = .{ .start = 6, .end = 7 }, .eob = true },
+    });
+    try testTokenize("([]-1)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 3, .end = 5 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 5, .end = 6 }, .eob = true },
+    });
+    try testTokenize("([x]-1)", &.{
+        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .l_bracket, .loc = .{ .start = 1, .end = 2 }, .eob = false },
+        .{ .tag = .identifier, .loc = .{ .start = 2, .end = 3 }, .eob = false },
+        .{ .tag = .r_bracket, .loc = .{ .start = 3, .end = 4 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 4, .end = 6 }, .eob = false },
+        .{ .tag = .r_paren, .loc = .{ .start = 6, .end = 7 }, .eob = true },
     });
 }
 

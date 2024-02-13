@@ -622,6 +622,11 @@ pub const Node = struct {
         end: Index,
     };
 
+    pub const Params = struct {
+        start: TokenIndex,
+        end: TokenIndex,
+    };
+
     pub const Table = struct {
         /// Index into table_columns.
         column_start: Index,
