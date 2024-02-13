@@ -119,7 +119,7 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
     const datas = tree.nodes.items(.data);
     switch (node_tags[decl]) {
         .implicit_return => try renderExpression(r, datas[decl].lhs, space),
-        else => try renderExpression(r, decl, .semicolon),
+        else => try renderExpression(r, decl, .semicolon_newline),
     }
 }
 
@@ -127,26 +127,24 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const token_locs: []Token.Loc = tree.tokens.items(.loc);
     const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
-    log.debug("tag = {s} ({s})", .{ @tagName(node_tags[node]), @tagName(space) });
     switch (node_tags[node]) {
         .number_literal => {
             const main_token = main_tokens[node];
             const loc = token_locs[main_token];
             if (tree.source[loc.start] == '-') {
-                switch (token_tags[r.prev_token]) {
-                    .r_bracket => {
-                        try ais.writer().writeByte(' ');
-                    },
+                const items = ais.underlying_writer.context.items;
+                switch (items[items.len - 1]) {
+                    ')', '}', ']' => try ais.writer().writeByte(' '),
                     else => {},
                 }
             }
             return renderToken(r, main_token, space);
         },
+        .assign,
         .add,
         .subtract,
         .multiply,
@@ -155,63 +153,137 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .lesser,
         => {
             const infix = datas[node];
-            try renderExpression(r, infix.lhs, .space);
-            const op_token = main_tokens[node];
-            if (tree.tokensOnSameLine(op_token, op_token + 1)) {
-                try renderToken(r, op_token, .space);
-            } else {
-                ais.pushIndent();
-                try renderToken(r, op_token, .newline);
-                ais.popIndent();
-            }
-            ais.pushIndentOneShot();
+            try renderExpression(r, infix.lhs, .none);
+            try renderToken(r, main_tokens[node], .none);
             return renderExpression(r, infix.rhs, space);
         },
         .minus => {
             try renderToken(r, node, space);
         },
-        inline .lambda_one, .lambda_one_semicolon => |t| {
-            const l_brace = main_tokens[node];
-            try renderToken(r, l_brace, .none);
-
-            const data = datas[node];
-            if (nextTag(r, .l_bracket)) |l_bracket| {
-                try renderToken(r, l_bracket, .none);
-            }
-            if (data.lhs > 0) {
-                unreachable;
-                // const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
-                // _ = sub_range; // autofix
-            }
-            if (nextTag(r, .r_bracket)) |r_bracket| {
-                try renderToken(r, r_bracket, .none);
-            }
-
-            if (data.rhs > 0) {
-                try renderExpression(r, data.rhs, if (t == .lambda_one) .none else .none); // TODO: .semicolon
-                if (t == .lambda_one_semicolon) {
-                    if (nextTag(r, .semicolon)) |semicolon| {
-                        log.debug("semicolon", .{});
-                        try renderToken(r, semicolon, .none);
-                    }
-                }
-            }
-
-            if (nextTag(r, .r_brace)) |r_brace| {
-                log.debug("r_brace", .{});
-                try renderToken(r, r_brace, space);
+        inline .lambda_one, .lambda_one_semicolon, .lambda, .lambda_semicolon => |t| {
+            const top = ais.underlying_writer.context.items.len;
+            try renderLambda(r, false, t, node, space);
+            const len = ais.underlying_writer.context.items.len - top;
+            if (len > 30) {
+                ais.underlying_writer.context.shrinkRetainingCapacity(top);
+                r.prev_token = main_tokens[node];
+                try renderLambda(r, true, t, node, space);
             }
         },
         .implicit_apply => {
             const data = datas[node];
-            const is_negative = node_tags[data.rhs] == .number_literal and
-                tree.source[token_locs[main_tokens[data.rhs]].start] == '-';
-            try renderExpression(r, data.lhs, if (is_negative) .space else .none);
+            try renderExpression(r, data.lhs, .none);
             try renderExpression(r, data.rhs, space);
         },
         .identifier => try renderToken(r, main_tokens[node], space),
+        .select => {
+            try renderToken(r, main_tokens[node], .space);
+
+            const select = tree.extraData(datas[node].rhs, Ast.Node.Select);
+            const column_exprs = tree.extra_data[select.select..select.select_end];
+            if (column_exprs.len > 0) {
+                const column_names = tree.table_columns[select.select_columns .. select.select_columns + column_exprs.len];
+                for (column_names[0 .. column_names.len - 1], column_exprs[0 .. column_exprs.len - 1]) |column, expr| {
+                    try ais.writer().writeAll(column);
+                    try ais.writer().writeByte(':');
+                    try renderExpression(r, expr, .comma);
+                }
+
+                try ais.writer().writeAll(column_names[column_names.len - 1]);
+                try ais.writer().writeByte(':');
+                try renderExpression(r, column_exprs[column_exprs.len - 1], .space);
+            }
+
+            const by_exprs = tree.extra_data[select.by..select.select];
+            if (by_exprs.len > 0) {
+                try ais.writer().writeAll("by ");
+                const by_names = tree.table_columns[select.by_columns .. select.by_columns + by_exprs.len];
+                for (by_names[0 .. by_names.len - 1], by_exprs[0 .. by_exprs.len - 1]) |column, expr| {
+                    try ais.writer().writeAll(column);
+                    try ais.writer().writeByte(':');
+                    try renderExpression(r, expr, .comma);
+                }
+                try ais.writer().writeAll(by_names[by_names.len - 1]);
+                try ais.writer().writeByte(':');
+                try renderExpression(r, by_exprs[by_exprs.len - 1], .space);
+            }
+
+            try ais.writer().writeAll("from ");
+            const where_exprs = tree.extra_data[select.where..select.by];
+            if (where_exprs.len > 0) {
+                try renderExpression(r, select.from, .space);
+
+                try ais.writer().writeAll("where ");
+                for (where_exprs[0 .. where_exprs.len - 1]) |expr| {
+                    try renderExpression(r, expr, .comma);
+                }
+                try renderExpression(r, where_exprs[where_exprs.len - 1], space);
+            } else {
+                try renderExpression(r, select.from, space);
+            }
+        },
         else => |t| panic("renderExpression: {s}", .{@tagName(t)}),
     }
+}
+
+fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Tag, node: Ast.Node.Index, space: Space) !void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
+    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    try renderToken(r, main_tokens[node], .none);
+
+    const data = datas[node];
+    if (nextTag(r, .l_bracket)) |l_bracket| {
+        try renderToken(r, l_bracket, .none);
+    } else {
+        try ais.writer().writeByte('[');
+    }
+    if (data.lhs > 0) {
+        const params = tree.extraData(data.lhs, Ast.Node.Params);
+        const tokens = tree.extra_data[params.start..params.end];
+        try renderToken(r, tokens[0], .none);
+        for (tokens[1..]) |token| {
+            try ais.writer().writeByte(';');
+            try renderToken(r, token, .none);
+        }
+    }
+    if (nextTag(r, .r_bracket)) |r_bracket| {
+        try renderToken(r, r_bracket, .none);
+    } else {
+        try ais.writer().writeByte(']');
+    }
+
+    const has_body = if (tag == .lambda or tag == .lambda_semicolon) true else data.rhs > 0;
+    if (has_body) {
+        if (multi_line) {
+            try ais.insertNewline();
+            ais.pushIndent();
+        }
+        if (tag == .lambda or tag == .lambda_semicolon) {
+            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
+            try renderExpression(r, exprs[0], .none);
+            for (exprs[1..]) |expr| {
+                try ais.writer().writeByte(';');
+                if (multi_line) try ais.insertNewline();
+                try renderExpression(r, expr, .none);
+            }
+        } else {
+            try renderExpression(r, data.rhs, .none);
+        }
+    }
+
+    if (nextTag(r, .semicolon)) |semicolon| {
+        if (has_body) try renderToken(r, semicolon, if (multi_line) .newline else .none);
+    }
+
+    if (nextTag(r, .r_brace)) |r_brace| {
+        try renderToken(r, r_brace, space);
+    }
+
+    if (multi_line and has_body) ais.popIndent();
 }
 
 fn nextTag(r: *Render, comptime expected_tag: Token.Tag) ?Ast.TokenIndex {
@@ -230,7 +302,6 @@ fn renderToken(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void
     const tree = r.tree;
     const ais = r.ais;
     const lexeme = tokenSliceForRender(tree, token_index);
-    log.debug("renderToken = '{s}' ({s})", .{ lexeme, @tagName(space) });
     try ais.writer().writeAll(lexeme);
     try renderSpace(r, token_index, lexeme.len, space);
     r.prev_token = token_index;
@@ -257,18 +328,27 @@ fn renderSpace(r: *Render, token_index: Ast.TokenIndex, lexeme_len: usize, space
         .newline => if (!comment) try ais.insertNewline(),
 
         .comma => if (token_tags[token_index + 1] == .comma) {
-            try renderToken(r, token_index + 1, .newline);
+            try renderToken(r, token_index + 1, .none);
         } else if (!comment) {
-            try ais.insertNewline();
+            try ais.writer().writeByte(',');
         },
-
         .comma_space => if (token_tags[token_index + 1] == .comma) {
             try renderToken(r, token_index + 1, .space);
         } else if (!comment) {
             try ais.writer().writeByte(' ');
         },
+        .comma_newline => if (token_tags[token_index + 1] == .comma) {
+            try renderToken(r, token_index + 1, .newline);
+        } else if (!comment) {
+            try ais.insertNewline();
+        },
 
         .semicolon => if (token_tags[token_index + 1] == .semicolon) {
+            try renderToken(r, token_index + 1, .none);
+        } else if (!comment) {
+            try ais.writer().writeByte(';');
+        },
+        .semicolon_newline => if (token_tags[token_index + 1] == .semicolon) {
             try renderToken(r, token_index + 1, .newline);
         } else if (!comment) {
             try ais.insertNewline();
@@ -286,14 +366,18 @@ const Space = enum {
     /// Output the token lexeme followed by a newline.
     newline,
     /// If the next token is a comma, render it as well. If not, insert one.
-    /// In either case, a newline will be inserted afterwards.
     comma,
     /// Additionally consume the next token if it is a comma.
     /// In either case, a space will be inserted afterwards.
     comma_space,
+    /// If the next token is a comma, render it as well. If not, insert one.
+    /// In either case, a newline will be inserted afterwards.
+    comma_newline,
+    /// Additionally consume the next token if it is a semicolon.
+    semicolon,
     /// Additionally consume the next token if it is a semicolon.
     /// In either case, a newline will be inserted afterwards.
-    semicolon,
+    semicolon_newline,
     /// Skip rendering whitespace and comments. If this is used, the caller
     /// *must* handle whitespace and comments manually.
     skip,
