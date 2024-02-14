@@ -82,14 +82,15 @@ fn listToParams(p: *Parse, list: []const Node.Index) !Node.Params {
     };
 }
 
-fn listToTable(p: *Parse, columns: [][]const u8, list: []const Node.Index) !Node.Table {
+fn listToTable(p: *Parse, columns: [][]const u8, list: []const Node.Index, key_len: u32) !Node.Table {
     assert(columns.len == list.len);
     try p.table_columns.appendSlice(p.gpa, columns);
     try p.extra_data.appendSlice(p.gpa, list);
     return Node.Table{
         .column_start = @intCast(p.table_columns.items.len - columns.len),
         .expr_start = @intCast(p.extra_data.items.len - list.len),
-        .len = @intCast(list.len),
+        .key_len = key_len,
+        .len = @intCast(list.len - key_len),
     };
 }
 
@@ -336,10 +337,7 @@ fn grouping(p: *Parse) Error!Node.Index {
     }
 
     if (p.eatToken(.l_bracket)) |_| {
-        if (p.eatToken(.r_bracket)) |_| return p.addTable(l_paren);
-
-        // TODO: Keyed table
-        return error.ParseError;
+        return p.addTable(l_paren);
     }
 
     const scratch_top = p.scratch.items.len;
@@ -390,6 +388,32 @@ fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
     const table_scratch_top = p.table_scratch.items.len;
     defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
 
+    if (p.peekTag() != .r_bracket) {
+        var key_hash_map = std.StringHashMap(u32).init(p.gpa);
+        defer key_hash_map.deinit();
+
+        while (true) {
+            if (p.eob) return p.failExpected(.r_bracket);
+            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+                const identifier = p.assertToken(.identifier);
+                _ = p.assertToken(.colon);
+                break :blk identifier;
+            } else 0;
+            const expr = try p.expectExpr(.r_bracket);
+            try p.scratch.append(p.gpa, expr);
+            try p.addTableColumn(identifier, expr, &key_hash_map);
+            switch (p.peekTag()) {
+                .semicolon => _ = p.nextToken(),
+                .r_bracket => break,
+                else => {},
+            }
+        }
+    }
+
+    _ = try p.expectToken(.r_bracket);
+
+    const key_len = p.scratch.items.len - scratch_top;
+
     var hash_map = std.StringHashMap(u32).init(p.gpa);
     defer hash_map.deinit();
 
@@ -417,7 +441,7 @@ fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
         .tag = .table_literal,
         .main_token = l_paren,
         .data = .{
-            .lhs = try p.addExtra(try p.listToTable(columns, expressions)),
+            .lhs = try p.addExtra(try p.listToTable(columns, expressions, @intCast(key_len))),
             .rhs = r_paren,
         },
     });
@@ -1875,8 +1899,12 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .table_literal => {
             const data = tree.nodes.items(.data)[i];
             const table = tree.extraData(data.lhs, Node.Table);
-            for (table.expr_start..table.expr_start + table.len, 1..) |_, temp_i| {
-                const node_i = tree.extra_data[table.expr_start + table.len - temp_i];
+            for (table.expr_start + table.key_len..table.expr_start + table.key_len + table.len, 1..) |_, temp_i| {
+                const node_i = tree.extra_data[table.expr_start + table.key_len + table.len - temp_i];
+                try appendTags(tree, node_i, tags);
+            }
+            for (table.expr_start..table.expr_start + table.key_len, 1..) |_, temp_i| {
+                const node_i = tree.extra_data[table.expr_start + table.key_len - temp_i];
                 try appendTags(tree, node_i, tags);
             }
         },
@@ -2232,6 +2260,18 @@ test "table" {
     try testParse("([](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier }, "(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))))");
     try testParse("([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)))");
     try testParse("([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))))");
+
+    try testParse("([()]())", &.{ .implicit_return, .table_literal, .empty_list, .empty_list }, "(!;(+:;(!;,,`x;(enlist;())));(+:;(!;,,`x;(enlist;()))))");
+    try testParse("([1 2]1 2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal }, "(!;(+:;(!;,,`x;(enlist;1 2)));(+:;(!;,,`x;(enlist;1 2))))");
+    try testParse("([a:1 2]a:1 2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal }, "(!;(+:;(!;,,`a;(enlist;1 2)));(+:;(!;,,`a;(enlist;1 2))))");
+    try testParse("([a::1 2]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .number_literal, .identifier, .global_assign, .number_literal, .identifier }, "(!;(+:;(!;,,`x;(enlist;(::;`a;1 2))));(+:;(!;,,`x;(enlist;(::;`a;1 2)))))");
+    try testParse("([a:1 2;b:2]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .number_literal, .number_literal }, "(!;(+:;(!;,`a`b;(enlist;1 2;2)));(+:;(!;,`a`b;(enlist;1 2;2))))");
+    try testParse("([a]a)", &.{ .implicit_return, .table_literal, .identifier, .identifier }, "(!;(+:;(!;,,`a;(enlist;`a)));(+:;(!;,,`a;(enlist;`a))))");
+    try testParse("([b+sum a]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier, .add, .implicit_apply, .identifier, .sum, .identifier }, "(!;(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))));(+:;(!;,,`a;(enlist;(+;`b;(sum;`a))))))");
+    try testParse("([sum[a]+b]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum, .add, .identifier, .call_one, .identifier, .sum }, "(!;(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))));(+:;(!;,,`b;(enlist;(+;(sum;`a);`b)))))");
+    try testParse("([(a;b;c)](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier, .list, .identifier, .identifier, .identifier }, "(!;(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))));(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c)))))");
+    try testParse("([til 10;x1:1;2]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(!;(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)));(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2))))");
+    try testParse("([a;a::til 10]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(!;(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))));(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10))))))");
 }
 
 test "select" {

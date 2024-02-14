@@ -632,6 +632,7 @@ pub const Node = struct {
         column_start: Index,
         /// Index into extra_data.
         expr_start: Index,
+        key_len: u32,
         len: u32,
     };
 
@@ -1399,29 +1400,26 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             const data = tree.getData(i);
             const table = tree.extraData(data.lhs, Node.Table);
 
-            var keys = std.ArrayList(u8).init(gpa);
-            defer keys.deinit();
-            try keys.append(',');
-            if (table.len == 1) {
-                try keys.writer().print(",`{s}", .{tree.table_columns[table.column_start]});
+            const columns = tree.table_columns[table.column_start + table.key_len .. table.column_start + table.key_len + table.len];
+            const exprs = tree.extra_data[table.expr_start + table.key_len .. table.expr_start + table.key_len + table.len];
+
+            if (table.key_len > 0) {
+                var flip = std.ArrayList(u8).init(gpa);
+                defer flip.deinit();
+
+                try printTable(tree, columns, exprs, flip.writer(), gpa);
+
+                var key_flip = std.ArrayList(u8).init(gpa);
+                defer key_flip.deinit();
+
+                const key_columns = tree.table_columns[table.column_start .. table.column_start + table.key_len];
+                const key_exprs = tree.extra_data[table.expr_start .. table.expr_start + table.key_len];
+                try printTable(tree, key_columns, key_exprs, key_flip.writer(), gpa);
+
+                try stream.print("(!;{s};{s})", .{ key_flip.items, flip.items });
             } else {
-                for (table.column_start..table.column_start + table.len) |table_columns_i| {
-                    const table_column = tree.table_columns[table_columns_i];
-                    try keys.writer().print("`{s}", .{table_column});
-                }
+                try printTable(tree, columns, exprs, stream, gpa);
             }
-
-            var values = std.ArrayList(u8).init(gpa);
-            defer values.deinit();
-            for (table.expr_start..table.expr_start + table.len) |extra_data_i| {
-                const node_i = tree.getExtraData(extra_data_i);
-                try tree.print(node_i, values.writer(), gpa);
-                if (extra_data_i < (table.expr_start + table.len) - 1) {
-                    try values.append(';');
-                }
-            }
-
-            try stream.print("(+:;(!;{s};(enlist;{s})))", .{ keys.items, values.items });
         },
         .number_literal => {
             var index = i;
@@ -2010,6 +2008,26 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(!;{s};();0b;{s})", .{ from.items, select.items });
         },
     }
+}
+
+fn printTable(tree: Ast, columns: [][]const u8, exprs: []Node.Index, stream: anytype, gpa: Allocator) Allocator.Error!void {
+    var keys = std.ArrayList(u8).init(gpa);
+    defer keys.deinit();
+    try keys.append(',');
+    if (columns.len == 1) try keys.append(',');
+    for (columns) |column| {
+        try keys.writer().print("`{s}", .{column});
+    }
+
+    var values = std.ArrayList(u8).init(gpa);
+    defer values.deinit();
+    try tree.print(exprs[0], values.writer(), gpa);
+    for (exprs[1..]) |expr| {
+        try values.append(';');
+        try tree.print(expr, values.writer(), gpa);
+    }
+
+    try stream.print("(+:;(!;{s};(enlist;{s})))", .{ keys.items, values.items });
 }
 
 fn printColumns(tree: Ast, start: Node.Index, len: usize, stream: anytype) Allocator.Error!void {
