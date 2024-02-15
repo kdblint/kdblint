@@ -124,6 +124,7 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
 }
 
 // TODO: Render comments in weird places.
+// TODO: Handle spaces between identifiers/numbers.
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
@@ -192,6 +193,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderToken(r, main_tokens[data.rhs], space);
         },
 
+        // TODO: Render number list literals
         .number_literal => {
             const main_token = main_tokens[node];
             const loc = token_locs[main_token];
@@ -574,10 +576,78 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderExpression(r, select.from, space);
             }
         },
-        .exec => unreachable,
-        .update => unreachable,
-        .delete_rows => unreachable,
-        .delete_cols => unreachable,
+        .exec => {
+            const data = datas[node];
+            const exec = tree.extraData(data.lhs, Ast.Node.Exec);
+
+            try renderToken(r, main_tokens[node], .space);
+
+            const column_exprs = tree.extra_data[exec.select..exec.select_end];
+            if (column_exprs.len > 0) {
+                if (exec.data.has_select_columns) {
+                    const column_names = tree.table_columns[exec.select_columns .. exec.select_columns + column_exprs.len];
+                    for (column_names[0 .. column_names.len - 1], column_exprs[0 .. column_exprs.len - 1]) |column, expr| {
+                        try ais.writer().writeAll(column);
+                        try ais.writer().writeByte(':');
+                        try renderExpression(r, expr, .comma);
+                    }
+
+                    try ais.writer().writeAll(column_names[column_names.len - 1]);
+                    try ais.writer().writeByte(':');
+                    try renderExpression(r, column_exprs[column_exprs.len - 1], .space);
+                } else {
+                    for (column_exprs[0 .. column_exprs.len - 1]) |expr| {
+                        try renderExpression(r, expr, .comma);
+                    }
+
+                    try renderExpression(r, column_exprs[column_exprs.len - 1], .space);
+                }
+            }
+
+            const by_exprs = tree.extra_data[exec.by..exec.select];
+            if (by_exprs.len > 0) {
+                try ais.writer().writeAll("by ");
+                if (exec.data.has_by_columns) {
+                    const by_names = tree.table_columns[exec.by_columns .. exec.by_columns + by_exprs.len];
+                    for (by_names[0 .. by_names.len - 1], by_exprs[0 .. by_exprs.len - 1]) |column, expr| {
+                        try ais.writer().writeAll(column);
+                        try ais.writer().writeByte(':');
+                        try renderExpression(r, expr, .comma);
+                    }
+                    try ais.writer().writeAll(by_names[by_names.len - 1]);
+                    try ais.writer().writeByte(':');
+                    try renderExpression(r, by_exprs[by_exprs.len - 1], .space);
+                } else {
+                    for (by_exprs[0 .. by_exprs.len - 1]) |expr| {
+                        try renderExpression(r, expr, .comma);
+                    }
+                    try renderExpression(r, by_exprs[by_exprs.len - 1], .space);
+                }
+            }
+
+            try ais.writer().writeAll("from ");
+            const where_exprs = tree.extra_data[exec.where..exec.by];
+            if (where_exprs.len > 0) {
+                try renderExpression(r, exec.from, .space);
+
+                try ais.writer().writeAll("where ");
+                for (where_exprs[0 .. where_exprs.len - 1]) |expr| {
+                    try renderExpression(r, expr, .comma);
+                }
+                try renderExpression(r, where_exprs[where_exprs.len - 1], space);
+            } else {
+                try renderExpression(r, exec.from, space);
+            }
+        },
+        .update => {
+            unreachable;
+        },
+        .delete_rows => {
+            unreachable;
+        },
+        .delete_cols => {
+            unreachable;
+        },
     }
 }
 
