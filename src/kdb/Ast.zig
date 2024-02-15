@@ -335,101 +335,101 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         two_colon,
 
-        /// `lhs : rhs`. main_token is `:`.
+        /// `lhs : rhs`. rhs can be omitted. main_token is `:`.
         assign,
-        /// `lhs :: rhs`. main_token is `::`.
+        /// `lhs :: rhs`. rhs can be omitted. main_token is `::`.
         global_assign,
-        /// `lhs + rhs`. main_token is `+`.
+        /// `lhs + rhs`. rhs can be omitted. main_token is `+`.
         add,
-        /// `lhs +: rhs`. main_token is `+:`.
+        /// `lhs +: rhs`. rhs can be omitted. main_token is `+:`.
         plus_assign,
-        /// `lhs - rhs`. main_token is `-`.
+        /// `lhs - rhs`. rhs can be omitted. main_token is `-`.
         subtract,
-        /// `lhs -: rhs`. main_token is `-:`.
+        /// `lhs -: rhs`. rhs can be omitted. main_token is `-:`.
         minus_assign,
-        /// `lhs * rhs`. main_token is `*`.
+        /// `lhs * rhs`. rhs can be omitted. main_token is `*`.
         multiply,
-        /// `lhs *: rhs`. main_token is `*:`.
+        /// `lhs *: rhs`. rhs can be omitted. main_token is `*:`.
         asterisk_assign,
-        /// `lhs % rhs`. main_token is `%`.
+        /// `lhs % rhs`. rhs can be omitted. main_token is `%`.
         divide,
-        /// `lhs %: rhs`. main_token is `%:`.
+        /// `lhs %: rhs`. rhs can be omitted. main_token is `%:`.
         percent_assign,
-        /// `lhs ! rhs`. main_token is `!`.
+        /// `lhs ! rhs`. rhs can be omitted. main_token is `!`.
         dict,
-        /// `lhs !: rhs`. main_token is `!:`.
+        /// `lhs !: rhs`. rhs can be omitted. main_token is `!:`.
         bang_assign,
-        /// `lhs & rhs`. main_token is `&`.
+        /// `lhs & rhs`. rhs can be omitted. main_token is `&`.
         lesser,
-        /// `lhs &: rhs`. main_token is `&:`.
+        /// `lhs &: rhs`. rhs can be omitted. main_token is `&:`.
         ampersand_assign,
-        /// `lhs | rhs`. main_token is `|`.
+        /// `lhs | rhs`. rhs can be omitted. main_token is `|`.
         greater,
-        /// `lhs |: rhs`. main_token is `|:`.
+        /// `lhs |: rhs`. rhs can be omitted. main_token is `|:`.
         pipe_assign,
-        /// `lhs < rhs`. main_token is `<`.
+        /// `lhs < rhs`. rhs can be omitted. main_token is `<`.
         less_than,
-        /// `lhs <: rhs`. main_token is `<:`.
+        /// `lhs <: rhs`. rhs can be omitted. main_token is `<:`.
         angle_bracket_left_assign,
-        /// `lhs <= rhs`. main_token is `<=`.
+        /// `lhs <= rhs`. rhs can be omitted. main_token is `<=`.
         less_than_equal,
-        /// `lhs <> rhs`. main_token is `<>`.
+        /// `lhs <> rhs`. rhs can be omitted. main_token is `<>`.
         not_equal,
-        /// `lhs > rhs`. main_token is `>`.
+        /// `lhs > rhs`. rhs can be omitted. main_token is `>`.
         greater_than,
-        /// `lhs >: rhs`. main_token is `>:`.
+        /// `lhs >: rhs`. rhs can be omitted. main_token is `>:`.
         angle_bracket_right_assign,
-        /// `lhs >= rhs`. main_token is `>=`.
+        /// `lhs >= rhs`. rhs can be omitted. main_token is `>=`.
         greater_than_equal,
-        /// `lhs = rhs`. main_token is `=`.
+        /// `lhs = rhs`. rhs can be omitted. main_token is `=`.
         equals,
-        /// `lhs =: rhs`. main_token is `=:`.
+        /// `lhs =: rhs`. rhs can be omitted. main_token is `=:`.
         equal_assign,
-        /// `lhs ~ rhs`. main_token is `~`.
+        /// `lhs ~ rhs`. rhs can be omitted. main_token is `~`.
         match,
-        /// `lhs ~: rhs`. main_token is `~:`.
+        /// `lhs ~: rhs`. rhs can be omitted. main_token is `~:`.
         tilde_assign,
-        /// `lhs , rhs`. main_token is `,`.
+        /// `lhs , rhs`. rhs can be omitted. main_token is `,`.
         join,
-        /// `lhs ,: rhs`. main_token is `,:`.
+        /// `lhs ,: rhs`. rhs can be omitted. main_token is `,:`.
         comma_assign,
-        /// `lhs ^ rhs`. main_token is `^`.
+        /// `lhs ^ rhs`. rhs can be omitted. main_token is `^`.
         fill,
-        /// `lhs ^: rhs`. main_token is `^:`.
+        /// `lhs ^: rhs`. rhs can be omitted. main_token is `^:`.
         caret_assign,
-        /// `lhs # rhs`. main_token is `#`.
+        /// `lhs # rhs`. rhs can be omitted. main_token is `#`.
         take,
-        /// `lhs #: rhs`. main_token is `#:`.
+        /// `lhs #: rhs`. rhs can be omitted. main_token is `#:`.
         hash_assign,
-        /// `lhs _ rhs`. main_token is `_`.
+        /// `lhs _ rhs`. rhs can be omitted. main_token is `_`.
         drop,
-        /// `lhs _: rhs`. main_token is `_:`.
+        /// `lhs _: rhs`. rhs can be omitted. main_token is `_:`.
         underscore_assign,
-        /// `lhs $ rhs`. main_token is `$`.
+        /// `lhs $ rhs`. rhs can be omitted. main_token is `$`.
         cast,
-        /// `lhs $: rhs`. main_token is `$:`.
+        /// `lhs $: rhs`. rhs can be omitted. main_token is `$:`.
         dollar_assign,
-        /// `lhs ? rhs`. main_token is `?`.
+        /// `lhs ? rhs`. rhs can be omitted. main_token is `?`.
         find,
-        /// `lhs ?: rhs`. main_token is `?:`.
+        /// `lhs ?: rhs`. rhs can be omitted. main_token is `?:`.
         question_mark_assign,
-        /// `lhs @ rhs`. main_token is `@`.
+        /// `lhs @ rhs`. rhs can be omitted. main_token is `@`.
         apply,
-        /// `lhs @: rhs`. main_token is `@:`.
+        /// `lhs @: rhs`. rhs can be omitted. main_token is `@:`.
         at_assign,
-        /// `lhs . rhs`. main_token is `.`.
+        /// `lhs . rhs`. rhs can be omitted. main_token is `.`.
         apply_n,
-        /// `lhs .: rhs`. main_token is `.:`.
+        /// `lhs .: rhs`. rhs can be omitted. main_token is `.:`.
         dot_assign,
-        /// `lhs 0: rhs`. main_token is `0:`.
+        /// `lhs 0: rhs`. rhs can be omitted. main_token is `0:`.
         file_text,
-        /// `lhs 0:: rhs`. main_token is `0::`.
+        /// `lhs 0:: rhs`. rhs can be omitted. main_token is `0::`.
         zero_colon_assign,
-        /// `lhs 1: rhs`. main_token is `1:`.
+        /// `lhs 1: rhs`. rhs can be omitted. main_token is `1:`.
         file_binary,
-        /// `lhs 1:: rhs`. main_token is `1::`.
+        /// `lhs 1:: rhs`. rhs can be omitted. main_token is `1::`.
         one_colon_assign,
-        /// `lhs 2: rhs`. main_token is `2:`.
+        /// `lhs 2: rhs`. rhs can be omitted. main_token is `2:`.
         dynamic_load,
 
         /// `lhs rhs`. main_token is unused.
@@ -470,7 +470,7 @@ pub const Node = struct {
         /// Same as lambda but there is known to be a semicolon before the rbrace.
         lambda_semicolon,
 
-        /// `[a;b;c]`. `extra_data[lhs..rhs]`. main_token is `[`.
+        /// `[a;b;c]`. `SubRange[lhs]`. main_token is `[`. rhs is the token index of the `]`.
         block,
 
         /// `lhs[rhs]`. rhs can be omitted. main_token is `[`.
@@ -530,59 +530,59 @@ pub const Node = struct {
 
         /// Both lhs and rhs unused.
         bin,
-        /// `lhs bin rhs`. main_token is `bin`.
-        bin_infix,
         /// Both lhs and rhs unused.
         binr,
-        /// `lhs binr rhs`. main_token is `binr`.
-        binr_infix,
         /// Both lhs and rhs unused.
         cor,
-        /// `lhs cor rhs`. main_token is `cor`.
-        cor_infix,
         /// Both lhs and rhs unused.
         cov,
-        /// `lhs cov rhs`. main_token is `cov`.
-        cov_infix,
         /// Both lhs and rhs unused.
         div,
-        /// `lhs div rhs`. main_token is `div`.
-        div_infix,
         /// Both lhs and rhs unused.
         in,
-        /// `lhs in rhs`. main_token is `in`.
-        in_infix,
         /// Both lhs and rhs unused.
         insert,
-        /// `lhs insert rhs`. main_token is `insert`.
-        insert_infix,
         /// Both lhs and rhs unused.
         like,
-        /// `lhs like rhs`. main_token is `like`.
-        like_infix,
         /// Both lhs and rhs unused.
         setenv,
-        /// `lhs setenv rhs`. main_token is `setenv`.
-        setenv_infix,
         /// Both lhs and rhs unused.
         ss,
-        /// `lhs ss rhs`. main_token is `ss`.
-        ss_infix,
         /// Both lhs and rhs unused.
         wavg,
-        /// `lhs wavg rhs`. main_token is `wavg`.
-        wavg_infix,
         /// Both lhs and rhs unused.
         within,
-        /// `lhs within rhs`. main_token is `within`.
-        within_infix,
         /// Both lhs and rhs unused.
         wsum,
-        /// `lhs wsum rhs`. main_token is `wsum`.
-        wsum_infix,
         /// Both lhs and rhs unused.
         xexp,
-        /// `lhs xexp rhs`. main_token is `xexp`.
+        /// `lhs bin rhs`. rhs can be omitted. main_token is `bin`.
+        bin_infix,
+        /// `lhs binr rhs`. rhs can be omitted. main_token is `binr`.
+        binr_infix,
+        /// `lhs cor rhs`. rhs can be omitted. main_token is `cor`.
+        cor_infix,
+        /// `lhs cov rhs`. rhs can be omitted. main_token is `cov`.
+        cov_infix,
+        /// `lhs div rhs`. rhs can be omitted. main_token is `div`.
+        div_infix,
+        /// `lhs in rhs`. rhs can be omitted. main_token is `in`.
+        in_infix,
+        /// `lhs insert rhs`. rhs can be omitted. main_token is `insert`.
+        insert_infix,
+        /// `lhs like rhs`. rhs can be omitted. main_token is `like`.
+        like_infix,
+        /// `lhs setenv rhs`. rhs can be omitted. main_token is `setenv`.
+        setenv_infix,
+        /// `lhs ss rhs`. rhs can be omitted. main_token is `ss`.
+        ss_infix,
+        /// `lhs wavg rhs`. rhs can be omitted. main_token is `wavg`.
+        wavg_infix,
+        /// `lhs within rhs`. rhs can be omitted. main_token is `within`.
+        within_infix,
+        /// `lhs wsum rhs`. rhs can be omitted. main_token is `wsum`.
+        wsum_infix,
+        /// `lhs xexp rhs`. rhs can be omitted. main_token is `xexp`.
         xexp_infix,
 
         /// `do[lhs;rhs]`. rhs can be omitted. main_token is `do`.
@@ -598,15 +598,15 @@ pub const Node = struct {
         /// `while[lhs;rhs]`. `SubRange[rhs]`. main_token is `while`.
         @"while",
 
-        /// `select rhs`. `Select[rhs]`. main_token is `select`.
+        /// `select lhs`. `Select[lhs]`. rhs is unused. main_token is `select`.
         select,
-        /// `exec rhs`. `Exec[rhs]`. main_token is `exec`.
+        /// `exec lhs`. `Exec[lhs]`. rhs is unused. main_token is `exec`.
         exec,
-        /// `update rhs`. `Update[rhs]`. main_token is `update`.
+        /// `update lhs`. `Update[lhs]`. rhs is unused. main_token is `update`.
         update,
-        /// `delete rhs`. `DeleteRows[rhs]`. main_token is `delete`.
+        /// `delete lhs`. `DeleteRows[lhs]`. rhs is unused. main_token is `delete`.
         delete_rows,
-        /// `delete rhs`. `DeleteCols[rhs]`. main_token is `delete`.
+        /// `delete lhs`. `DeleteCols[lhs]`. rhs is unused. main_token is `delete`.
         delete_cols,
     };
 
@@ -620,11 +620,6 @@ pub const Node = struct {
         start: Index,
         /// Index into extra_data.
         end: Index,
-    };
-
-    pub const Params = struct {
-        start: TokenIndex,
-        end: TokenIndex,
     };
 
     pub const Table = struct {
@@ -1186,28 +1181,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
             return last_token;
         },
 
-        .block => {
-            const data = tree.getData(i);
-            var last_token = (if (data.lhs == data.rhs) blk: {
-                break :blk tree.getMainToken(i);
-            } else blk: {
-                for (data.lhs..data.rhs, 1..) |_, temp_i| {
-                    const node_i = tree.getExtraData(data.rhs - temp_i);
-                    if (node_i > 0) {
-                        break :blk tree.lastToken(node_i);
-                    }
-                }
-                break :blk tree.getMainToken(i);
-            }) + 1;
-            while (true) : (last_token += 1) {
-                switch (tree.tokens.items(.tag)[last_token]) {
-                    .semicolon => {},
-                    .comment => {},
-                    else => break,
-                }
-            }
-            return last_token;
-        },
+        .block => return tree.getData(i).rhs,
 
         .call_one => {
             const data = tree.getData(i);
@@ -1318,7 +1292,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
 
         .select => {
             const data = tree.getData(i);
-            const select_node = tree.extraData(data.rhs, Node.Select);
+            const select_node = tree.extraData(data.lhs, Node.Select);
 
             if (select_node.by > select_node.where) {
                 const node = tree.getExtraData(select_node.by - 1);
@@ -1330,7 +1304,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
 
         .exec => {
             const data = tree.getData(i);
-            const exec_node = tree.extraData(data.rhs, Node.Exec);
+            const exec_node = tree.extraData(data.lhs, Node.Exec);
 
             if (exec_node.by > exec_node.where) {
                 const node = tree.getExtraData(exec_node.by - 1);
@@ -1342,7 +1316,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
 
         .update => {
             const data = tree.getData(i);
-            const update_node = tree.extraData(data.rhs, Node.Update);
+            const update_node = tree.extraData(data.lhs, Node.Update);
 
             if (update_node.by > update_node.where) {
                 const node = tree.getExtraData(update_node.by - 1);
@@ -1354,7 +1328,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
 
         .delete_rows => {
             const data = tree.getData(i);
-            const delete_node = tree.extraData(data.rhs, Node.DeleteRows);
+            const delete_node = tree.extraData(data.lhs, Node.DeleteRows);
 
             if (delete_node.where_end > delete_node.where) {
                 const node = tree.getExtraData(delete_node.where_end - 1);
@@ -1366,7 +1340,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
 
         .delete_cols => {
             const data = tree.getData(i);
-            const delete_node = tree.extraData(data.rhs, Node.DeleteColumns);
+            const delete_node = tree.extraData(data.lhs, Node.DeleteColumns);
             return tree.lastToken(delete_node.from);
         },
     }
@@ -1607,25 +1581,34 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         },
         .block => {
             const data = tree.getData(i);
+            const sub_range = tree.extraData(data.lhs, Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
 
-            if (data.rhs - data.lhs > 1) {
-                try stream.writeAll("(\";\";");
-            }
-
-            for (data.lhs..data.rhs) |extra_data_i| {
-                const node_i = tree.getExtraData(extra_data_i);
-                if (node_i == 0) {
-                    try stream.writeAll("::");
+            if (exprs.len > 0) {
+                var block = std.ArrayList(u8).init(gpa);
+                defer block.deinit();
+                if (exprs[0] == 0) {
+                    try block.appendSlice("::");
                 } else {
-                    try tree.print(node_i, stream, gpa);
+                    try tree.print(exprs[0], block.writer(), gpa);
                 }
-                if (extra_data_i < data.rhs - 1) {
-                    try stream.writeAll(";");
-                }
-            }
+                switch (exprs.len) {
+                    1 => try stream.writeAll(block.items),
+                    else => {
+                        for (exprs[1..]) |expr| {
+                            try block.append(';');
+                            if (expr == 0) {
+                                try block.appendSlice("::");
+                            } else {
+                                try tree.print(expr, block.writer(), gpa);
+                            }
+                        }
 
-            if (data.rhs - data.lhs > 1) {
-                try stream.writeAll(")");
+                        try stream.print("(\";\";{s})", .{block.items});
+                    },
+                }
+            } else {
+                try stream.writeAll("::");
             }
         },
         .call_one => {
@@ -1768,7 +1751,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
 
         .select => {
             const data = tree.getData(i);
-            const select_node = tree.extraData(data.rhs, Node.Select);
+            const select_node = tree.extraData(data.lhs, Node.Select);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -1849,7 +1832,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         },
         .exec => {
             const data = tree.getData(i);
-            const exec_node = tree.extraData(data.rhs, Node.Exec);
+            const exec_node = tree.extraData(data.lhs, Node.Exec);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -1904,7 +1887,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         },
         .update => {
             const data = tree.getData(i);
-            const update_node = tree.extraData(data.rhs, Node.Update);
+            const update_node = tree.extraData(data.lhs, Node.Update);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -1955,7 +1938,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         },
         .delete_rows => {
             const data = tree.getData(i);
-            const delete_node = tree.extraData(data.rhs, Node.DeleteRows);
+            const delete_node = tree.extraData(data.lhs, Node.DeleteRows);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -1984,7 +1967,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         },
         .delete_cols => {
             const data = tree.getData(i);
-            const delete_node = tree.extraData(data.rhs, Node.DeleteColumns);
+            const delete_node = tree.extraData(data.lhs, Node.DeleteColumns);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
