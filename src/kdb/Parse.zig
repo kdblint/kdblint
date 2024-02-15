@@ -1160,6 +1160,10 @@ fn select(p: *Parse) Error!Node.Index {
 fn exec(p: *Parse) Error!Node.Index {
     const exec_token = p.assertToken(.keyword_exec);
 
+    if (p.peekTag() == .l_bracket) {
+        return p.fail(.expected_qsql_token);
+    }
+
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
@@ -1303,6 +1307,10 @@ fn exec(p: *Parse) Error!Node.Index {
 fn update(p: *Parse) Error!Node.Index {
     const update_token = p.assertToken(.keyword_update);
 
+    if (p.peekTag() == .l_bracket) {
+        return p.fail(.expected_qsql_token);
+    }
+
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
@@ -1388,6 +1396,10 @@ fn update(p: *Parse) Error!Node.Index {
 //                       ^
 fn delete(p: *Parse) Error!Node.Index {
     const delete_token = p.assertToken(.keyword_delete);
+
+    if (p.peekTag() == .l_bracket) {
+        return p.fail(.expected_qsql_token);
+    }
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
