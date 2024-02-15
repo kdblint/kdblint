@@ -708,7 +708,20 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
         },
         .delete_cols => {
-            unreachable;
+            const data = datas[node];
+            const delete = tree.extraData(data.lhs, Ast.Node.DeleteColumns);
+
+            try renderToken(r, main_tokens[node], .space);
+
+            const columns = tree.table_columns[delete.select_columns..delete.select_columns_end];
+            try ais.writer().writeAll(columns[0]);
+            for (columns[1..]) |column| {
+                try ais.writer().writeByte(',');
+                try ais.writer().writeAll(column);
+            }
+
+            try ais.writer().writeAll(" from ");
+            try renderExpression(r, delete.from, space);
         },
     }
 }
