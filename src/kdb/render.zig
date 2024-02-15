@@ -688,7 +688,24 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
         },
         .delete_rows => {
-            unreachable;
+            const data = datas[node];
+            const delete = tree.extraData(data.lhs, Ast.Node.DeleteRows);
+
+            try renderToken(r, main_tokens[node], .space);
+
+            try ais.writer().writeAll("from ");
+            const where_exprs = tree.extra_data[delete.where..delete.where_end];
+            if (where_exprs.len > 0) {
+                try renderExpression(r, delete.from, .space);
+
+                try ais.writer().writeAll("where ");
+                for (where_exprs[0 .. where_exprs.len - 1]) |expr| {
+                    try renderExpression(r, expr, .comma);
+                }
+                try renderExpression(r, where_exprs[where_exprs.len - 1], space);
+            } else {
+                try renderExpression(r, delete.from, space);
+            }
         },
         .delete_cols => {
             unreachable;
