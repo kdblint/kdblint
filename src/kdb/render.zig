@@ -512,10 +512,26 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .select => {
             const data = datas[node];
-
-            try renderToken(r, main_tokens[node], .space);
-
             const select = tree.extraData(data.lhs, Ast.Node.Select);
+
+            try renderToken(r, main_tokens[node], if (select.limit > 0 or select.order > 0) .none else .space);
+
+            if (select.limit > 0 or select.order > 0) {
+                try ais.writer().writeByte('[');
+                if (select.limit > 0) {
+                    try renderExpression(r, select.limit, if (select.order > 0) .semicolon else .none);
+                }
+                if (select.order > 0) {
+                    if (select.data.ascending) {
+                        try ais.writer().writeByte('<');
+                    } else {
+                        try ais.writer().writeByte('>');
+                    }
+                    try renderToken(r, select.order, .none);
+                }
+                try ais.writer().writeByte(']');
+            }
+
             const column_exprs = tree.extra_data[select.select..select.select_end];
             if (column_exprs.len > 0) {
                 const column_names = tree.table_columns[select.select_columns .. select.select_columns + column_exprs.len];
