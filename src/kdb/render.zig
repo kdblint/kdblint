@@ -640,7 +640,52 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
         },
         .update => {
-            unreachable;
+            const data = datas[node];
+            const update = tree.extraData(data.lhs, Ast.Node.Update);
+
+            try renderToken(r, main_tokens[node], .space);
+
+            const column_exprs = tree.extra_data[update.select..update.select_end];
+            if (column_exprs.len > 0) {
+                const column_names = tree.table_columns[update.select_columns .. update.select_columns + column_exprs.len];
+                for (column_names[0 .. column_names.len - 1], column_exprs[0 .. column_exprs.len - 1]) |column, expr| {
+                    try ais.writer().writeAll(column);
+                    try ais.writer().writeByte(':');
+                    try renderExpression(r, expr, .comma);
+                }
+
+                try ais.writer().writeAll(column_names[column_names.len - 1]);
+                try ais.writer().writeByte(':');
+                try renderExpression(r, column_exprs[column_exprs.len - 1], .space);
+            }
+
+            const by_exprs = tree.extra_data[update.by..update.select];
+            if (by_exprs.len > 0) {
+                try ais.writer().writeAll("by ");
+                const by_names = tree.table_columns[update.by_columns .. update.by_columns + by_exprs.len];
+                for (by_names[0 .. by_names.len - 1], by_exprs[0 .. by_exprs.len - 1]) |column, expr| {
+                    try ais.writer().writeAll(column);
+                    try ais.writer().writeByte(':');
+                    try renderExpression(r, expr, .comma);
+                }
+                try ais.writer().writeAll(by_names[by_names.len - 1]);
+                try ais.writer().writeByte(':');
+                try renderExpression(r, by_exprs[by_exprs.len - 1], .space);
+            }
+
+            try ais.writer().writeAll("from ");
+            const where_exprs = tree.extra_data[update.where..update.by];
+            if (where_exprs.len > 0) {
+                try renderExpression(r, update.from, .space);
+
+                try ais.writer().writeAll("where ");
+                for (where_exprs[0 .. where_exprs.len - 1]) |expr| {
+                    try renderExpression(r, expr, .comma);
+                }
+                try renderExpression(r, where_exprs[where_exprs.len - 1], space);
+            } else {
+                try renderExpression(r, update.from, space);
+            }
         },
         .delete_rows => {
             unreachable;
