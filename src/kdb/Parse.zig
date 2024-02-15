@@ -74,14 +74,6 @@ fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
     };
 }
 
-fn listToParams(p: *Parse, list: []const Node.Index) !Node.Params {
-    try p.extra_data.appendSlice(p.gpa, list);
-    return Node.Params{
-        .start = @intCast(p.extra_data.items.len - list.len),
-        .end = @intCast(p.extra_data.items.len),
-    };
-}
-
 fn listToTable(p: *Parse, columns: [][]const u8, list: []const Node.Index, key_len: u32) !Node.Table {
     assert(columns.len == list.len);
     try p.table_columns.appendSlice(p.gpa, columns);
@@ -330,7 +322,7 @@ fn grouping(p: *Parse) Error!Node.Index {
             .tag = .empty_list,
             .main_token = l_paren,
             .data = .{
-                .lhs = 0,
+                .lhs = undefined,
                 .rhs = r_paren,
             },
         });
@@ -575,8 +567,9 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         => return p.findFirstIdentifier(p.nodes.items(.data)[i].rhs),
         .block => {
             const data = p.nodes.items(.data)[i];
-            for (data.lhs..data.rhs, 1..) |_, temp_i| {
-                const node_i = p.extra_data.items[data.rhs - temp_i];
+            const sub_range = p.extraData(data.lhs, Node.SubRange);
+            for (sub_range.start..sub_range.end, 1..) |_, temp_i| {
+                const node_i = p.extra_data.items[sub_range.end - temp_i];
                 if (p.findFirstIdentifier(node_i)) |token_i| return token_i;
             }
             return null;
@@ -786,28 +779,27 @@ fn block(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    while (true) {
-        if (p.eob) return p.failExpected(.r_bracket);
-        const expr = try p.parseExpr(.r_bracket);
-        try p.scratch.append(p.gpa, expr);
-        switch (p.peekTag()) {
-            .semicolon => _ = p.nextToken(),
-            .r_bracket => {
-                _ = p.nextToken();
-                break;
-            },
-            else => {},
+    if (p.peekTag() != .r_bracket) {
+        while (true) {
+            if (p.eob) return p.failExpected(.r_bracket);
+            const expr = try p.parseExpr(.r_bracket);
+            try p.scratch.append(p.gpa, expr);
+            switch (p.peekTag()) {
+                .semicolon => _ = p.nextToken(),
+                .r_bracket => break,
+                else => {},
+            }
         }
     }
+    const r_bracket = try p.expectToken(.r_bracket);
 
     const expressions = p.scratch.items[scratch_top..];
-    const span = try p.listToSpan(expressions);
     return p.addNode(.{
         .tag = .block,
         .main_token = l_bracket,
         .data = .{
-            .lhs = span.start,
-            .rhs = span.end,
+            .lhs = try p.addExtra(try p.listToSpan(expressions)),
+            .rhs = r_bracket,
         },
     });
 }
@@ -1159,8 +1151,8 @@ fn select(p: *Parse) Error!Node.Index {
         .tag = .select,
         .main_token = select_token,
         .data = .{
-            .lhs = select_token,
-            .rhs = try p.addExtra(select_node),
+            .lhs = try p.addExtra(select_node),
+            .rhs = undefined,
         },
     });
 }
@@ -1302,8 +1294,8 @@ fn exec(p: *Parse) Error!Node.Index {
         .tag = .exec,
         .main_token = exec_token,
         .data = .{
-            .lhs = exec_token,
-            .rhs = try p.addExtra(exec_node),
+            .lhs = try p.addExtra(exec_node),
+            .rhs = undefined,
         },
     });
 }
@@ -1386,8 +1378,8 @@ fn update(p: *Parse) Error!Node.Index {
         .tag = .update,
         .main_token = update_token,
         .data = .{
-            .lhs = update_token,
-            .rhs = try p.addExtra(exec_node),
+            .lhs = try p.addExtra(exec_node),
+            .rhs = undefined,
         },
     });
 }
@@ -1427,8 +1419,8 @@ fn delete(p: *Parse) Error!Node.Index {
             .tag = .delete_rows,
             .main_token = delete_token,
             .data = .{
-                .lhs = delete_token,
-                .rhs = try p.addExtra(delete_node),
+                .lhs = try p.addExtra(delete_node),
+                .rhs = undefined,
             },
         });
     } else {
@@ -1459,8 +1451,8 @@ fn delete(p: *Parse) Error!Node.Index {
             .tag = .delete_cols,
             .main_token = delete_token,
             .data = .{
-                .lhs = delete_token,
-                .rhs = try p.addExtra(delete_node),
+                .lhs = try p.addExtra(delete_node),
+                .rhs = undefined,
             },
         });
     }
@@ -1879,10 +1871,10 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .block => {
             const data = tree.nodes.items(.data)[i];
-            for (tree.extra_data[data.lhs..data.rhs]) |node_i| {
-                if (node_i > 0) {
-                    try appendTags(tree, node_i, tags);
-                }
+            const sub_range = tree.extraData(data.lhs, Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
+            for (exprs) |expr| {
+                if (expr > 0) try appendTags(tree, expr, tags);
             }
         },
         .list => {
@@ -1915,7 +1907,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .select => {
             const data = tree.nodes.items(.data)[i];
-            const select_node = tree.extraData(data.rhs, Node.Select);
+            const select_node = tree.extraData(data.lhs, Node.Select);
 
             try appendTags(tree, select_node.from, tags);
 
@@ -1943,7 +1935,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .exec => {
             const data = tree.nodes.items(.data)[i];
-            const exec_node = tree.extraData(data.rhs, Node.Exec);
+            const exec_node = tree.extraData(data.lhs, Node.Exec);
 
             try appendTags(tree, exec_node.from, tags);
 
@@ -1961,7 +1953,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .update => {
             const data = tree.nodes.items(.data)[i];
-            const update_node = tree.extraData(data.rhs, Node.Update);
+            const update_node = tree.extraData(data.lhs, Node.Update);
 
             try appendTags(tree, update_node.from, tags);
 
@@ -1979,7 +1971,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .delete_rows => {
             const data = tree.nodes.items(.data)[i];
-            const delete_node = tree.extraData(data.rhs, Node.DeleteRows);
+            const delete_node = tree.extraData(data.lhs, Node.DeleteRows);
 
             try appendTags(tree, delete_node.from, tags);
 
@@ -1989,7 +1981,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .delete_cols => {
             const data = tree.nodes.items(.data)[i];
-            const delete_node = tree.extraData(data.rhs, Node.DeleteColumns);
+            const delete_node = tree.extraData(data.lhs, Node.DeleteColumns);
 
             try appendTags(tree, delete_node.from, tags);
 

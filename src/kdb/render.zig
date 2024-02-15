@@ -132,9 +132,70 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
     switch (node_tags[node]) {
+        .root => unreachable,
+
+        .grouped_expression => {
+            const data = datas[node];
+
+            try renderToken(r, main_tokens[node], .none);
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[data.rhs], space);
+        },
+        .empty_list => {
+            const data = datas[node];
+
+            try renderToken(r, main_tokens[node], .none);
+            try renderToken(r, main_tokens[data.rhs], space);
+        },
+        .list => {
+            const data = datas[node];
+
+            try renderToken(r, main_tokens[node], .none);
+            const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
+            try renderExpression(r, exprs[0], .none);
+            for (exprs[1..]) |expr| {
+                try ais.writer().writeByte(';');
+                try renderExpression(r, expr, .none);
+            }
+            try renderToken(r, main_tokens[data.rhs], space);
+        },
+        .table_literal => {
+            const data = datas[node];
+            const table = tree.extraData(data.lhs, Ast.Node.Table);
+
+            try renderToken(r, main_tokens[node], .none);
+            const key_columns = tree.table_columns[table.column_start .. table.column_start + table.key_len];
+            const key_exprs = tree.extra_data[table.expr_start .. table.expr_start + table.key_len];
+            try ais.writer().writeByte('[');
+            if (key_columns.len > 0) {
+                try ais.writer().writeAll(key_columns[0]);
+                try ais.writer().writeByte(':');
+                try renderExpression(r, key_exprs[0], .none);
+                for (key_columns[1..], key_exprs[1..]) |column, expr| {
+                    try ais.writer().writeAll(column);
+                    try ais.writer().writeByte(':');
+                    try renderExpression(r, expr, .none);
+                }
+            }
+            try ais.writer().writeByte(']');
+            const columns = tree.table_columns[table.column_start + table.key_len .. table.column_start + table.key_len + table.len];
+            const exprs = tree.extra_data[table.expr_start + table.key_len .. table.expr_start + table.key_len + table.len];
+            try ais.writer().writeAll(columns[0]);
+            try ais.writer().writeByte(':');
+            try renderExpression(r, exprs[0], .none);
+            for (columns[1..], exprs[1..]) |column, expr| {
+                try ais.writer().writeAll(column);
+                try ais.writer().writeByte(':');
+                try renderExpression(r, expr, .none);
+            }
+            try renderToken(r, main_tokens[data.rhs], space);
+        },
+
         .number_literal => {
             const main_token = main_tokens[node];
             const loc = token_locs[main_token];
+            // TODO: Test this.
             if (tree.source[loc.start] == '-') {
                 const items = ais.underlying_writer.context.items;
                 switch (items[items.len - 1]) {
@@ -142,44 +203,319 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                     else => {},
                 }
             }
-            return renderToken(r, main_token, space);
+
+            try renderToken(r, main_token, space);
         },
+        .string_literal,
+        .symbol_literal,
+        .symbol_list_literal,
+        .identifier,
+        => try renderToken(r, main_tokens[node], space),
+
+        .colon,
+        .colon_colon,
+        .plus,
+        .plus_colon,
+        .minus,
+        .minus_colon,
+        .asterisk,
+        .asterisk_colon,
+        .percent,
+        .percent_colon,
+        .bang,
+        .bang_colon,
+        .ampersand,
+        .ampersand_colon,
+        .pipe,
+        .pipe_colon,
+        .angle_bracket_left,
+        .angle_bracket_left_colon,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_colon,
+        .angle_bracket_right_equal,
+        .equal,
+        .equal_colon,
+        .tilde,
+        .tilde_colon,
+        .comma,
+        .comma_colon,
+        .caret,
+        .caret_colon,
+        .hash,
+        .hash_colon,
+        .underscore,
+        .underscore_colon,
+        .dollar,
+        .dollar_colon,
+        .question_mark,
+        .question_mark_colon,
+        .at,
+        .at_colon,
+        .dot,
+        .dot_colon,
+        .zero_colon,
+        .zero_colon_colon,
+        .one_colon,
+        .one_colon_colon,
+        .two_colon,
+        => try renderToken(r, main_tokens[node], space),
+
         .assign,
+        .global_assign,
         .add,
+        .plus_assign,
         .subtract,
+        .minus_assign,
         .multiply,
+        .asterisk_assign,
         .divide,
+        .percent_assign,
         .dict,
+        .bang_assign,
         .lesser,
+        .ampersand_assign,
+        .greater,
+        .pipe_assign,
+        .less_than,
+        .angle_bracket_left_assign,
+        .less_than_equal,
+        .not_equal,
+        .greater_than,
+        .angle_bracket_right_assign,
+        .greater_than_equal,
+        .equals,
+        .equal_assign,
+        .match,
+        .tilde_assign,
+        .join,
+        .comma_assign,
+        .fill,
+        .caret_assign,
+        .take,
+        .hash_assign,
+        .drop,
+        .underscore_assign,
+        .cast,
+        .dollar_assign,
+        .find,
+        .question_mark_assign,
+        .apply,
+        .at_assign,
+        .apply_n,
+        .dot_assign,
+        .file_text,
+        .zero_colon_assign,
+        .file_binary,
+        .one_colon_assign,
+        .dynamic_load,
         => {
-            const infix = datas[node];
-            try renderExpression(r, infix.lhs, .none);
-            try renderToken(r, main_tokens[node], .none);
-            return renderExpression(r, infix.rhs, space);
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
+            if (data.rhs > 0) try renderExpression(r, data.rhs, space);
         },
-        .minus => {
-            try renderToken(r, node, space);
+
+        .implicit_apply => {
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, .none);
+            try renderExpression(r, data.rhs, space);
         },
+
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => try renderToken(r, main_tokens[node], space),
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
+            if (data.rhs > 0) try renderExpression(r, data.rhs, space);
+        },
+
         inline .lambda_one, .lambda_one_semicolon, .lambda, .lambda_semicolon => |t| {
             const top = ais.underlying_writer.context.items.len;
             try renderLambda(r, false, t, node, space);
             const len = ais.underlying_writer.context.items.len - top;
+            // TODO: Add config setting.
             if (len > 30) {
                 ais.underlying_writer.context.shrinkRetainingCapacity(top);
                 r.prev_token = main_tokens[node];
                 try renderLambda(r, true, t, node, space);
             }
         },
-        .implicit_apply => {
+
+        .block => {
             const data = datas[node];
-            try renderExpression(r, data.lhs, .none);
-            try renderExpression(r, data.rhs, space);
+
+            try renderToken(r, main_tokens[node], .none);
+            const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
+            if (exprs.len > 0) {
+                if (exprs[0] > 0) try renderExpression(r, exprs[0], .none);
+                for (exprs[1..]) |expr| {
+                    try ais.writer().writeByte(';');
+                    if (expr > 0) try renderExpression(r, expr, .none);
+                }
+            }
+            try renderToken(r, data.rhs, space);
         },
-        .identifier => try renderToken(r, main_tokens[node], space),
+
+        .call_one => {
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[node], .none);
+            if (data.rhs > 0) try renderExpression(r, data.rhs, .none);
+            if (nextTag(r, .r_bracket)) |r_bracket| {
+                try renderToken(r, r_bracket, space);
+            }
+        },
+        .call => {
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[node], .none);
+            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
+            try renderExpression(r, exprs[0], .none);
+            for (exprs[1..]) |expr| {
+                try ais.writer().writeByte(';');
+                try renderExpression(r, expr, .none);
+            }
+            if (nextTag(r, .r_bracket)) |r_bracket| {
+                try renderToken(r, r_bracket, space);
+            }
+        },
+
+        .implicit_return => {
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, space);
+        },
+        .@"return" => {
+            const data = datas[node];
+
+            try ais.writer().writeByte(':');
+            try renderExpression(r, data.lhs, space);
+        },
+
+        .abs,
+        .acos,
+        .asin,
+        .atan,
+        .avg,
+        .cos,
+        .dev,
+        .enlist,
+        .exit,
+        .exp,
+        .getenv,
+        .hopen,
+        .last,
+        .log,
+        .max,
+        .min,
+        .prd,
+        .sin,
+        .sqrt,
+        .sum,
+        .tan,
+        .@"var",
+        => try renderExpression(r, main_tokens[node], space),
+
+        .bin,
+        .binr,
+        .cor,
+        .cov,
+        .div,
+        .in,
+        .insert,
+        .like,
+        .setenv,
+        .ss,
+        .wavg,
+        .within,
+        .wsum,
+        .xexp,
+        => try renderToken(r, main_tokens[node], space),
+        .bin_infix,
+        .binr_infix,
+        .cor_infix,
+        .cov_infix,
+        .div_infix,
+        .in_infix,
+        .insert_infix,
+        .like_infix,
+        .setenv_infix,
+        .ss_infix,
+        .wavg_infix,
+        .within_infix,
+        .wsum_infix,
+        .xexp_infix,
+        => {
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
+            if (data.rhs > 0) try renderExpression(r, data.rhs, space);
+        },
+
+        .do_one,
+        .if_one,
+        .while_one,
+        => {
+            const data = datas[node];
+
+            try renderToken(r, main_tokens[node], .none);
+            try ais.writer().writeByte('[');
+            try renderExpression(r, data.lhs, .semicolon);
+            if (data.rhs > 0) try renderExpression(r, data.rhs, .none);
+            if (nextTag(r, .r_bracket)) |r_bracket| {
+                try renderToken(r, r_bracket, space);
+            }
+        },
+        .do,
+        .@"if",
+        .@"while",
+        => {
+            const data = datas[node];
+
+            try renderToken(r, main_tokens[node], .none);
+            try ais.writer().writeByte('[');
+            try renderExpression(r, data.lhs, .semicolon);
+            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
+            try renderExpression(r, exprs[0], .none);
+            for (exprs[1..]) |expr| {
+                try ais.writer().writeByte(';');
+                try renderExpression(r, expr, .none);
+            }
+            if (nextTag(r, .r_bracket)) |r_bracket| {
+                try renderToken(r, r_bracket, space);
+            }
+        },
+
         .select => {
+            const data = datas[node];
+
             try renderToken(r, main_tokens[node], .space);
 
-            const select = tree.extraData(datas[node].rhs, Ast.Node.Select);
+            const select = tree.extraData(data.lhs, Ast.Node.Select);
             const column_exprs = tree.extra_data[select.select..select.select_end];
             if (column_exprs.len > 0) {
                 const column_names = tree.table_columns[select.select_columns .. select.select_columns + column_exprs.len];
@@ -222,7 +558,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderExpression(r, select.from, space);
             }
         },
-        else => |t| panic("renderExpression: {s}", .{@tagName(t)}),
+        .exec => unreachable,
+        .update => unreachable,
+        .delete_rows => unreachable,
+        .delete_cols => unreachable,
     }
 }
 
@@ -241,8 +580,8 @@ fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Ta
         try ais.writer().writeByte('[');
     }
     if (data.lhs > 0) {
-        const params = tree.extraData(data.lhs, Ast.Node.Params);
-        const tokens = tree.extra_data[params.start..params.end];
+        const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+        const tokens = tree.extra_data[sub_range.start..sub_range.end];
         try renderToken(r, tokens[0], .none);
         for (tokens[1..]) |token| {
             try ais.writer().writeByte(';');
