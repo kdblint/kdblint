@@ -50,58 +50,62 @@ const Context = struct {
     arena_allocator: std.heap.ArenaAllocator = undefined,
 
     pub fn initialize(conn: *Connection, _: types.RequestId, value: types.InitializeParams) !types.InitializeResult {
-        log.debug("initialize", .{});
         return conn.context.server.initialize(value);
     }
 
     pub fn initialized(conn: *Connection, _: types.InitializedParams) !void {
-        log.debug("initialized", .{});
         try conn.context.server.initialized(conn);
     }
 
     pub fn shutdown(conn: *Connection, _: types.RequestId, _: void) !?void {
-        log.debug("shutdown", .{});
         return conn.context.server.shutdown();
     }
 
     pub fn exit(conn: *Connection, _: void) !void {
-        log.debug("exit", .{});
         try conn.context.server.exit();
     }
 
     pub fn @"textDocument/didOpen"(conn: *Connection, value: types.DidOpenTextDocumentParams) !void {
-        log.debug("textDocument/didOpen {s}", .{value.textDocument.uri});
         try conn.context.server.@"textDocument/didOpen"(value);
     }
 
     pub fn @"textDocument/didChange"(conn: *Connection, value: types.DidChangeTextDocumentParams) !void {
-        log.debug("textDocument/didChange {s}", .{value.textDocument.uri});
         try conn.context.server.@"textDocument/didChange"(value);
     }
 
     pub fn @"textDocument/didSave"(conn: *Connection, value: types.DidSaveTextDocumentParams) !void {
-        log.debug("textDocument/didSave {s}", .{value.textDocument.uri});
         try conn.context.server.@"textDocument/didSave"(value);
     }
 
     pub fn @"textDocument/didClose"(conn: *Connection, value: types.DidCloseTextDocumentParams) !void {
-        log.debug("textDocument/didClose {s}", .{value.textDocument.uri});
         try conn.context.server.@"textDocument/didClose"(value);
     }
 
     pub fn @"textDocument/formatting"(conn: *Connection, _: types.RequestId, value: types.DocumentFormattingParams) !?[]types.TextEdit {
-        log.debug("textDocument/formatting {s}", .{value.textDocument.uri});
         return conn.context.server.@"textDocument/formatting"(conn.context.arena_allocator.allocator(), value);
     }
 
-    pub fn lspRecvPre(conn: *Connection, _: []const u8, _: lsp.MessageKind, _: ?types.RequestId, _: anytype) !void {
+    pub fn lspRecvPre(conn: *Connection, comptime method: []const u8, _: lsp.MessageKind, _: ?types.RequestId, value: anytype) !void {
+        switch (@TypeOf(value)) {
+            void => {},
+            else => |T| {
+                if (@typeName(T)[0] != '?' and @hasField(T, "textDocument")) {
+                    log.debug(method ++ " {s}", .{value.textDocument.uri});
+                } else {
+                    log.debug(method, .{});
+                }
+            },
+        }
         conn.context.server.start = diagnostics.now();
         conn.context.arena_allocator = std.heap.ArenaAllocator.init(conn.allocator);
     }
 
-    pub fn lspRecvPost(conn: *Connection, _: []const u8, _: lsp.MessageKind, _: ?types.RequestId, _: anytype) !void {
+    pub fn lspRecvPost(conn: *Connection, comptime method: []const u8, _: lsp.MessageKind, _: ?types.RequestId, _: anytype) !void {
         // TODO: Is this single-threaded?
         conn.context.arena_allocator.deinit();
+
+        const duration: f64 = @as(f64, @floatFromInt(diagnostics.now().since(conn.context.server.start))) / std.time.ns_per_ms;
+        log.debug(method ++ " duration: {d:.2}ms", .{duration});
     }
 };
 
