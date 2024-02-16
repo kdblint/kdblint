@@ -592,6 +592,7 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .empty_list,
         .table_literal,
         .number_literal,
+        .number_list_literal,
         .string_literal,
         .symbol_literal,
         .symbol_list_literal,
@@ -802,6 +803,44 @@ fn block(p: *Parse) Error!Node.Index {
             .rhs = r_bracket,
         },
     });
+}
+
+fn number(p: *Parse) Error!Node.Index {
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    try p.scratch.append(p.gpa, p.nextToken());
+
+    while (true) {
+        if (p.eob) break;
+        if (p.eatToken(.number_literal)) |number_literal| {
+            try p.scratch.append(p.gpa, number_literal);
+            continue;
+        }
+        break;
+    }
+
+    const numbers = p.scratch.items[scratch_top..];
+    switch (numbers.len) {
+        1 => return p.addNode(.{
+            .tag = .number_literal,
+            .main_token = numbers[0],
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        else => {
+            return p.addNode(.{
+                .tag = .number_list_literal,
+                .main_token = numbers[0],
+                .data = .{
+                    .lhs = try p.addExtra(try p.listToSpan(numbers)),
+                    .rhs = numbers[numbers.len - 1],
+                },
+            });
+        },
+    }
 }
 
 fn do(p: *Parse) Error!Node.Index {
@@ -1470,14 +1509,6 @@ fn delete(p: *Parse) Error!Node.Index {
     }
 }
 
-fn applyNumber(p: *Parse, lhs: Node.Index) Error!Node.Index {
-    if (p.nodes.items(.tag)[lhs] == .number_literal) {
-        p.nodes.items(.data)[lhs].rhs = try p.parsePrecedence(.primary);
-        return lhs;
-    }
-    return p.apply(lhs);
-}
-
 fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
     return p.addNode(.{
         .tag = .implicit_apply,
@@ -1619,7 +1650,6 @@ fn nextToken(p: *Parse) TokenIndex {
     p.skipComments();
     const result = p.tok_i;
     p.eob = p.token_eobs[result];
-    log.debug("nextToken = '{s}' {}", .{ p.source[p.token_locs[result].start..p.token_locs[result].end], p.eob });
     p.tok_i += 1;
     return result;
 }
@@ -1747,7 +1777,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .backslash_colon = .{ .prefix = Prefix(.backslash_colon), .infix = Infix(.backslash_colon_infix), .prec = .secondary },
 
     // Literals
-    .number_literal = .{ .prefix = Prefix(.number_literal), .infix = applyNumber, .prec = .primary },
+    .number_literal = .{ .prefix = number, .infix = apply, .prec = .primary },
     .string_literal = .{ .prefix = Prefix(.string_literal), .infix = apply, .prec = .secondary },
     .symbol_literal = .{ .prefix = Prefix(.symbol_literal), .infix = apply, .prec = .secondary },
     .symbol_list_literal = .{ .prefix = Prefix(.symbol_list_literal), .infix = apply, .prec = .secondary },
@@ -1863,6 +1893,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         },
         .identifier,
         .number_literal,
+        .number_list_literal,
         .empty_list,
         .sum,
         .symbol_literal,
@@ -2254,10 +2285,10 @@ test "list" {
 
 test "table" {
     try testParse("([]())", &.{ .implicit_return, .table_literal, .empty_list }, "(+:;(!;,,`x;(enlist;())))");
-    try testParse("([]1 2)", &.{ .implicit_return, .table_literal, .number_literal }, "(+:;(!;,,`x;(enlist;1 2)))");
-    try testParse("([]a:1 2)", &.{ .implicit_return, .table_literal, .number_literal }, "(+:;(!;,,`a;(enlist;1 2)))");
-    try testParse("([]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .number_literal, .identifier }, "(+:;(!;,,`x;(enlist;(::;`a;1 2))))");
-    try testParse("([]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal }, "(+:;(!;,`a`b;(enlist;1 2;2)))");
+    try testParse("([]1 2)", &.{ .implicit_return, .table_literal, .number_list_literal }, "(+:;(!;,,`x;(enlist;1 2)))");
+    try testParse("([]a:1 2)", &.{ .implicit_return, .table_literal, .number_list_literal }, "(+:;(!;,,`a;(enlist;1 2)))");
+    try testParse("([]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .number_list_literal, .identifier }, "(+:;(!;,,`x;(enlist;(::;`a;1 2))))");
+    try testParse("([]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .number_literal, .number_list_literal }, "(+:;(!;,`a`b;(enlist;1 2;2)))");
     try testParse("([]a)", &.{ .implicit_return, .table_literal, .identifier }, "(+:;(!;,,`a;(enlist;`a)))");
     try testParse("([]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier }, "(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))))");
     try testParse("([]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum }, "(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))))");
@@ -2266,10 +2297,10 @@ test "table" {
     try testParse("([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))))");
 
     try testParse("([()]())", &.{ .implicit_return, .table_literal, .empty_list, .empty_list }, "(!;(+:;(!;,,`x;(enlist;())));(+:;(!;,,`x;(enlist;()))))");
-    try testParse("([1 2]1 2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal }, "(!;(+:;(!;,,`x;(enlist;1 2)));(+:;(!;,,`x;(enlist;1 2))))");
-    try testParse("([a:1 2]a:1 2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal }, "(!;(+:;(!;,,`a;(enlist;1 2)));(+:;(!;,,`a;(enlist;1 2))))");
-    try testParse("([a::1 2]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .number_literal, .identifier, .global_assign, .number_literal, .identifier }, "(!;(+:;(!;,,`x;(enlist;(::;`a;1 2))));(+:;(!;,,`x;(enlist;(::;`a;1 2)))))");
-    try testParse("([a:1 2;b:2]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .number_literal, .number_literal }, "(!;(+:;(!;,`a`b;(enlist;1 2;2)));(+:;(!;,`a`b;(enlist;1 2;2))))");
+    try testParse("([1 2]1 2)", &.{ .implicit_return, .table_literal, .number_list_literal, .number_list_literal }, "(!;(+:;(!;,,`x;(enlist;1 2)));(+:;(!;,,`x;(enlist;1 2))))");
+    try testParse("([a:1 2]a:1 2)", &.{ .implicit_return, .table_literal, .number_list_literal, .number_list_literal }, "(!;(+:;(!;,,`a;(enlist;1 2)));(+:;(!;,,`a;(enlist;1 2))))");
+    try testParse("([a::1 2]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .number_list_literal, .identifier, .global_assign, .number_list_literal, .identifier }, "(!;(+:;(!;,,`x;(enlist;(::;`a;1 2))));(+:;(!;,,`x;(enlist;(::;`a;1 2)))))");
+    try testParse("([a:1 2;b:2]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .number_literal, .number_list_literal, .number_literal, .number_list_literal }, "(!;(+:;(!;,`a`b;(enlist;1 2;2)));(+:;(!;,`a`b;(enlist;1 2;2))))");
     try testParse("([a]a)", &.{ .implicit_return, .table_literal, .identifier, .identifier }, "(!;(+:;(!;,,`a;(enlist;`a)));(+:;(!;,,`a;(enlist;`a))))");
     try testParse("([b+sum a]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier, .add, .implicit_apply, .identifier, .sum, .identifier }, "(!;(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))));(+:;(!;,,`a;(enlist;(+;`b;(sum;`a))))))");
     try testParse("([sum[a]+b]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum, .add, .identifier, .call_one, .identifier, .sum }, "(!;(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))));(+:;(!;,,`b;(enlist;(+;(sum;`a);`b)))))");

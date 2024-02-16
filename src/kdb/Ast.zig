@@ -229,6 +229,8 @@ pub const Node = struct {
 
         /// Both lhs and rhs unused.
         number_literal,
+        /// `SubRange[lhs]`. main_token is the first token index; rhs is the last token index.
+        number_list_literal,
         /// Both lhs and rhs unused.
         string_literal,
         /// Both lhs and rhs unused.
@@ -755,6 +757,7 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .list,
         .table_literal,
         .number_literal,
+        .number_list_literal,
         .string_literal,
         .symbol_literal,
         .symbol_list_literal,
@@ -980,17 +983,8 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .table_literal,
         => return tree.getData(i).rhs,
 
-        .number_literal => {
-            var index = i;
-            while (true) {
-                const data = tree.getData(index);
-                if (data.rhs == 0) {
-                    return tree.getMainToken(index);
-                }
-                index = data.rhs;
-            }
-        },
-
+        .number_literal => return tree.getMainToken(i),
+        .number_list_literal => return tree.getData(i).rhs,
         .string_literal,
         .symbol_literal,
         .symbol_list_literal,
@@ -1395,13 +1389,17 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try printTable(tree, columns, exprs, stream, gpa);
             }
         },
-        .number_literal => {
-            var index = i;
-            while (true) {
-                try stream.writeAll(tree.getSource(index));
-                index = tree.getData(index).rhs;
-                if (index == 0) break;
-                try stream.writeAll(" ");
+        .number_literal => try stream.writeAll(tree.getSource(i)),
+        .number_list_literal => {
+            const data = tree.nodes.items(.data)[i];
+            const sub_range = tree.extraData(data.lhs, Node.SubRange);
+            const tokens = tree.extra_data[sub_range.start..sub_range.end];
+            const loc = tree.tokens.items(.loc)[tokens[0]];
+            try stream.writeAll(tree.source[loc.start..loc.end]);
+            for (tokens[1..]) |token| {
+                const token_loc = tree.tokens.items(.loc)[token];
+                try stream.writeByte(' ');
+                try stream.writeAll(tree.source[token_loc.start..token_loc.end]);
             }
         },
         .string_literal => try stream.writeAll(tree.getSource(i)),
