@@ -132,6 +132,7 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
@@ -264,7 +265,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .two_colon,
         => try renderToken(r, main_tokens[node], space),
 
-        .assign,
+        inline .assign,
         .global_assign,
         .add,
         .plus_assign,
@@ -312,18 +313,44 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .file_binary,
         .one_colon_assign,
         .dynamic_load,
-        => {
+        => |tag| {
             const data = datas[node];
 
-            try renderExpression(r, data.lhs, .none);
-            try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
-            if (data.rhs > 0) try renderExpression(r, data.rhs, space);
+            switch (tag) {
+                .drop, .underscore_assign => {
+                    try renderExpression(r, data.lhs, switch (node_tags[data.lhs]) {
+                        .symbol_literal, .symbol_list_literal, .identifier => .space,
+                        else => .none,
+                    });
+                    try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
+                    if (data.rhs > 0) try renderExpression(r, data.rhs, space);
+                },
+                .apply_n, .dot_assign => {
+                    try renderExpression(r, data.lhs, switch (node_tags[data.lhs]) {
+                        .number_literal, .number_list_literal, .symbol_literal, .symbol_list_literal, .identifier => .space,
+                        else => .none,
+                    });
+                    try renderToken(r, main_tokens[node], if (data.rhs > 0) switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
+                        .number_literal, .identifier => .space,
+                        else => .none,
+                    } else space);
+                    if (data.rhs > 0) try renderExpression(r, data.rhs, space);
+                },
+                else => {
+                    try renderExpression(r, data.lhs, .none);
+                    try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
+                    if (data.rhs > 0) try renderExpression(r, data.rhs, space);
+                },
+            }
         },
 
         .implicit_apply => {
             const data = datas[node];
 
-            try renderExpression(r, data.lhs, .none);
+            try renderExpression(r, data.lhs, switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
+                .symbol_literal, .symbol_list_literal, .l_paren => .none,
+                else => .space,
+            });
             try renderExpression(r, data.rhs, space);
         },
 
@@ -343,10 +370,12 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .backslash_colon_infix,
         => {
             const data = datas[node];
+            const iterator = tree.extraData(data.rhs, Ast.Node.Iterator);
 
+            try renderExpression(r, iterator.lhs, .none);
             try renderExpression(r, data.lhs, .none);
-            try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
-            if (data.rhs > 0) try renderExpression(r, data.rhs, space);
+            try renderToken(r, main_tokens[node], if (iterator.rhs > 0) .none else space);
+            if (iterator.rhs > 0) try renderExpression(r, iterator.rhs, space);
         },
 
         inline .lambda_one, .lambda_one_semicolon, .lambda, .lambda_semicolon => |t| {
@@ -1108,6 +1137,18 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             return indent_current;
         }
     };
+}
+
+test "TODO" {
+    const source = "123 identifier\n";
+    var tree = try Ast.parse(std.testing.allocator, source, .{
+        .version = .v4_0,
+        .language = .q,
+    });
+    defer tree.deinit(std.testing.allocator);
+    const actual = try Ast.render(tree, std.testing.allocator);
+    defer std.testing.allocator.free(actual);
+    try std.testing.expectEqualSlices(u8, source, actual);
 }
 
 test {
