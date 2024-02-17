@@ -354,13 +354,18 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderExpression(r, data.rhs, space);
         },
 
-        .apostrophe,
-        .apostrophe_colon,
-        .slash,
-        .slash_colon,
-        .backslash,
-        .backslash_colon,
-        => try renderToken(r, main_tokens[node], space),
+        .apostrophe_one,
+        .apostrophe_colon_one,
+        .slash_one,
+        .slash_colon_one,
+        .backslash_one,
+        .backslash_colon_one,
+        => {
+            const data = datas[node];
+
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[node], space);
+        },
 
         .apostrophe_infix,
         .apostrophe_colon_infix,
