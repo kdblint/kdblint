@@ -450,17 +450,17 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         backslash_colon,
 
-        /// `lhs ' rhs`. rhs can be omitted. main_token is `'`.
+        /// `x lhs' y`. `Iterator[rhs]`. y can be omitted. main_token is `'`.
         apostrophe_infix,
-        /// `lhs ': rhs`. rhs can be omitted. main_token is `':`.
+        /// `x lhs': y`. `Iterator[rhs]`. y can be omitted. main_token is `':`.
         apostrophe_colon_infix,
-        /// `lhs / rhs`. rhs can be omitted. main_token is `/`.
+        /// `x lhs/ y`. `Iterator[rhs]`. y can be omitted. main_token is `/`.
         slash_infix,
-        /// `lhs /: rhs`. rhs can be omitted. main_token is `/:`.
+        /// `x lhs/: y`. `Iterator[rhs]`. y can be omitted. main_token is `/:`.
         slash_colon_infix,
-        /// `lhs \ rhs`. rhs can be omitted. main_token is `\`.
+        /// `x lhs\ y`. `Iterator[rhs]`. y can be omitted. main_token is `\`.
         backslash_infix,
-        /// `lhs \: rhs`. rhs can be omitted. main_token is `\:`.
+        /// `x lhs\: y`. `Iterator[rhs]`. y can be omitted. main_token is `\:`.
         backslash_colon_infix,
 
         /// `{[lhs]rhs}`. `SubRange[lhs]`. rhs or lhs can be omitted. main_token is `{`.
@@ -622,6 +622,11 @@ pub const Node = struct {
         start: Index,
         /// Index into extra_data.
         end: Index,
+    };
+
+    pub const Iterator = struct {
+        lhs: Index,
+        rhs: Index,
     };
 
     pub const Table = struct {
@@ -813,13 +818,6 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .one_colon_assign,
         .dynamic_load,
 
-        .apostrophe_infix,
-        .apostrophe_colon_infix,
-        .slash_infix,
-        .slash_colon_infix,
-        .backslash_infix,
-        .backslash_colon_infix,
-
         .bin_infix,
         .binr_infix,
         .cor_infix,
@@ -837,6 +835,18 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         => {
             const data = tree.getData(i);
             return tree.firstToken(data.lhs);
+        },
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = tree.getData(i);
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            return tree.firstToken(iterator.lhs);
         },
 
         .colon,
@@ -1040,13 +1050,6 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .one_colon_assign,
         .dynamic_load,
 
-        .apostrophe_infix,
-        .apostrophe_colon_infix,
-        .slash_infix,
-        .slash_colon_infix,
-        .backslash_infix,
-        .backslash_colon_infix,
-
         .bin_infix,
         .binr_infix,
         .cor_infix,
@@ -1065,6 +1068,21 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
             const data = tree.getData(i);
             if (data.rhs > 0) {
                 return tree.lastToken(data.rhs);
+            }
+            return tree.getMainToken(i);
+        },
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = tree.getData(i);
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            if (iterator.rhs > 0) {
+                return tree.lastToken(iterator.rhs);
             }
             return tree.getMainToken(i);
         },
@@ -1456,13 +1474,6 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .one_colon_assign,
         .dynamic_load,
 
-        .apostrophe_infix,
-        .apostrophe_colon_infix,
-        .slash_infix,
-        .slash_colon_infix,
-        .backslash_infix,
-        .backslash_colon_infix,
-
         .bin_infix,
         .binr_infix,
         .cor_infix,
@@ -1495,6 +1506,37 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try stream.print("({s};{s};{s})", .{ symbol, lhs.items, rhs.items });
             }
         },
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = tree.getData(i);
+            const iterator = tree.extraData(data.rhs, Ast.Node.Iterator);
+
+            var rhs = std.ArrayList(u8).init(gpa);
+            defer rhs.deinit();
+            try tree.print(iterator.rhs, rhs.writer(), gpa);
+
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            try tree.print(iterator.lhs, lhs.writer(), gpa);
+
+            var value = std.ArrayList(u8).init(gpa);
+            defer value.deinit();
+
+            var value_lhs = std.ArrayList(u8).init(gpa);
+            defer value_lhs.deinit();
+            try tree.print(data.lhs, value_lhs.writer(), gpa);
+
+            try value.writer().print("({s};{s})", .{ tree.getSource(i), value_lhs.items });
+
+            try stream.print("({s};{s};{s})", .{ value.items, lhs.items, rhs.items });
+        },
+
         .colon,
         .colon_colon,
         .plus,
