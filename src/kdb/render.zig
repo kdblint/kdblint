@@ -354,33 +354,17 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderExpression(r, data.rhs, space);
         },
 
-        .apostrophe_one,
-        .apostrophe_colon_one,
-        .slash_one,
-        .slash_colon_one,
-        .backslash_one,
-        .backslash_colon_one,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
         => {
             const data = datas[node];
 
             try renderExpression(r, data.lhs, .none);
             try renderToken(r, main_tokens[node], space);
-        },
-
-        .apostrophe_infix,
-        .apostrophe_colon_infix,
-        .slash_infix,
-        .slash_colon_infix,
-        .backslash_infix,
-        .backslash_colon_infix,
-        => {
-            const data = datas[node];
-            const iterator = tree.extraData(data.rhs, Ast.Node.Iterator);
-
-            try renderExpression(r, iterator.lhs, .none);
-            try renderExpression(r, data.lhs, .none);
-            try renderToken(r, main_tokens[node], if (iterator.rhs > 0) .none else space);
-            if (iterator.rhs > 0) try renderExpression(r, iterator.rhs, space);
         },
 
         inline .lambda_one, .lambda_one_semicolon, .lambda, .lambda_semicolon => |t| {
