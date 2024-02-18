@@ -285,28 +285,11 @@ fn NoOp(comptime eat_token: bool) *const fn (*Parse) Error!Node.Index {
 fn Prefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
     return struct {
         fn impl(p: *Parse) Error!Node.Index {
-            const node = try p.addNode(.{
+            return try p.addNode(.{
                 .tag = tag,
                 .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,
-                    .rhs = undefined,
-                },
-            });
-            const iterator_tag: Node.Tag = switch (p.peekTag()) {
-                .apostrophe => .apostrophe_one,
-                .apostrophe_colon => .apostrophe_colon_one,
-                .slash => .slash_one,
-                .slash_colon => .slash_colon_one,
-                .backslash => .backslash_one,
-                .backslash_colon => .backslash_colon_one,
-                else => return node,
-            };
-            return p.addNode(.{
-                .tag = iterator_tag,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = node,
                     .rhs = undefined,
                 },
             });
@@ -326,12 +309,12 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
                 },
             });
             const iterator_tag: Node.Tag = switch (p.peekTag()) {
-                .apostrophe => .apostrophe_infix,
-                .apostrophe_colon => .apostrophe_colon_infix,
-                .slash => .slash_infix,
-                .slash_colon => .slash_colon_infix,
-                .backslash => .backslash_infix,
-                .backslash_colon => .backslash_colon_infix,
+                .apostrophe => .apostrophe,
+                .apostrophe_colon => .apostrophe_colon,
+                .slash => .slash,
+                .slash_colon => .slash_colon,
+                .backslash => .backslash,
+                .backslash_colon => .backslash_colon,
                 else => {
                     const rhs = try p.parsePrecedence(.secondary);
                     p.nodes.items(.data)[node].rhs = rhs;
@@ -601,28 +584,15 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .while_one,
         => return p.findFirstIdentifier(p.nodes.items(.data)[i].rhs),
 
-        .apostrophe_one,
-        .apostrophe_colon_one,
-        .slash_one,
-        .slash_colon_one,
-        .backslash_one,
-        .backslash_colon_one,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
         => {
             const data = p.nodes.items(.data)[i];
             return p.findFirstIdentifier(data.lhs);
-        },
-
-        .apostrophe_infix,
-        .apostrophe_colon_infix,
-        .slash_infix,
-        .slash_colon_infix,
-        .backslash_infix,
-        .backslash_colon_infix,
-        => {
-            const data = p.nodes.items(.data)[i];
-            const iterator = p.extraData(data.rhs, Node.Iterator);
-            if (iterator.rhs > 0) return p.findFirstIdentifier(iterator.rhs);
-            return p.findFirstIdentifier(iterator.lhs);
         },
 
         .block => {
@@ -1564,35 +1534,12 @@ fn delete(p: *Parse) Error!Node.Index {
 }
 
 fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
-    const tag: Node.Tag = switch (p.peekNextTag()) {
-        .apostrophe => .apostrophe_infix,
-        .apostrophe_colon => .apostrophe_colon_infix,
-        .slash => .slash_infix,
-        .slash_colon => .slash_colon_infix,
-        .backslash => .backslash_infix,
-        .backslash_colon => .backslash_colon_infix,
-        else => return p.addNode(.{
-            .tag = .implicit_apply,
-            .main_token = undefined,
-            .data = .{
-                .lhs = lhs,
-                .rhs = try p.parsePrecedence(.secondary),
-            },
-        }),
-    };
-
-    const value = try p.parsePrecedence(.secondary);
-    const token = p.nextToken();
-    const iterator = Node.Iterator{
-        .lhs = lhs,
-        .rhs = try p.parsePrecedence(.secondary),
-    };
     return p.addNode(.{
-        .tag = tag,
-        .main_token = token,
+        .tag = .implicit_apply,
+        .main_token = undefined,
         .data = .{
-            .lhs = value,
-            .rhs = try p.addExtra(iterator),
+            .lhs = lhs,
+            .rhs = try p.parsePrecedence(.secondary),
         },
     });
 }
@@ -1772,6 +1719,9 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
         return null_node;
     };
     var node = try prefix(p);
+    while (try p.tryMatchIterator(node)) |iterator| {
+        node = iterator;
+    }
 
     while (@intFromEnum(precedence) <= @intFromEnum(p.getRule().prec)) {
         const infix = p.getRule().infix orelse {
@@ -1780,9 +1730,32 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
             break;
         };
         node = try infix(p, node);
+        while (try p.tryMatchIterator(node)) |iterator| {
+            node = iterator;
+        }
     }
 
     return node;
+}
+
+fn tryMatchIterator(p: *Parse, lhs: Node.Index) Error!?Node.Index {
+    const iterator: Node.Tag = switch (p.peekTag()) {
+        .apostrophe => .apostrophe,
+        .apostrophe_colon => .apostrophe_colon,
+        .slash => .slash,
+        .slash_colon => .slash_colon,
+        .backslash => .backslash,
+        .backslash_colon => .backslash_colon,
+        else => return null,
+    };
+    return try p.addNode(.{
+        .tag = iterator,
+        .main_token = p.nextToken(),
+        .data = .{
+            .lhs = lhs,
+            .rhs = undefined,
+        },
+    });
 }
 
 const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
@@ -1846,12 +1819,12 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .two_colon = .{ .prefix = Prefix(.two_colon), .infix = Infix(.dynamic_load), .prec = .secondary },
 
     // Adverbs
-    .apostrophe = .{ .prefix = null, .infix = null, .prec = .none },
-    .apostrophe_colon = .{ .prefix = null, .infix = null, .prec = .none },
-    .slash = .{ .prefix = null, .infix = null, .prec = .none },
-    .slash_colon = .{ .prefix = null, .infix = null, .prec = .none },
-    .backslash = .{ .prefix = null, .infix = null, .prec = .none },
-    .backslash_colon = .{ .prefix = null, .infix = null, .prec = .none },
+    .apostrophe = .{ .prefix = Prefix(.apostrophe), .infix = null, .prec = .none },
+    .apostrophe_colon = .{ .prefix = Prefix(.apostrophe_colon), .infix = null, .prec = .none },
+    .slash = .{ .prefix = Prefix(.slash), .infix = null, .prec = .none },
+    .slash_colon = .{ .prefix = Prefix(.slash_colon), .infix = null, .prec = .none },
+    .backslash = .{ .prefix = Prefix(.backslash), .infix = null, .prec = .none },
+    .backslash_colon = .{ .prefix = Prefix(.backslash_colon), .infix = null, .prec = .none },
 
     // Literals
     .number_literal = .{ .prefix = number, .infix = apply, .prec = .primary },
@@ -1952,21 +1925,9 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
             try appendTags(tree, data.lhs, tags);
         },
 
-        .backslash_colon_one => {
+        .backslash_colon => {
             const data = tree.nodes.items(.data)[i];
-            try appendTags(tree, data.lhs, tags);
-        },
-
-        .backslash_colon_infix => {
-            const data = tree.nodes.items(.data)[i];
-            const iterator = tree.extraData(data.rhs, Node.Iterator);
-
-            try appendTags(tree, data.lhs, tags);
-
-            if (iterator.rhs > 0) {
-                try appendTags(tree, iterator.rhs, tags);
-            }
-            try appendTags(tree, iterator.lhs, tags);
+            if (data.lhs > 0) try appendTags(tree, data.lhs, tags);
         },
 
         .lambda_one,
@@ -2535,9 +2496,9 @@ test "delete columns" {
 }
 
 test "iterators" {
-    try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon_infix, .apply, .identifier, .identifier }, "((\\:;@);`x;`y)");
-    try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
-    try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon_one, .identifier }, "((\\:;`f);`x;`y)");
+    try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon, .apply, .identifier, .identifier }, "((\\:;@);`x;`y)");
+    try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
+    try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .identifier }, "((\\:;`f);`x;`y)");
 }
 
 test {
