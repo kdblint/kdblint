@@ -1493,9 +1493,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         => {
             const data = tree.getData(i);
             const symbol = tree.getTokenTag(i).symbol();
-            if (data.rhs == 0) {
-                try stream.writeAll(symbol);
-            } else {
+            if (data.rhs > 0) {
                 var rhs = std.ArrayList(u8).init(gpa);
                 defer rhs.deinit();
                 try tree.print(data.rhs, rhs.writer(), gpa);
@@ -1505,6 +1503,14 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try tree.print(data.lhs, lhs.writer(), gpa);
 
                 try stream.print("({s};{s};{s})", .{ symbol, lhs.items, rhs.items });
+            } else if (data.lhs > 0) {
+                var lhs = std.ArrayList(u8).init(gpa);
+                defer lhs.deinit();
+                try tree.print(data.lhs, lhs.writer(), gpa);
+
+                try stream.print("({s};{s})", .{ symbol, lhs.items });
+            } else {
+                try stream.writeAll(symbol);
             }
         },
 
