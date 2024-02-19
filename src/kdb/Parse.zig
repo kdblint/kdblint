@@ -285,11 +285,29 @@ fn NoOp(comptime eat_token: bool) *const fn (*Parse) Error!Node.Index {
 fn Prefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
     return struct {
         fn impl(p: *Parse) Error!Node.Index {
-            return try p.addNode(.{
+            const lhs = try p.addNode(.{
                 .tag = tag,
                 .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+            const iterator_tag: Node.Tag = switch (p.peekTag()) {
+                .apostrophe => .apostrophe,
+                .apostrophe_colon => .apostrophe_colon,
+                .slash => .slash,
+                .slash_colon => .slash_colon,
+                .backslash => .backslash,
+                .backslash_colon => .backslash_colon,
+                else => return lhs,
+            };
+
+            return p.addNode(.{
+                .tag = iterator_tag,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = lhs,
                     .rhs = undefined,
                 },
             });
@@ -1549,7 +1567,25 @@ fn delete(p: *Parse) Error!Node.Index {
 }
 
 fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
-    const rhs = try p.parsePrecedence(.secondary);
+    return p.addNode(.{
+        .tag = .implicit_apply,
+        .main_token = undefined,
+        .data = .{
+            .lhs = lhs,
+            .rhs = try p.parsePrecedence(.secondary),
+        },
+    });
+}
+
+fn applyIdentifier(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    const rhs = try p.addNode(.{
+        .tag = .identifier,
+        .main_token = p.nextToken(),
+        .data = .{
+            .lhs = undefined,
+            .rhs = undefined,
+        },
+    });
     const iterator_tag: Node.Tag = switch (p.peekTag()) {
         .apostrophe => .apostrophe_infix,
         .apostrophe_colon => .apostrophe_colon_infix,
@@ -1757,9 +1793,6 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
         return null_node;
     };
     var node = try prefix(p);
-    // while (try p.tryMatchIterator(node)) |iterator| {
-    //     node = iterator;
-    // }
 
     while (@intFromEnum(precedence) <= @intFromEnum(p.getRule().prec)) {
         const infix = p.getRule().infix orelse {
@@ -1768,32 +1801,9 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
             break;
         };
         node = try infix(p, node);
-        // while (try p.tryMatchIterator(node)) |iterator| {
-        //     node = iterator;
-        // }
     }
 
     return node;
-}
-
-fn tryMatchIterator(p: *Parse, lhs: Node.Index) Error!?Node.Index {
-    const iterator: Node.Tag = switch (p.peekTag()) {
-        .apostrophe => .apostrophe,
-        .apostrophe_colon => .apostrophe_colon,
-        .slash => .slash,
-        .slash_colon => .slash_colon,
-        .backslash => .backslash,
-        .backslash_colon => .backslash_colon,
-        else => return null,
-    };
-    return try p.addNode(.{
-        .tag = iterator,
-        .main_token = p.nextToken(),
-        .data = .{
-            .lhs = lhs,
-            .rhs = undefined,
-        },
-    });
 }
 
 const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
@@ -1869,7 +1879,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
     .string_literal = .{ .prefix = Prefix(.string_literal), .infix = apply, .prec = .secondary },
     .symbol_literal = .{ .prefix = Prefix(.symbol_literal), .infix = apply, .prec = .secondary },
     .symbol_list_literal = .{ .prefix = Prefix(.symbol_list_literal), .infix = apply, .prec = .secondary },
-    .identifier = .{ .prefix = Prefix(.identifier), .infix = apply, .prec = .secondary },
+    .identifier = .{ .prefix = Prefix(.identifier), .infix = applyIdentifier, .prec = .secondary },
 
     // Misc.
     .comment = .{ .prefix = null, .infix = null, .prec = .none },
@@ -2539,9 +2549,13 @@ test "delete columns" {
 }
 
 test "iterators" {
+    try testParse("(\\:)", &.{ .implicit_return, .grouped_expression, .backslash_colon }, "\\:");
+    try testParse("@\\:", &.{ .implicit_return, .backslash_colon, .at }, "(\\:;@)");
+    try testParse("f\\:", &.{ .implicit_return, .backslash_colon, .identifier }, "(\\:;`f)");
+    try testParse("@\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .at }, "((\\:;@);`x;`y)");
+    try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .identifier }, "((\\:;`f);`x;`y)");
     try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .apply, .identifier }, "((\\:;@);`x;`y)");
     try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
-    try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .identifier }, "((\\:;`f);`x;`y)");
 }
 
 test {
