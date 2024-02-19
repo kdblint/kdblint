@@ -1580,11 +1580,15 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         => {
             const data = tree.getData(i);
 
-            var lhs = std.ArrayList(u8).init(gpa);
-            defer lhs.deinit();
-            try tree.print(data.lhs, lhs.writer(), gpa);
+            if (data.lhs > 0) {
+                var lhs = std.ArrayList(u8).init(gpa);
+                defer lhs.deinit();
+                try tree.print(data.lhs, lhs.writer(), gpa);
 
-            try stream.print("({s};{s})", .{ tree.getSource(i), lhs.items });
+                try stream.print("({s};{s})", .{ tree.getSource(i), lhs.items });
+            } else {
+                try stream.writeAll(tree.getSource(i));
+            }
         },
 
         .apostrophe_infix,
