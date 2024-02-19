@@ -300,26 +300,22 @@ fn Prefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
 fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index {
     return struct {
         fn impl(p: *Parse, lhs: Node.Index) Error!Node.Index {
-            const node = try p.addNode(.{
-                .tag = tag,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = undefined,
-                },
-            });
+            const main_token = p.nextToken();
             const iterator_tag: Node.Tag = switch (p.peekTag()) {
-                .apostrophe => .apostrophe,
-                .apostrophe_colon => .apostrophe_colon,
-                .slash => .slash,
-                .slash_colon => .slash_colon,
-                .backslash => .backslash,
-                .backslash_colon => .backslash_colon,
-                else => {
-                    const rhs = try p.parsePrecedence(.secondary);
-                    p.nodes.items(.data)[node].rhs = rhs;
-                    return if (rhs == 0) node else node; // TODO: Composition
-                },
+                .apostrophe => .apostrophe_infix,
+                .apostrophe_colon => .apostrophe_colon_infix,
+                .slash => .slash_infix,
+                .slash_colon => .slash_colon_infix,
+                .backslash => .backslash_infix,
+                .backslash_colon => .backslash_colon_infix,
+                else => return p.addNode(.{
+                    .tag = tag,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try p.parsePrecedence(.secondary),
+                    },
+                }),
             };
 
             const token = p.nextToken();
@@ -331,7 +327,14 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
                 .tag = iterator_tag,
                 .main_token = token,
                 .data = .{
-                    .lhs = node,
+                    .lhs = try p.addNode(.{
+                        .tag = tag,
+                        .main_token = main_token,
+                        .data = .{
+                            .lhs = undefined,
+                            .rhs = undefined,
+                        },
+                    }),
                     .rhs = try p.addExtra(iterator),
                 },
             });
@@ -592,7 +595,19 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .backslash_colon,
         => {
             const data = p.nodes.items(.data)[i];
-            return p.findFirstIdentifier(data.lhs);
+            return p.findFirstIdentifier(data.rhs);
+        },
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = p.nodes.items(.data)[i];
+            const iterator = p.extraData(data.rhs, Node.Iterator);
+            return p.findFirstIdentifier(iterator.lhs);
         },
 
         .block => {
@@ -1534,12 +1549,35 @@ fn delete(p: *Parse) Error!Node.Index {
 }
 
 fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    const rhs = try p.parsePrecedence(.secondary);
+    const iterator_tag: Node.Tag = switch (p.peekTag()) {
+        .apostrophe => .apostrophe_infix,
+        .apostrophe_colon => .apostrophe_colon_infix,
+        .slash => .slash_infix,
+        .slash_colon => .slash_colon_infix,
+        .backslash => .backslash_infix,
+        .backslash_colon => .backslash_colon_infix,
+        else => return p.addNode(.{
+            .tag = .implicit_apply,
+            .main_token = undefined,
+            .data = .{
+                .lhs = lhs,
+                .rhs = rhs,
+            },
+        }),
+    };
+
+    const token = p.nextToken();
+    const iterator = Node.Iterator{
+        .lhs = lhs,
+        .rhs = try p.parsePrecedence(.secondary),
+    };
     return p.addNode(.{
-        .tag = .implicit_apply,
-        .main_token = undefined,
+        .tag = iterator_tag,
+        .main_token = token,
         .data = .{
-            .lhs = lhs,
-            .rhs = try p.parsePrecedence(.secondary),
+            .lhs = rhs,
+            .rhs = try p.addExtra(iterator),
         },
     });
 }
@@ -1719,9 +1757,9 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
         return null_node;
     };
     var node = try prefix(p);
-    while (try p.tryMatchIterator(node)) |iterator| {
-        node = iterator;
-    }
+    // while (try p.tryMatchIterator(node)) |iterator| {
+    //     node = iterator;
+    // }
 
     while (@intFromEnum(precedence) <= @intFromEnum(p.getRule().prec)) {
         const infix = p.getRule().infix orelse {
@@ -1730,9 +1768,9 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
             break;
         };
         node = try infix(p, node);
-        while (try p.tryMatchIterator(node)) |iterator| {
-            node = iterator;
-        }
+        // while (try p.tryMatchIterator(node)) |iterator| {
+        //     node = iterator;
+        // }
     }
 
     return node;
@@ -1919,15 +1957,20 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .apply,
         => {
             const data = tree.nodes.items(.data)[i];
-            if (data.rhs > 0) {
-                try appendTags(tree, data.rhs, tags);
-            }
-            try appendTags(tree, data.lhs, tags);
+            if (data.rhs > 0) try appendTags(tree, data.rhs, tags);
+            if (data.lhs > 0) try appendTags(tree, data.lhs, tags);
         },
 
         .backslash_colon => {
             const data = tree.nodes.items(.data)[i];
             if (data.lhs > 0) try appendTags(tree, data.lhs, tags);
+        },
+        .backslash_colon_infix => {
+            const data = tree.nodes.items(.data)[i];
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            try appendTags(tree, iterator.rhs, tags);
+            try appendTags(tree, data.lhs, tags);
+            try appendTags(tree, iterator.lhs, tags);
         },
 
         .lambda_one,
@@ -2496,8 +2539,8 @@ test "delete columns" {
 }
 
 test "iterators" {
-    try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon, .apply, .identifier, .identifier }, "((\\:;@);`x;`y)");
-    try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
+    try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .apply, .identifier }, "((\\:;@);`x;`y)");
+    try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
     try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .identifier }, "((\\:;`f);`x;`y)");
 }
 
