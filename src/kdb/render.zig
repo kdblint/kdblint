@@ -337,7 +337,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                     if (data.rhs > 0) try renderExpression(r, data.rhs, space);
                 },
                 else => {
-                    try renderExpression(r, data.lhs, .none);
+                    if (data.lhs > 0) try renderExpression(r, data.lhs, .none);
                     try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
                     if (data.rhs > 0) try renderExpression(r, data.rhs, space);
                 },
@@ -349,7 +349,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             try renderExpression(r, data.lhs, switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
                 .symbol_literal, .symbol_list_literal, .l_paren => .none,
-                else => .space,
+                else => switch (token_tags[Ast.lastToken(tree, data.lhs)]) {
+                    .r_paren, .r_brace, .r_bracket => .none,
+                    else => .space,
+                },
             });
             try renderExpression(r, data.rhs, space);
         },
@@ -423,11 +426,11 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
         .call => {
             const data = datas[node];
+            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const exprs = tree.extra_data[sub_range.start..sub_range.end];
 
             try renderExpression(r, data.lhs, .none);
             try renderToken(r, main_tokens[node], .none);
-            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
-            const exprs = tree.extra_data[sub_range.start..sub_range.end];
             if (exprs[0] > 0) try renderExpression(r, exprs[0], .none);
             for (exprs[1..]) |expr| {
                 try ais.writer().writeByte(';');
