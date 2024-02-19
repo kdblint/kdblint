@@ -367,6 +367,22 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderToken(r, main_tokens[node], space);
         },
 
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = datas[node];
+            const iterator = tree.extraData(data.rhs, Ast.Node.Iterator);
+
+            try renderExpression(r, iterator.lhs, .none);
+            try renderExpression(r, data.lhs, .none);
+            try renderToken(r, main_tokens[node], space);
+            try renderExpression(r, iterator.rhs, space);
+        },
+
         inline .lambda_one, .lambda_one_semicolon, .lambda, .lambda_semicolon => |t| {
             const top = ais.underlying_writer.context.items.len;
             try renderLambda(r, false, t, node, space);
