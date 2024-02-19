@@ -337,101 +337,101 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         two_colon,
 
-        /// `lhs : rhs`. rhs can be omitted. main_token is `:`.
+        /// `lhs : rhs`. lhs and rhs can be omitted. main_token is `:`.
         assign,
-        /// `lhs :: rhs`. rhs can be omitted. main_token is `::`.
+        /// `lhs :: rhs`. lhs and rhs can be omitted. main_token is `::`.
         global_assign,
-        /// `lhs + rhs`. rhs can be omitted. main_token is `+`.
+        /// `lhs + rhs`. lhs and rhs can be omitted. main_token is `+`.
         add,
-        /// `lhs +: rhs`. rhs can be omitted. main_token is `+:`.
+        /// `lhs +: rhs`. lhs and rhs can be omitted. main_token is `+:`.
         plus_assign,
-        /// `lhs - rhs`. rhs can be omitted. main_token is `-`.
+        /// `lhs - rhs`. lhs and rhs can be omitted. main_token is `-`.
         subtract,
-        /// `lhs -: rhs`. rhs can be omitted. main_token is `-:`.
+        /// `lhs -: rhs`. lhs and rhs can be omitted. main_token is `-:`.
         minus_assign,
-        /// `lhs * rhs`. rhs can be omitted. main_token is `*`.
+        /// `lhs * rhs`. lhs and rhs can be omitted. main_token is `*`.
         multiply,
-        /// `lhs *: rhs`. rhs can be omitted. main_token is `*:`.
+        /// `lhs *: rhs`. lhs and rhs can be omitted. main_token is `*:`.
         asterisk_assign,
-        /// `lhs % rhs`. rhs can be omitted. main_token is `%`.
+        /// `lhs % rhs`. lhs and rhs can be omitted. main_token is `%`.
         divide,
-        /// `lhs %: rhs`. rhs can be omitted. main_token is `%:`.
+        /// `lhs %: rhs`. lhs and rhs can be omitted. main_token is `%:`.
         percent_assign,
-        /// `lhs ! rhs`. rhs can be omitted. main_token is `!`.
+        /// `lhs ! rhs`. lhs and rhs can be omitted. main_token is `!`.
         dict,
-        /// `lhs !: rhs`. rhs can be omitted. main_token is `!:`.
+        /// `lhs !: rhs`. lhs and rhs can be omitted. main_token is `!:`.
         bang_assign,
-        /// `lhs & rhs`. rhs can be omitted. main_token is `&`.
+        /// `lhs & rhs`. lhs and rhs can be omitted. main_token is `&`.
         lesser,
-        /// `lhs &: rhs`. rhs can be omitted. main_token is `&:`.
+        /// `lhs &: rhs`. lhs and rhs can be omitted. main_token is `&:`.
         ampersand_assign,
-        /// `lhs | rhs`. rhs can be omitted. main_token is `|`.
+        /// `lhs | rhs`. lhs and rhs can be omitted. main_token is `|`.
         greater,
-        /// `lhs |: rhs`. rhs can be omitted. main_token is `|:`.
+        /// `lhs |: rhs`. lhs and rhs can be omitted. main_token is `|:`.
         pipe_assign,
-        /// `lhs < rhs`. rhs can be omitted. main_token is `<`.
+        /// `lhs < rhs`. lhs and rhs can be omitted. main_token is `<`.
         less_than,
-        /// `lhs <: rhs`. rhs can be omitted. main_token is `<:`.
+        /// `lhs <: rhs`. lhs and rhs can be omitted. main_token is `<:`.
         angle_bracket_left_assign,
-        /// `lhs <= rhs`. rhs can be omitted. main_token is `<=`.
+        /// `lhs <= rhs`. lhs and rhs can be omitted. main_token is `<=`.
         less_than_equal,
-        /// `lhs <> rhs`. rhs can be omitted. main_token is `<>`.
+        /// `lhs <> rhs`. lhs and rhs can be omitted. main_token is `<>`.
         not_equal,
-        /// `lhs > rhs`. rhs can be omitted. main_token is `>`.
+        /// `lhs > rhs`. lhs and rhs can be omitted. main_token is `>`.
         greater_than,
-        /// `lhs >: rhs`. rhs can be omitted. main_token is `>:`.
+        /// `lhs >: rhs`. lhs and rhs can be omitted. main_token is `>:`.
         angle_bracket_right_assign,
-        /// `lhs >= rhs`. rhs can be omitted. main_token is `>=`.
+        /// `lhs >= rhs`. lhs and rhs can be omitted. main_token is `>=`.
         greater_than_equal,
-        /// `lhs = rhs`. rhs can be omitted. main_token is `=`.
+        /// `lhs = rhs`. lhs and rhs can be omitted. main_token is `=`.
         equals,
-        /// `lhs =: rhs`. rhs can be omitted. main_token is `=:`.
+        /// `lhs =: rhs`. lhs and rhs can be omitted. main_token is `=:`.
         equal_assign,
-        /// `lhs ~ rhs`. rhs can be omitted. main_token is `~`.
+        /// `lhs ~ rhs`. lhs and rhs can be omitted. main_token is `~`.
         match,
-        /// `lhs ~: rhs`. rhs can be omitted. main_token is `~:`.
+        /// `lhs ~: rhs`. lhs and rhs can be omitted. main_token is `~:`.
         tilde_assign,
-        /// `lhs , rhs`. rhs can be omitted. main_token is `,`.
+        /// `lhs , rhs`. lhs and rhs can be omitted. main_token is `,`.
         join,
-        /// `lhs ,: rhs`. rhs can be omitted. main_token is `,:`.
+        /// `lhs ,: rhs`. lhs and rhs can be omitted. main_token is `,:`.
         comma_assign,
-        /// `lhs ^ rhs`. rhs can be omitted. main_token is `^`.
+        /// `lhs ^ rhs`. lhs and rhs can be omitted. main_token is `^`.
         fill,
-        /// `lhs ^: rhs`. rhs can be omitted. main_token is `^:`.
+        /// `lhs ^: rhs`. lhs and rhs can be omitted. main_token is `^:`.
         caret_assign,
-        /// `lhs # rhs`. rhs can be omitted. main_token is `#`.
+        /// `lhs # rhs`. lhs and rhs can be omitted. main_token is `#`.
         take,
-        /// `lhs #: rhs`. rhs can be omitted. main_token is `#:`.
+        /// `lhs #: rhs`. lhs and rhs can be omitted. main_token is `#:`.
         hash_assign,
-        /// `lhs _ rhs`. rhs can be omitted. main_token is `_`.
+        /// `lhs _ rhs`. lhs and rhs can be omitted. main_token is `_`.
         drop,
-        /// `lhs _: rhs`. rhs can be omitted. main_token is `_:`.
+        /// `lhs _: rhs`. lhs and rhs can be omitted. main_token is `_:`.
         underscore_assign,
-        /// `lhs $ rhs`. rhs can be omitted. main_token is `$`.
+        /// `lhs $ rhs`. lhs and rhs can be omitted. main_token is `$`.
         cast,
-        /// `lhs $: rhs`. rhs can be omitted. main_token is `$:`.
+        /// `lhs $: rhs`. lhs and rhs can be omitted. main_token is `$:`.
         dollar_assign,
-        /// `lhs ? rhs`. rhs can be omitted. main_token is `?`.
+        /// `lhs ? rhs`. lhs and rhs can be omitted. main_token is `?`.
         find,
-        /// `lhs ?: rhs`. rhs can be omitted. main_token is `?:`.
+        /// `lhs ?: rhs`. lhs and rhs can be omitted. main_token is `?:`.
         question_mark_assign,
-        /// `lhs @ rhs`. rhs can be omitted. main_token is `@`.
+        /// `lhs @ rhs`. lhs and rhs can be omitted. main_token is `@`.
         apply,
-        /// `lhs @: rhs`. rhs can be omitted. main_token is `@:`.
+        /// `lhs @: rhs`. lhs and rhs can be omitted. main_token is `@:`.
         at_assign,
-        /// `lhs . rhs`. rhs can be omitted. main_token is `.`.
+        /// `lhs . rhs`. lhs and rhs can be omitted. main_token is `.`.
         apply_n,
-        /// `lhs .: rhs`. rhs can be omitted. main_token is `.:`.
+        /// `lhs .: rhs`. lhs and rhs can be omitted. main_token is `.:`.
         dot_assign,
-        /// `lhs 0: rhs`. rhs can be omitted. main_token is `0:`.
+        /// `lhs 0: rhs`. lhs and rhs can be omitted. main_token is `0:`.
         file_text,
-        /// `lhs 0:: rhs`. rhs can be omitted. main_token is `0::`.
+        /// `lhs 0:: rhs`. lhs and rhs can be omitted. main_token is `0::`.
         zero_colon_assign,
-        /// `lhs 1: rhs`. rhs can be omitted. main_token is `1:`.
+        /// `lhs 1: rhs`. lhs and rhs can be omitted. main_token is `1:`.
         file_binary,
-        /// `lhs 1:: rhs`. rhs can be omitted. main_token is `1::`.
+        /// `lhs 1:: rhs`. lhs and rhs can be omitted. main_token is `1::`.
         one_colon_assign,
-        /// `lhs 2: rhs`. rhs can be omitted. main_token is `2:`.
+        /// `lhs 2: rhs`. lhs and rhs can be omitted. main_token is `2:`.
         dynamic_load,
 
         /// `lhs rhs`. main_token is unused.
@@ -450,18 +450,18 @@ pub const Node = struct {
         /// `lhs\:`. lhs can be omitted. rhs unused. main_token is `\:`.
         backslash_colon,
 
-        // /// `x lhs' y`. `Iterator[rhs]`. y can be omitted. main_token is `'`.
-        // apostrophe_infix,
-        // /// `x lhs': y`. `Iterator[rhs]`. y can be omitted. main_token is `':`.
-        // apostrophe_colon_infix,
-        // /// `x lhs/ y`. `Iterator[rhs]`. y can be omitted. main_token is `/`.
-        // slash_infix,
-        // /// `x lhs/: y`. `Iterator[rhs]`. y can be omitted. main_token is `/:`.
-        // slash_colon_infix,
-        // /// `x lhs\ y`. `Iterator[rhs]`. y can be omitted. main_token is `\`.
-        // backslash_infix,
-        // /// `x lhs\: y`. `Iterator[rhs]`. y can be omitted. main_token is `\:`.
-        // backslash_colon_infix,
+        /// `x lhs' y`. `Iterator[rhs]`. y can be omitted. main_token is `'`.
+        apostrophe_infix,
+        /// `x lhs': y`. `Iterator[rhs]`. y can be omitted. main_token is `':`.
+        apostrophe_colon_infix,
+        /// `x lhs/ y`. `Iterator[rhs]`. y can be omitted. main_token is `/`.
+        slash_infix,
+        /// `x lhs/: y`. `Iterator[rhs]`. y can be omitted. main_token is `/:`.
+        slash_colon_infix,
+        /// `x lhs\ y`. `Iterator[rhs]`. y can be omitted. main_token is `\`.
+        backslash_infix,
+        /// `x lhs\: y`. `Iterator[rhs]`. y can be omitted. main_token is `\:`.
+        backslash_colon_infix,
 
         /// `{[lhs]rhs}`. `SubRange[lhs]`. rhs or lhs can be omitted. main_token is `{`.
         lambda_one,
@@ -898,6 +898,18 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
             return tree.firstToken(data.lhs);
         },
 
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = tree.getData(i);
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            return tree.firstToken(iterator.lhs);
+        },
+
         .implicit_apply => {
             const data = tree.getData(i);
             return tree.firstToken(data.lhs);
@@ -1120,6 +1132,18 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .backslash,
         .backslash_colon,
         => return tree.getMainToken(i),
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = tree.getData(i);
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            return tree.lastToken(iterator.rhs);
+        },
 
         .implicit_apply => {
             const data = tree.getData(i);
@@ -1468,11 +1492,10 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .xexp_infix,
         => {
             const data = tree.getData(i);
+            const symbol = tree.getTokenTag(i).symbol();
             if (data.rhs == 0) {
-                try stream.writeAll("NYI");
+                try stream.writeAll(symbol);
             } else {
-                const symbol = tree.getTokenTag(i).symbol();
-
                 var rhs = std.ArrayList(u8).init(gpa);
                 defer rhs.deinit();
                 try tree.print(data.rhs, rhs.writer(), gpa);
@@ -1562,6 +1585,31 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try tree.print(data.lhs, lhs.writer(), gpa);
 
             try stream.print("({s};{s})", .{ tree.getSource(i), lhs.items });
+        },
+
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => {
+            const data = tree.getData(i);
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
+
+            var lhs = std.ArrayList(u8).init(gpa);
+            defer lhs.deinit();
+            try tree.print(data.lhs, lhs.writer(), gpa);
+
+            var x = std.ArrayList(u8).init(gpa);
+            defer x.deinit();
+            try tree.print(iterator.lhs, x.writer(), gpa);
+
+            var y = std.ArrayList(u8).init(gpa);
+            defer y.deinit();
+            try tree.print(iterator.rhs, y.writer(), gpa);
+
+            try stream.print("(({s};{s});{s};{s})", .{ tree.getSource(i), lhs.items, x.items, y.items });
         },
 
         .lambda_one,
