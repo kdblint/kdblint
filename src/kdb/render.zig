@@ -18,73 +18,19 @@ pub const Error = Ast.RenderError;
 
 const Ais = AutoIndentingStream(std.ArrayList(u8).Writer);
 
-pub const Fixups = struct {
-    /// The key is the mut token (`var`/`const`) of the variable declaration
-    /// that should have a `_ = foo;` inserted afterwards.
-    unused_var_decls: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .{},
-    /// The functions in this unordered set of AST fn decl nodes will render
-    /// with a function body of `@trap()` instead, with all parameters
-    /// discarded.
-    gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
-    /// These global declarations will be omitted.
-    omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
-    /// These expressions will be replaced with the string value.
-    replace_nodes_with_string: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
-    /// The string value will be inserted directly after the node.
-    append_string_after_node: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
-    /// These nodes will be replaced with a different node.
-    replace_nodes_with_node: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
-    /// Change all identifier names matching the key to be value instead.
-    rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .{},
-
-    /// All `@import` builtin calls which refer to a file path will be prefixed
-    /// with this path.
-    rebase_imported_paths: ?[]const u8 = null,
-
-    pub fn count(f: Fixups) usize {
-        return f.unused_var_decls.count() +
-            f.gut_functions.count() +
-            f.omit_nodes.count() +
-            f.replace_nodes_with_string.count() +
-            f.append_string_after_node.count() +
-            f.replace_nodes_with_node.count() +
-            f.rename_identifiers.count() +
-            @intFromBool(f.rebase_imported_paths != null);
-    }
-
-    pub fn clearRetainingCapacity(f: *Fixups) void {
-        f.unused_var_decls.clearRetainingCapacity();
-        f.gut_functions.clearRetainingCapacity();
-        f.omit_nodes.clearRetainingCapacity();
-        f.replace_nodes_with_string.clearRetainingCapacity();
-        f.append_string_after_node.clearRetainingCapacity();
-        f.replace_nodes_with_node.clearRetainingCapacity();
-        f.rename_identifiers.clearRetainingCapacity();
-
-        f.rebase_imported_paths = null;
-    }
-
-    pub fn deinit(f: *Fixups, gpa: Allocator) void {
-        f.unused_var_decls.deinit(gpa);
-        f.gut_functions.deinit(gpa);
-        f.omit_nodes.deinit(gpa);
-        f.replace_nodes_with_string.deinit(gpa);
-        f.append_string_after_node.deinit(gpa);
-        f.replace_nodes_with_node.deinit(gpa);
-        f.rename_identifiers.deinit(gpa);
-        f.* = undefined;
-    }
-};
-
 const Render = struct {
     gpa: Allocator,
     ais: *Ais,
     tree: Ast,
-    fixups: Fixups,
     prev_token: Ast.TokenIndex,
+    settings: RenderSettings,
 };
 
-pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!void {
+pub const RenderSettings = struct {
+    explicit_function_args: bool = true,
+};
+
+pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSettings) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
     var auto_indenting_stream = Ais{
         .indent_delta = indent_delta,
@@ -94,8 +40,8 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
         .gpa = buffer.allocator,
         .ais = &auto_indenting_stream,
         .tree = tree,
-        .fixups = fixups,
         .prev_token = 0,
+        .settings = settings,
     };
 
     if (tree.tokens.items(.tag)[0] == .comment) {
@@ -347,13 +293,19 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .implicit_apply => {
             const data = datas[node];
 
-            try renderExpression(r, data.lhs, switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
-                .symbol_literal, .symbol_list_literal, .l_paren => .none,
-                else => switch (token_tags[Ast.lastToken(tree, data.lhs)]) {
-                    .r_paren, .r_brace, .r_bracket => .none,
+            const space_between: Space = switch (token_tags[Ast.lastToken(tree, data.lhs)]) {
+                .r_paren, .r_brace, .r_bracket, .string_literal => .none,
+                .number_literal, .identifier => switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
+                    .string_literal, .symbol_literal, .symbol_list_literal => .none,
                     else => .space,
                 },
-            });
+                .symbol_literal, .symbol_list_literal => switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
+                    .string_literal => .none,
+                    else => .space,
+                },
+                else => .space,
+            };
+            try renderExpression(r, data.lhs, space_between);
             try renderExpression(r, data.rhs, space);
         },
 
@@ -774,10 +726,10 @@ fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Ta
     const data = datas[node];
     if (nextTag(r, .l_bracket)) |l_bracket| {
         try renderToken(r, l_bracket, .none);
-    } else {
+    } else if (r.settings.explicit_function_args) { // TODO: Need to check AST for implicit args.
         try ais.writer().writeByte('[');
     }
-    if (data.lhs > 0) {
+    if (data.lhs > 0 and r.settings.explicit_function_args) {
         const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
         const tokens = tree.extra_data[sub_range.start..sub_range.end];
         try renderToken(r, tokens[0], .none);
@@ -788,7 +740,7 @@ fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Ta
     }
     if (nextTag(r, .r_bracket)) |r_bracket| {
         try renderToken(r, r_bracket, .none);
-    } else {
+    } else if (r.settings.explicit_function_args) {
         try ais.writer().writeByte(']');
     }
 
@@ -1147,16 +1099,81 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     };
 }
 
-test "TODO" {
-    const source = "123 identifier\n";
+fn testRender(comptime source: [:0]const u8) !void {
     var tree = try Ast.parse(std.testing.allocator, source, .{
         .version = .v4_0,
         .language = .q,
     });
     defer tree.deinit(std.testing.allocator);
-    const actual = try Ast.render(tree, std.testing.allocator);
+    const actual = try Ast.render(tree, std.testing.allocator, .{
+        .explicit_function_args = false,
+    });
     defer std.testing.allocator.free(actual);
-    try std.testing.expectEqualSlices(u8, source, actual);
+    try std.testing.expectEqualSlices(u8, source ++ "\n", actual);
+}
+
+test "whitespace before number literals" {
+    try testRender("(1;)1"); // r_paren
+    try testRender("{1}1"); // r_brace
+    try testRender("[1;]1"); // r_bracket
+    try testRender("\"string\"1"); // string_literal
+    try testRender("`symbol 1"); // symbol_literal
+    try testRender("`symbol`symbol 1"); // symbol_list_literal
+    try testRender("x 1"); // identifier
+}
+
+test "whitespace before number list literals" {
+    try testRender("(1 2 3;)1 2 3"); // r_paren
+    try testRender("{1 2 3}1 2 3"); // r_brace
+    try testRender("[1 2 3;]1 2 3"); // r_bracket
+    try testRender("\"string\"1 2 3"); // string_literal
+    try testRender("`symbol 1 2 3"); // symbol_literal
+    try testRender("`symbol`symbol 1 2 3"); // symbol_list_literal
+    try testRender("x 1 2 3"); // identifier
+}
+
+test "whitespace before string literals" {
+    try testRender("(\"string\";)\"string\""); // r_paren
+    try testRender("{\"string\"}\"string\""); // r_brace
+    try testRender("[\"string\";]\"string\""); // r_bracket
+    try testRender("1\"string\""); // number_literal
+    try testRender("\"string\"\"string\""); // string_literal
+    try testRender("`symbol\"string\""); // symbol_literal
+    try testRender("`symbol`symbol\"string\""); // symbol_list_literal
+    try testRender("x\"string\""); // identifier
+}
+
+test "whitespace before symbol literals" {
+    try testRender("(`symbol;)`symbol"); // r_paren
+    try testRender("{`symbol}`symbol"); // r_brace
+    try testRender("[`symbol;]`symbol"); // r_bracket
+    try testRender("1`symbol"); // number_literal
+    try testRender("\"string\"`symbol"); // string_literal
+    try testRender("`symbol `symbol"); // symbol_literal
+    try testRender("`symbol`symbol `symbol"); // symbol_list_literal
+    try testRender("x`symbol"); // identifier
+}
+
+test "whitespace before symbol list literals" {
+    try testRender("(`symbol`symbol;)`symbol`symbol"); // r_paren
+    try testRender("{`symbol`symbol}`symbol`symbol"); // r_brace
+    try testRender("[`symbol`symbol;]`symbol`symbol"); // r_bracket
+    try testRender("1`symbol`symbol"); // number_literal
+    try testRender("\"string\"`symbol"); // string_literal
+    try testRender("`symbol `symbol`symbol"); // symbol_literal
+    try testRender("`symbol`symbol `symbol`symbol"); // symbol_list_literal
+    try testRender("x`symbol`symbol"); // identifier
+}
+
+test "whitespace before identifiers" {
+    try testRender("(x;)x"); // r_paren
+    try testRender("{x}x"); // r_brace
+    try testRender("[x;]x"); // r_bracket
+    try testRender("1 x"); // number_literal
+    try testRender("\"string\"x"); // string_literal
+    try testRender("`symbol x"); // symbol_literal
+    try testRender("`symbol`symbol x"); // symbol_list_literal
+    try testRender("x x"); // identifier
 }
 
 test {

@@ -198,7 +198,8 @@ pub fn @"textDocument/formatting"(server: *Server, gpa: std.mem.Allocator, reque
 
     if (handle.tree.errors.len != 0) return null;
 
-    const formatted = try handle.tree.render(gpa);
+    // TODO: formatting settings
+    const formatted = try handle.tree.render(gpa, .{});
 
     if (std.mem.eql(u8, handle.tree.source, formatted)) return null;
 
