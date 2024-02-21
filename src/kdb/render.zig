@@ -74,7 +74,6 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
 }
 
 // TODO: Render comments in weird places.
-// TODO: Handle spaces between identifiers/numbers.
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
@@ -295,12 +294,50 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             const space_between: Space = switch (token_tags[Ast.lastToken(tree, data.lhs)]) {
                 .r_paren, .r_brace, .r_bracket, .string_literal => .none,
-                .number_literal, .identifier => switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
-                    .string_literal, .symbol_literal, .symbol_list_literal => .none,
+                .number_literal,
+                .identifier,
+                .keyword_abs,
+                .keyword_acos,
+                .keyword_asin,
+                .keyword_atan,
+                .keyword_avg,
+                .keyword_bin,
+                .keyword_binr,
+                .keyword_cor,
+                .keyword_cos,
+                .keyword_cov,
+                .keyword_dev,
+                .keyword_div,
+                .keyword_enlist,
+                .keyword_exit,
+                .keyword_exp,
+                .keyword_getenv,
+                .keyword_hopen,
+                .keyword_in,
+                .keyword_insert,
+                .keyword_last,
+                .keyword_like,
+                .keyword_log,
+                .keyword_max,
+                .keyword_min,
+                .keyword_prd,
+                .keyword_setenv,
+                .keyword_sin,
+                .keyword_sqrt,
+                .keyword_ss,
+                .keyword_sum,
+                .keyword_tan,
+                .keyword_var,
+                .keyword_wavg,
+                .keyword_within,
+                .keyword_wsum,
+                .keyword_xexp,
+                => switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
+                    .l_paren, .l_brace, .string_literal, .symbol_literal, .symbol_list_literal => .none,
                     else => .space,
                 },
                 .symbol_literal, .symbol_list_literal => switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
-                    .string_literal => .none,
+                    .l_paren, .l_brace, .string_literal => .none,
                     else => .space,
                 },
                 else => .space,
@@ -334,7 +371,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             try renderExpression(r, iterator.lhs, .none);
             try renderExpression(r, data.lhs, .none);
-            try renderToken(r, main_tokens[node], space);
+            try renderToken(r, main_tokens[node], .none);
             try renderExpression(r, iterator.rhs, space);
         },
 
@@ -461,8 +498,16 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => {
             const data = datas[node];
 
-            try renderExpression(r, data.lhs, .none);
-            try renderToken(r, main_tokens[node], if (data.rhs > 0) .none else space);
+            const space_before: Space = switch (token_tags[Ast.lastToken(tree, data.lhs)]) {
+                .r_paren, .r_brace, .r_bracket, .string_literal => .none,
+                else => .space,
+            };
+            try renderExpression(r, data.lhs, space_before);
+            const space_after: Space = if (data.rhs > 0) switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
+                .l_paren, .l_brace, .string_literal, .symbol_literal, .symbol_list_literal => .none,
+                else => .space,
+            } else space;
+            try renderToken(r, main_tokens[node], space_after);
             if (data.rhs > 0) try renderExpression(r, data.rhs, space);
         },
 
@@ -1112,68 +1157,127 @@ fn testRender(comptime source: [:0]const u8) !void {
     try std.testing.expectEqualSlices(u8, source ++ "\n", actual);
 }
 
-test "whitespace before number literals" {
-    try testRender("(1;)1"); // r_paren
-    try testRender("{1}1"); // r_brace
+test "number literals whitespace" {
+    try testRender("1(1;)1"); // l_paren/r_paren
+    try testRender("1{1}1"); // l_brace/r_brace
     try testRender("[1;]1"); // r_bracket
     try testRender("\"string\"1"); // string_literal
     try testRender("`symbol 1"); // symbol_literal
     try testRender("`symbol`symbol 1"); // symbol_list_literal
     try testRender("x 1"); // identifier
+    inline for (Token.keywords.kvs) |kv| {
+        switch (kv.value) {
+            .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+            else => try testRender(kv.key ++ " 1"), // keyword
+        }
+    }
 }
 
-test "whitespace before number list literals" {
-    try testRender("(1 2 3;)1 2 3"); // r_paren
-    try testRender("{1 2 3}1 2 3"); // r_brace
+test "number list literals whitespace" {
+    try testRender("1 2 3(1 2 3;)1 2 3"); // l_paren/r_paren
+    try testRender("1 2 3{1 2 3}1 2 3"); // l_brace/r_brace
     try testRender("[1 2 3;]1 2 3"); // r_bracket
     try testRender("\"string\"1 2 3"); // string_literal
     try testRender("`symbol 1 2 3"); // symbol_literal
     try testRender("`symbol`symbol 1 2 3"); // symbol_list_literal
     try testRender("x 1 2 3"); // identifier
+    inline for (Token.keywords.kvs) |kv| {
+        switch (kv.value) {
+            .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+            else => try testRender(kv.key ++ " 1 2 3"), // keyword
+        }
+    }
 }
 
-test "whitespace before string literals" {
-    try testRender("(\"string\";)\"string\""); // r_paren
-    try testRender("{\"string\"}\"string\""); // r_brace
+test "string literals whitespace" {
+    try testRender("\"string\"(\"string\";)\"string\""); // l_paren/r_paren
+    try testRender("\"string\"{\"string\"}\"string\""); // l_brace/r_brace
     try testRender("[\"string\";]\"string\""); // r_bracket
     try testRender("1\"string\""); // number_literal
     try testRender("\"string\"\"string\""); // string_literal
     try testRender("`symbol\"string\""); // symbol_literal
     try testRender("`symbol`symbol\"string\""); // symbol_list_literal
     try testRender("x\"string\""); // identifier
+    inline for (Token.keywords.kvs) |kv| {
+        switch (kv.value) {
+            .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+            else => try testRender(kv.key ++ "\"string\""), // keyword
+        }
+    }
 }
 
-test "whitespace before symbol literals" {
-    try testRender("(`symbol;)`symbol"); // r_paren
-    try testRender("{`symbol}`symbol"); // r_brace
+test "symbol literals whitespace" {
+    try testRender("`symbol(`symbol;)`symbol"); // l_paren/r_paren
+    try testRender("`symbol{`symbol}`symbol"); // r_paren/r_brace
     try testRender("[`symbol;]`symbol"); // r_bracket
     try testRender("1`symbol"); // number_literal
     try testRender("\"string\"`symbol"); // string_literal
     try testRender("`symbol `symbol"); // symbol_literal
     try testRender("`symbol`symbol `symbol"); // symbol_list_literal
     try testRender("x`symbol"); // identifier
+    inline for (Token.keywords.kvs) |kv| {
+        switch (kv.value) {
+            .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+            else => try testRender(kv.key ++ "`symbol"), // keyword
+        }
+    }
 }
 
-test "whitespace before symbol list literals" {
-    try testRender("(`symbol`symbol;)`symbol`symbol"); // r_paren
-    try testRender("{`symbol`symbol}`symbol`symbol"); // r_brace
+test "symbol list literals whitespace" {
+    try testRender("`symbol`symbol(`symbol`symbol;)`symbol`symbol"); // l_paren/r_paren
+    try testRender("`symbol`symbol{`symbol`symbol}`symbol`symbol"); // l_brace/r_brace
     try testRender("[`symbol`symbol;]`symbol`symbol"); // r_bracket
     try testRender("1`symbol`symbol"); // number_literal
     try testRender("\"string\"`symbol"); // string_literal
     try testRender("`symbol `symbol`symbol"); // symbol_literal
     try testRender("`symbol`symbol `symbol`symbol"); // symbol_list_literal
     try testRender("x`symbol`symbol"); // identifier
+    inline for (Token.keywords.kvs) |kv| {
+        switch (kv.value) {
+            .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+            else => try testRender(kv.key ++ "`symbol`symbol"), // keyword
+        }
+    }
 }
 
-test "whitespace before identifiers" {
-    try testRender("(x;)x"); // r_paren
-    try testRender("{x}x"); // r_brace
+test "identifiers whitespace" {
+    try testRender("x(x;)x"); // l_paren/r_paren
+    try testRender("x{x}x"); // l_brace/r_brace
     try testRender("[x;]x"); // r_bracket
     try testRender("1 x"); // number_literal
     try testRender("\"string\"x"); // string_literal
     try testRender("`symbol x"); // symbol_literal
     try testRender("`symbol`symbol x"); // symbol_list_literal
     try testRender("x x"); // identifier
+    inline for (Token.keywords.kvs) |kv| {
+        switch (kv.value) {
+            .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+            else => try testRender(kv.key ++ " x"), // keyword
+        }
+    }
+}
+
+test "keywords whitespace" {
+    try testRender("abs(abs;)abs"); // l_paren/r_paren
+    try testRender("abs{abs}abs"); // l_brace/r_brace
+    try testRender("[abs;]abs"); // r_bracket
+    try testRender("1 abs"); // number_literal
+    try testRender("\"string\"abs"); // string_literal
+    try testRender("`symbol abs"); // symbol_literal
+    try testRender("`symbol`symbol abs"); // symbol_list_literal
+    try testRender("x abs"); // identifier
+    @setEvalBranchQuota(2000);
+    inline for (Token.keywords.kvs) |outer_kv| {
+        switch (outer_kv.value) {
+            .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+            else => inline for (Token.keywords.kvs) |inner_kv| {
+                switch (inner_kv.value) {
+                    .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
+                    else => try testRender(outer_kv.key ++ " " ++ inner_kv.key), // keyword
+                }
+            },
+        }
+    }
 }
 
 test {
