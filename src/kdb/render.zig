@@ -45,7 +45,8 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSetting
     };
 
     if (tree.tokens.items(.tag)[0] == .comment) {
-        try renderToken(&r, 0, .none);
+        const loc = tree.tokens.items(.loc)[0];
+        try r.ais.writer().writeAll(tree.source[loc.start..loc.end]);
     }
 
     try renderBlocks(&r, r.tree.rootDecls());
@@ -58,15 +59,19 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSetting
 fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
     try renderBlock(r, blocks[0], .newline);
     for (blocks[1..]) |block| {
-        try renderExtraNewline(r, block);
         try renderBlock(r, block, .newline);
     }
 }
 
 fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
+    const ais = r.ais;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
+
+    ais.indent_count = 0;
+    ais.indent_next_line = 0;
+
     switch (node_tags[decl]) {
         .implicit_return => try renderExpression(r, datas[decl].lhs, space),
         else => try renderExpression(r, decl, .semicolon_newline),
@@ -948,7 +953,7 @@ fn renderComments(r: *Render, token: Ast.TokenIndex) Error!bool {
     }
 
     if (i > token and !eobs[token - 1] and ais.currentIndent() == 0) {
-        ais.pushIndentOneShot();
+        ais.pushIndent();
     }
 
     return i > token;
