@@ -776,11 +776,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 }
 
 fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Tag, node: Ast.Node.Index, space: Space) !void {
-    _ = multi_line; // autofix
-
     const tree = r.tree;
-    const ais = r.ais;
-    _ = ais; // autofix
     const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
 
@@ -797,7 +793,6 @@ fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Ta
             try renderToken(r, params[1], .none);
         },
         else => {
-            log.debug("{d}", .{params.len});
             try renderToken(r, params[0], .none); // l_bracket
             for (params[1 .. params.len - 2]) |param| {
                 try renderToken(r, param, .semicolon);
@@ -808,14 +803,14 @@ fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Ta
     }
 
     const body = tree.extra_data[lambda.body_start..lambda.body_end];
-    if (tag == .lambda_semicolon) {
+    if (body.len > 0) {
         for (body[0 .. body.len - 1]) |expr| {
-            try renderExpression(r, expr, .none);
+            try renderExpression(r, expr, if (multi_line) .semicolon_newline else .semicolon);
         }
-        try renderExpression(r, body[body.len - 1], .semicolon);
-    } else {
-        for (body) |expr| {
-            try renderExpression(r, expr, .none);
+        if (tag == .lambda_semicolon) {
+            try renderExpression(r, body[body.len - 1], if (multi_line) .semicolon_newline else .semicolon);
+        } else {
+            try renderExpression(r, body[body.len - 1], if (multi_line) .newline else .none);
         }
     }
 
