@@ -707,8 +707,6 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        .lambda_one,
-        .lambda_one_semicolon,
         .lambda,
         .lambda_semicolon,
         .abs,
@@ -762,7 +760,8 @@ fn lambda(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    if (p.eatToken(.l_bracket)) |_| {
+    if (p.eatToken(.l_bracket)) |l_bracket| {
+        try p.scratch.append(p.gpa, l_bracket);
         if (p.peekTag() != .r_bracket) {
             while (true) {
                 const identifier = try p.expectToken(.identifier);
@@ -771,7 +770,8 @@ fn lambda(p: *Parse) Error!Node.Index {
                 break;
             }
         }
-        _ = try p.expectToken(.r_bracket);
+        const r_bracket = try p.expectToken(.r_bracket);
+        try p.scratch.append(p.gpa, r_bracket);
 
         // Ensure there is whitespace between r_bracket and negative number.
         if (p.language == .q and p.peekTag() == .number_literal) {
@@ -786,49 +786,37 @@ fn lambda(p: *Parse) Error!Node.Index {
 
     while (true) {
         if (p.eob) return p.failExpected(.r_brace);
-        if (p.eatToken(.r_brace)) |_| break;
+        if (p.peekTag() == .r_brace) break;
         if (p.eatToken(.semicolon)) |_| continue;
         const expr = try p.parseExpr(.r_brace);
         if (expr > 0) {
             try p.scratch.append(p.gpa, expr);
         }
     }
+    const r_brace = try p.expectToken(.r_brace);
 
     var i = p.tok_i - 2;
     while (true) : (i -= 1) {
         if (p.token_tags[i] != .comment) break;
     }
     const semicolon = p.token_tags[i] == .semicolon;
-    const expressions = p.scratch.items[body_top..];
 
-    const params_len = body_top - scratch_top;
-    const params = if (params_len > 0) try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..body_top])) else null_node;
-    switch (expressions.len) {
-        0 => return p.addNode(.{
-            .tag = if (semicolon) .lambda_one_semicolon else .lambda_one,
-            .main_token = l_brace,
-            .data = .{
-                .lhs = params,
-                .rhs = 0,
-            },
-        }),
-        1 => return p.addNode(.{
-            .tag = if (semicolon) .lambda_one_semicolon else .lambda_one,
-            .main_token = l_brace,
-            .data = .{
-                .lhs = params,
-                .rhs = expressions[0],
-            },
-        }),
-        else => return p.addNode(.{
-            .tag = if (semicolon) .lambda_semicolon else .lambda,
-            .main_token = l_brace,
-            .data = .{
-                .lhs = params,
-                .rhs = try p.addExtra(try p.listToSpan(expressions)),
-            },
-        }),
-    }
+    const params = try p.listToSpan(p.scratch.items[scratch_top..body_top]);
+    const body = try p.listToSpan(p.scratch.items[body_top..]);
+    const lambda_node = Node.Lambda{
+        .params_start = params.start,
+        .params_end = params.end,
+        .body_start = body.start,
+        .body_end = body.end,
+    };
+    return p.addNode(.{
+        .tag = if (semicolon) .lambda_semicolon else .lambda,
+        .main_token = l_brace,
+        .data = .{
+            .lhs = try p.addExtra(lambda_node),
+            .rhs = r_brace,
+        },
+    });
 }
 
 fn block(p: *Parse) Error!Node.Index {
@@ -1983,24 +1971,17 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
             try appendTags(tree, iterator.lhs, tags);
         },
 
-        .lambda_one,
-        .lambda_one_semicolon,
-        => {
-            const data = tree.nodes.items(.data)[i];
-            if (data.rhs > 0) {
-                try appendTags(tree, data.rhs, tags);
-            }
-        },
         .lambda,
         .lambda_semicolon,
         => {
             const data = tree.nodes.items(.data)[i];
-            const sub_range = tree.extraData(data.rhs, Node.SubRange);
-            for (sub_range.start..sub_range.end) |extra_data_i| {
-                const node_i = tree.extra_data[extra_data_i];
-                try appendTags(tree, node_i, tags);
+            const lambda_node = tree.extraData(data.lhs, Node.Lambda);
+            const body = tree.extra_data[lambda_node.body_start..lambda_node.body_end];
+            for (body) |expr| {
+                try appendTags(tree, expr, tags);
             }
         },
+
         .identifier,
         .number_literal,
         .number_list_literal,
@@ -2252,12 +2233,12 @@ test "expressions" {
 test "lambda" {
     try testParse("{x}", &.{
         .implicit_return,
-        .lambda_one,
+        .lambda,
         .identifier,
     }, "{x}");
     try testParse("{x;}", &.{
         .implicit_return,
-        .lambda_one_semicolon,
+        .lambda_semicolon,
         .identifier,
     }, "{x;}");
     try testParse("{x;y}", &.{
@@ -2272,14 +2253,14 @@ test "lambda" {
         .identifier,
         .identifier,
     }, "{x;y;}");
-    try testParse("{-1}", &.{ .implicit_return, .lambda_one, .number_literal }, "{-1}");
-    try testParse("{-1;}", &.{ .implicit_return, .lambda_one_semicolon, .number_literal }, "{-1;}");
+    try testParse("{-1}", &.{ .implicit_return, .lambda, .number_literal }, "{-1}");
+    try testParse("{-1;}", &.{ .implicit_return, .lambda_semicolon, .number_literal }, "{-1;}");
     try testParseErrorLanguage(.q, "{[]-1}", &.{ .expected_whitespace, .parse_error });
     try testParseErrorLanguage(.q, "{[]-1;}", &.{ .expected_whitespace, .parse_error });
-    try testParseLanguage(.k, "{[]-1}", &.{ .implicit_return, .lambda_one, .number_literal }, "{[]-1}");
-    try testParseLanguage(.k, "{[]-1;}", &.{ .implicit_return, .lambda_one_semicolon, .number_literal }, "{[]-1;}");
-    try testParse("{[] -1}", &.{ .implicit_return, .lambda_one, .number_literal }, "{[] -1}");
-    try testParse("{[] -1;}", &.{ .implicit_return, .lambda_one_semicolon, .number_literal }, "{[] -1;}");
+    try testParseLanguage(.k, "{[]-1}", &.{ .implicit_return, .lambda, .number_literal }, "{[]-1}");
+    try testParseLanguage(.k, "{[]-1;}", &.{ .implicit_return, .lambda_semicolon, .number_literal }, "{[]-1;}");
+    try testParse("{[] -1}", &.{ .implicit_return, .lambda, .number_literal }, "{[] -1}");
+    try testParse("{[] -1;}", &.{ .implicit_return, .lambda_semicolon, .number_literal }, "{[] -1;}");
 }
 
 test "implicit apply" {
@@ -2287,14 +2268,14 @@ test "implicit apply" {
         .implicit_return,
         .implicit_apply,
         .identifier,
-        .lambda_one,
+        .lambda,
         .identifier,
     }, "({x};`a)");
     try testParse("{x}1", &.{
         .implicit_return,
         .implicit_apply,
         .number_literal,
-        .lambda_one,
+        .lambda,
         .identifier,
     }, "({x};1)");
 }
@@ -2303,14 +2284,14 @@ test "call" {
     try testParse("{x}[]", &.{
         .implicit_return,
         .call_one,
-        .lambda_one,
+        .lambda,
         .identifier,
     }, "({x};::)");
     try testParse("{x}[1]", &.{
         .implicit_return,
         .call_one,
         .number_literal,
-        .lambda_one,
+        .lambda,
         .identifier,
     }, "({x};1)");
     try testParse("{x+y}[1;a]", &.{
@@ -2318,7 +2299,7 @@ test "call" {
         .call,
         .identifier,
         .number_literal,
-        .lambda_one,
+        .lambda,
         .add,
         .identifier,
         .identifier,
@@ -2328,7 +2309,7 @@ test "call" {
         .subtract,
         .number_literal,
         .call_one,
-        .lambda_one,
+        .lambda,
         .number_literal,
     }, "(-;({1};::);1)");
 }
@@ -2337,7 +2318,7 @@ test "call - explicit projection" {
     try testParse("{x+y}[;]", &.{
         .implicit_return,
         .call,
-        .lambda_one,
+        .lambda,
         .add,
         .identifier,
         .identifier,
@@ -2346,7 +2327,7 @@ test "call - explicit projection" {
         .implicit_return,
         .call,
         .number_literal,
-        .lambda_one,
+        .lambda,
         .add,
         .identifier,
         .identifier,
@@ -2355,7 +2336,7 @@ test "call - explicit projection" {
         .implicit_return,
         .call,
         .number_literal,
-        .lambda_one,
+        .lambda,
         .add,
         .identifier,
         .identifier,
@@ -2367,7 +2348,7 @@ test "call - implicit projection" {
         .implicit_return,
         .call_one,
         .number_literal,
-        .lambda_one,
+        .lambda,
         .add,
         .identifier,
         .identifier,

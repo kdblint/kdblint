@@ -127,16 +127,15 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), settings: Render
 }
 
 pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
-    const token_tags = tree.tokens.items(.tag);
-    const token_tag = token_tags[token_index];
+    const tags: []Token.Tag = tree.tokens.items(.tag);
+    const locs: []Token.Loc = tree.tokens.items(.loc);
 
     // Many tokens can be determined entirely by their tag.
-    if (token_tag.lexeme()) |lexeme| {
+    if (tags[token_index].lexeme()) |lexeme| {
         return lexeme;
     }
 
-    const token_locs = tree.tokens.items(.loc);
-    const loc = token_locs[token_index];
+    const loc = locs[token_index];
     return tree.source[loc.start..loc.end];
 }
 
@@ -461,11 +460,7 @@ pub const Node = struct {
         /// `x lhs\: y`. `Iterator[rhs]`. y can be omitted. main_token is `\:`.
         backslash_colon_infix,
 
-        /// `{[lhs]rhs}`. `SubRange[lhs]`. rhs or lhs can be omitted. main_token is `{`.
-        lambda_one,
-        /// Same as lambda_one but there is known to be a semicolon before the rbrace.
-        lambda_one_semicolon,
-        /// `{[lhs]rhs}`. `SubRange[lhs]`. `SubRange[rhs]`. lhs can be omitted. main_token is `{`.
+        /// `{lhs}`. `Lambda[lhs]`. main_token is `{`. rhs is token index of `}`.
         lambda,
         /// Same as lambda but there is known to be a semicolon before the rbrace.
         lambda_semicolon,
@@ -620,6 +615,17 @@ pub const Node = struct {
         start: Index,
         /// Index into extra_data.
         end: Index,
+    };
+
+    pub const Lambda = struct {
+        /// Index into extra_data.
+        params_start: Index,
+        /// Index into extra_data.
+        params_end: Index,
+        /// Index into extra_data.
+        body_start: Index,
+        /// Index into extra_data.
+        body_end: Index,
     };
 
     pub const Iterator = struct {
@@ -913,14 +919,10 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
             return tree.firstToken(data.lhs);
         },
 
-        .lambda_one,
-        .lambda_one_semicolon,
         .lambda,
         .lambda_semicolon,
         .block,
-        => {
-            return tree.getMainToken(i);
-        },
+        => return tree.getMainToken(i),
 
         .call_one,
         .call,
@@ -1151,49 +1153,10 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
             unreachable;
         },
 
-        .lambda_one,
-        .lambda_one_semicolon,
-        => {
-            const data = tree.getData(i);
-            var last_token = (if (data.rhs > 0) blk: {
-                break :blk tree.lastToken(data.rhs);
-            } else if (data.lhs > 0) blk: {
-                const sub_range = tree.extraData(data.lhs, Node.SubRange);
-                break :blk tree.getExtraData(sub_range.end - 1);
-            } else blk: {
-                break :blk tree.getMainToken(i);
-            }) + 1;
-            while (true) : (last_token += 1) {
-                switch (tree.tokens.items(.tag)[last_token]) {
-                    .semicolon,
-                    .comment,
-                    .l_bracket,
-                    .r_bracket,
-                    => {},
-                    else => break,
-                }
-            }
-            return last_token;
-        },
-
         .lambda,
         .lambda_semicolon,
-        => {
-            const data = tree.getData(i);
-            const sub_range = tree.extraData(data.rhs, Node.SubRange);
-            const node_i = tree.getExtraData(sub_range.end - 1);
-            var last_token = tree.lastToken(node_i) + 1;
-            while (true) : (last_token += 1) {
-                switch (tree.tokens.items(.tag)[last_token]) {
-                    .semicolon => {},
-                    .comment => {},
-                    else => break,
-                }
-            }
-            return last_token;
-        },
-
-        .block => return tree.getData(i).rhs,
+        .block,
+        => return tree.getData(i).rhs,
 
         .call_one => {
             const data = tree.getData(i);
@@ -1620,8 +1583,6 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(({s};{s});{s};{s})", .{ tree.getSource(i), lhs.items, x.items, y.items });
         },
 
-        .lambda_one,
-        .lambda_one_semicolon,
         .lambda,
         .lambda_semicolon,
         => {
@@ -1634,6 +1595,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             const source = tree.source[start..end];
             try stream.print("{s}", .{source});
         },
+
         .block => {
             const data = tree.getData(i);
             const sub_range = tree.extraData(data.lhs, Node.SubRange);
