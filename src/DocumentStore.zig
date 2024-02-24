@@ -1,5 +1,7 @@
 const std = @import("std");
 const kdb = @import("kdb.zig");
+const Ast = kdb.Ast;
+const offsets = @import("offsets.zig");
 
 const log = std.log.scoped(.kdbLint_Store);
 
@@ -11,13 +13,17 @@ pub const max_document_size = std.math.maxInt(u32);
 
 pub const Handle = struct {
     uri: Uri,
-    tree: kdb.Ast,
+    tree: Ast,
 
     /// private field
     impl: struct {
+        /// @bitCast from/to `Status`
         status: std.atomic.Value(u32) = std.atomic.Value(u32).init(@bitCast(Status{})),
+        /// TODO can we avoid storing one allocator per Handle?
         allocator: std.mem.Allocator,
+
         lock: std.Thread.Mutex = .{},
+        condition: std.Thread.Condition = .{},
     },
 
     const Status = packed struct(u32) {
@@ -27,7 +33,7 @@ pub const Handle = struct {
         open: bool = false,
         _: u31 = undefined,
     };
-
+    /// takes ownership of `text`
     pub fn init(allocator: std.mem.Allocator, uri: Uri, text: [:0]const u8) error{OutOfMemory}!Handle {
         const duped_uri = try allocator.dupe(u8, uri);
         errdefer allocator.free(duped_uri);
@@ -67,9 +73,9 @@ pub const Handle = struct {
         }
     }
 
-    fn parseTree(allocator: std.mem.Allocator, new_text: [:0]const u8) error{OutOfMemory}!kdb.Ast {
+    fn parseTree(allocator: std.mem.Allocator, new_text: [:0]const u8) error{OutOfMemory}!Ast {
         // TODO: Use settings config
-        var tree = try kdb.Ast.parse(allocator, new_text, .{
+        var tree = try Ast.parse(allocator, new_text, .{
             .version = .v4_0,
             .language = .q,
         });
