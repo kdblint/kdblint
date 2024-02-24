@@ -4,9 +4,10 @@ const types = lsp.types;
 
 const kdb = @import("kdb.zig");
 const Ast = kdb.Ast;
+const Token = kdb.Token;
 
 pub const Encoding = types.PositionEncodingKind;
-pub const Loc = kdb.Token.Loc;
+pub const Loc = Token.Loc;
 
 pub fn indexToPosition(text: []const u8, index: usize, encoding: Encoding) types.Position {
     const last_line_start = if (std.mem.lastIndexOfScalar(u8, text[0..index], '\n')) |line| line + 1 else 0;
