@@ -1156,10 +1156,11 @@ test "number literals whitespace" {
     try testRender("`symbol 1"); // symbol_literal
     try testRender("`symbol`symbol 1"); // symbol_list_literal
     try testRender("x 1"); // identifier
-    inline for (Token.keywords.kvs) |kv| {
-        switch (kv.value) {
+    const kvs = Token.keywords.kvs;
+    inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |key, value| {
+        switch (value) {
             .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-            else => try testRender(kv.key ++ " 1"), // keyword
+            else => try testRender(key ++ " 1"), // keyword
         }
     }
 }
@@ -1172,10 +1173,11 @@ test "number list literals whitespace" {
     try testRender("`symbol 1 2 3"); // symbol_literal
     try testRender("`symbol`symbol 1 2 3"); // symbol_list_literal
     try testRender("x 1 2 3"); // identifier
-    inline for (Token.keywords.kvs) |kv| {
-        switch (kv.value) {
+    const kvs = Token.keywords.kvs;
+    inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |key, value| {
+        switch (value) {
             .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-            else => try testRender(kv.key ++ " 1 2 3"), // keyword
+            else => try testRender(key ++ " 1 2 3"), // keyword
         }
     }
 }
@@ -1189,10 +1191,11 @@ test "string literals whitespace" {
     try testRender("`symbol\"string\""); // symbol_literal
     try testRender("`symbol`symbol\"string\""); // symbol_list_literal
     try testRender("x\"string\""); // identifier
-    inline for (Token.keywords.kvs) |kv| {
-        switch (kv.value) {
+    const kvs = Token.keywords.kvs;
+    inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |key, value| {
+        switch (value) {
             .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-            else => try testRender(kv.key ++ "\"string\""), // keyword
+            else => try testRender(key ++ "\"string\""), // keyword
         }
     }
 }
@@ -1206,10 +1209,11 @@ test "symbol literals whitespace" {
     try testRender("`symbol `symbol"); // symbol_literal
     try testRender("`symbol`symbol `symbol"); // symbol_list_literal
     try testRender("x`symbol"); // identifier
-    inline for (Token.keywords.kvs) |kv| {
-        switch (kv.value) {
+    const kvs = Token.keywords.kvs;
+    inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |key, value| {
+        switch (value) {
             .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-            else => try testRender(kv.key ++ "`symbol"), // keyword
+            else => try testRender(key ++ "`symbol"), // keyword
         }
     }
 }
@@ -1223,10 +1227,11 @@ test "symbol list literals whitespace" {
     try testRender("`symbol `symbol`symbol"); // symbol_literal
     try testRender("`symbol`symbol `symbol`symbol"); // symbol_list_literal
     try testRender("x`symbol`symbol"); // identifier
-    inline for (Token.keywords.kvs) |kv| {
-        switch (kv.value) {
+    const kvs = Token.keywords.kvs;
+    inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |key, value| {
+        switch (value) {
             .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-            else => try testRender(kv.key ++ "`symbol`symbol"), // keyword
+            else => try testRender(key ++ "`symbol`symbol"), // keyword
         }
     }
 }
@@ -1240,10 +1245,11 @@ test "identifiers whitespace" {
     try testRender("`symbol x"); // symbol_literal
     try testRender("`symbol`symbol x"); // symbol_list_literal
     try testRender("x x"); // identifier
-    inline for (Token.keywords.kvs) |kv| {
-        switch (kv.value) {
+    const kvs = Token.keywords.kvs;
+    inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |key, value| {
+        switch (value) {
             .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-            else => try testRender(kv.key ++ " x"), // keyword
+            else => try testRender(key ++ " x"), // keyword
         }
     }
 }
@@ -1258,13 +1264,14 @@ test "keywords whitespace" {
     try testRender("`symbol`symbol abs"); // symbol_list_literal
     try testRender("x abs"); // identifier
     @setEvalBranchQuota(2000);
-    inline for (Token.keywords.kvs) |outer_kv| {
-        switch (outer_kv.value) {
+    const kvs = Token.keywords.kvs;
+    inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |outer_key, outer_value| {
+        switch (outer_value) {
             .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-            else => inline for (Token.keywords.kvs) |inner_kv| {
-                switch (inner_kv.value) {
+            else => inline for (kvs.keys[0..kvs.len], kvs.values[0..kvs.len]) |inner_key, inner_value| {
+                switch (inner_value) {
                     .keyword_delete, .keyword_do, .keyword_exec, .keyword_if, .keyword_select, .keyword_update, .keyword_while => {},
-                    else => try testRender(outer_kv.key ++ " " ++ inner_kv.key), // keyword
+                    else => try testRender(outer_key ++ " " ++ inner_key), // keyword
                 }
             },
         }

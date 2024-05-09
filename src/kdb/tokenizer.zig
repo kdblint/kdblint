@@ -12,7 +12,7 @@ pub const Token = struct {
         end: usize,
     };
 
-    pub const keywords = std.ComptimeStringMap(Tag, .{
+    pub const keywords = std.StaticStringMap(Tag).initComptime(.{
         .{ "abs", .keyword_abs },
         .{ "acos", .keyword_acos },
         .{ "asin", .keyword_asin },
