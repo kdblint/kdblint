@@ -61,15 +61,15 @@ pub const Handle = struct {
     }
 
     fn getStatus(self: Handle) Status {
-        return @bitCast(self.impl.status.load(.Acquire));
+        return @bitCast(self.impl.status.load(.acquire));
     }
 
     /// returns the previous value
     fn setOpen(self: *Handle, open: bool) bool {
         if (open) {
-            return self.impl.status.bitSet(@offsetOf(Handle.Status, "open"), .Release) == 1;
+            return self.impl.status.bitSet(@offsetOf(Handle.Status, "open"), .release) == 1;
         } else {
-            return self.impl.status.bitReset(@offsetOf(Handle.Status, "open"), .Release) == 1;
+            return self.impl.status.bitReset(@offsetOf(Handle.Status, "open"), .release) == 1;
         }
     }
 
@@ -104,7 +104,7 @@ pub const Handle = struct {
         self.impl.lock.lock();
         errdefer @compileError("");
 
-        const old_status: Handle.Status = @bitCast(self.impl.status.swap(@bitCast(new_status), .AcqRel));
+        const old_status: Handle.Status = @bitCast(self.impl.status.swap(@bitCast(new_status), .acq_rel));
         _ = old_status;
 
         var old_tree = self.tree;
