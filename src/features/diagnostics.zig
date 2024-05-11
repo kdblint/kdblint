@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const lsp = @import("lsp");
-const types = lsp.types;
+const zls = @import("zls");
+const types = zls.types;
 
 const kdb = @import("../kdb.zig");
 const Token = kdb.Token;
@@ -9,7 +9,7 @@ const Server = @import("../Server.zig");
 const DocumentStore = @import("../DocumentStore.zig");
 const offsets = @import("../offsets.zig");
 
-const log = std.log.scoped(.kdbLint_diagnostics);
+const log = std.log.scoped(.kdblint_diagnostics);
 
 const zero_instant = std.time.Instant{
     .timestamp = if (switch (builtin.os.tag) {
@@ -37,7 +37,7 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
         try buffer.writer(arena).writeAll(if (err.tag == .expected_token) @tagName(err.extra.expected_tag) else "TEST");
 
         diagnostics.appendAssumeCapacity(.{
-            .range = offsets.tokenToRange(tree, err.token, server.position_encoding),
+            .range = offsets.tokenToRange(tree, err.token, server.offset_encoding),
             .severity = .Error,
             .code = .{ .string = @tagName(err.tag) },
             .source = "kdblint",
@@ -47,11 +47,11 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
 
     const tokenize_ms: f64 = @as(f64, @floatFromInt(tree.tokenize_duration)) / std.time.ns_per_ms;
     const parse_ms: f64 = @as(f64, @floatFromInt(tree.parse_duration)) / std.time.ns_per_ms;
-    const full_ms: f64 = @as(f64, @floatFromInt(now().since(server.start))) / std.time.ns_per_ms;
+    // const full_ms: f64 = @as(f64, @floatFromInt(now().since(server.start))) / std.time.ns_per_ms;
 
     log.debug("Tokenize duration: {d:.2}ms", .{tokenize_ms});
     log.debug("Parse duration: {d:.2}ms", .{parse_ms});
-    log.debug("Full duration: {d:.2}ms", .{full_ms});
+    // log.debug("Full duration: {d:.2}ms", .{full_ms});
 
     return .{
         .uri = handle.uri,

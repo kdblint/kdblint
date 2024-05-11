@@ -1,15 +1,26 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const zig_lsp = b.dependency("zig-lsp", .{});
-    const zig_lsp_module = zig_lsp.module("zig-lsp");
+    const zls = b.dependency("zls", .{});
+    const zls_module = zls.module("zls");
 
-    const diffz = b.dependency("diffz", .{});
-    const diffz_module = diffz.module("diffz");
+    const known_folders = zls.builder.dependency("known_folders", .{});
+    const known_folders_module = known_folders.module("known-folders");
+
+    const tracy_module = zls.module("tracy");
+
+    const version = try Version.init(b);
+    defer version.deinit(b.allocator);
+
+    const build_options = b.addOptions();
+    build_options.step.name = "kdblint build options";
+    const build_options_module = build_options.createModule();
+    build_options.addOption(std.SemanticVersion, "version", try std.SemanticVersion.parse(version.version));
+    build_options.addOption([]const u8, "version_string", version.version);
 
     const full_build = b.option(bool, "full", "Full Build") orelse false;
     if (full_build) {
@@ -21,10 +32,28 @@ pub fn build(b: *std.Build) void {
             .{ .tag = .windows, .arch = .aarch64 },
             .{ .tag = .windows, .arch = .x86_64 },
         }) |resolved_target| {
-            install(b, resolved_target.tag, resolved_target.arch, optimize, zig_lsp_module, diffz_module);
+            install(
+                b,
+                resolved_target.tag,
+                resolved_target.arch,
+                optimize,
+                build_options_module,
+                zls_module,
+                known_folders_module,
+                tracy_module,
+            );
         }
     } else {
-        install(b, builtin.os.tag, builtin.cpu.arch, optimize, zig_lsp_module, diffz_module);
+        install(
+            b,
+            builtin.os.tag,
+            builtin.cpu.arch,
+            optimize,
+            build_options_module,
+            zls_module,
+            known_folders_module,
+            tracy_module,
+        );
     }
 
     const exe_unit_tests = b.addTest(.{
@@ -32,8 +61,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe_unit_tests.root_module.addImport("lsp", zig_lsp_module);
-    exe_unit_tests.root_module.addImport("diffz", diffz_module);
+    exe_unit_tests.root_module.addImport("build_options", build_options_module);
+    exe_unit_tests.root_module.addImport("zls", zls_module);
+    exe_unit_tests.root_module.addImport("known_folders", known_folders_module);
+    exe_unit_tests.root_module.addImport("tracy", tracy_module);
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -45,11 +76,13 @@ fn install(
     comptime tag: std.Target.Os.Tag,
     comptime arch: std.Target.Cpu.Arch,
     optimize: std.builtin.OptimizeMode,
-    lsp_module: *std.Build.Module,
-    diffz_module: *std.Build.Module,
+    build_options: *std.Build.Module,
+    zls: *std.Build.Module,
+    known_folders: *std.Build.Module,
+    tracy: *std.Build.Module,
 ) void {
     const exe = b.addExecutable(.{
-        .name = "kdblint",
+        .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = b.resolveTargetQuery(.{
             .cpu_arch = arch,
@@ -57,8 +90,10 @@ fn install(
         }),
         .optimize = optimize,
     });
-    exe.root_module.addImport("lsp", lsp_module);
-    exe.root_module.addImport("diffz", diffz_module);
+    exe.root_module.addImport("build_options", build_options);
+    exe.root_module.addImport("zls", zls);
+    exe.root_module.addImport("known_folders", known_folders);
+    exe.root_module.addImport("tracy", tracy);
 
     b.getInstallStep().dependOn(&b.addInstallArtifact(exe, .{
         .dest_dir = .{
@@ -68,3 +103,29 @@ fn install(
         },
     }).step);
 }
+
+const Version = struct {
+    version: []const u8,
+
+    pub fn init(b: *std.Build) !Version {
+        const package_json_file = try std.fs.openFileAbsolute(b.path("package.json").getPath(b), .{});
+        defer package_json_file.close();
+
+        const package_json_slice = try package_json_file.readToEndAlloc(b.allocator, 1_000_000);
+        defer b.allocator.free(package_json_slice);
+
+        const parsed_version = try std.json.parseFromSlice(Version, b.allocator, package_json_slice, .{ .ignore_unknown_fields = true });
+        defer parsed_version.deinit();
+
+        const version = try b.allocator.dupe(u8, parsed_version.value.version);
+        errdefer b.allocator.free(version);
+
+        return .{
+            .version = version,
+        };
+    }
+
+    pub fn deinit(self: Version, allocator: std.mem.Allocator) void {
+        allocator.free(self.version);
+    }
+};

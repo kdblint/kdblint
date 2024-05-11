@@ -1935,7 +1935,7 @@ const AstError = Ast.Error;
 const TokenIndex = Ast.TokenIndex;
 const Token = kdb.Token;
 
-const log = std.log.scoped(.kdbLint_Parse);
+const log = std.log.scoped(.kdblint_parse);
 
 fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
     const tag: Node.Tag = tree.nodes.items(.tag)[i];

@@ -2111,7 +2111,7 @@ const diagnostics = @import("../features/diagnostics.zig");
 const private_render = @import("./render.zig");
 const RenderSettings = private_render.RenderSettings;
 
-const log = std.log.scoped(.kdbLint_Ast);
+const log = std.log.scoped(.kdblint_ast);
 
 fn testLastToken(source: [:0]const u8) !void {
     inline for (&.{.v4_0}) |version| {

@@ -2,13 +2,9 @@
     .name = "zig-kdblint",
     .version = "0.1.0",
     .dependencies = .{
-        .@"zig-lsp" = .{
-            .url = "https://github.com/ziglibs/zig-lsp/archive/1c18c0c64b076e79385e525214a7acc4fdf7d398.tar.gz",
-            .hash = "12208c1385f4c1adca29fd17cc93397a60e54d5987bb27b9f961cb1945a96fc4a7e1",
-        },
-        .diffz = .{
-            .url = "https://github.com/dstrachan/diffz/archive/8dc40a1418b7530d283320e64d94cd1e0cbd36da.tar.gz",
-            .hash = "12201d140c25bb0271deb11e338e36c348c9ce40ccf8d7bffe620eef9d4ac5e9b096",
+        .zls = .{
+            .url = "https://github.com/zigtools/zls/archive/354f83306c1922e2eabe7fdd008c5aa9c72db66d.tar.gz",
+            .hash = "1220ca4bcbb96087701738e0b7af2ac4927f03eb4d14b6507cceae2824dbfaa0772c",
         },
     },
     .paths = .{
