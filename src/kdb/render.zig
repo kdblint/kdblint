@@ -12,7 +12,7 @@ const panic = std.debug.panic;
 const indent_delta = 4;
 const asm_indent_delta = 2;
 
-const log = std.log.scoped(.kdbLint_render);
+const log = std.log.scoped(.kdblint_render);
 
 pub const Error = Ast.RenderError;
 

@@ -1,12 +1,12 @@
 const std = @import("std");
-const lsp = @import("lsp");
-const types = lsp.types;
+const zls = @import("zls");
+const types = zls.types;
 
 const kdb = @import("kdb.zig");
 const Ast = kdb.Ast;
 const Token = kdb.Token;
 
-pub const Encoding = types.PositionEncodingKind;
+pub const Encoding = zls.offsets.Encoding;
 pub const Loc = Token.Loc;
 
 pub fn indexToPosition(text: []const u8, index: usize, encoding: Encoding) types.Position {

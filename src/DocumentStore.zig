@@ -1,15 +1,42 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const zls = @import("zls");
 const kdb = @import("kdb.zig");
 const Ast = kdb.Ast;
 const offsets = @import("offsets.zig");
 
-const log = std.log.scoped(.kdbLint_Store);
+const log = std.log.scoped(.kdblint_store);
 
 const DocumentStore = @This();
 
-pub const Uri = []const u8;
+allocator: std.mem.Allocator,
+/// the DocumentStore ussumes that `config` is not modified while calling one of its functions.
+config: Config,
+lock: std.Thread.RwLock = .{},
+thread_pool: if (builtin.single_threaded) void else *std.Thread.Pool,
+handles: std.StringArrayHashMapUnmanaged(*Handle) = .{},
 
-pub const max_document_size = std.math.maxInt(u32);
+pub const Uri = zls.DocumentStore.Uri;
+
+pub const Hasher = zls.DocumentStore.Hasher;
+pub const Hash = zls.DocumentStore.Hash;
+
+pub const max_document_size = zls.DocumentStore.max_document_size;
+
+pub fn computeHash(bytes: []const u8) Hash {
+    var hasher: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
+    hasher.update(bytes);
+    var hash: Hash = undefined;
+    hasher.final(&hash);
+    return hash;
+}
+
+pub const Config = struct {
+    pub fn fromMainConfig(config: @import("Config.zig")) Config {
+        _ = config; // autofix
+        return .{};
+    }
+};
 
 pub const Handle = struct {
     uri: Uri,
@@ -117,10 +144,6 @@ pub const Handle = struct {
         old_tree.deinit(self.impl.allocator);
     }
 };
-
-allocator: std.mem.Allocator,
-lock: std.Thread.RwLock = .{},
-handles: std.StringArrayHashMapUnmanaged(*Handle) = .{},
 
 pub fn deinit(self: *DocumentStore) void {
     for (self.handles.values()) |handle| {
