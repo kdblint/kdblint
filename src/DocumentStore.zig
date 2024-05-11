@@ -508,6 +508,8 @@ pub fn collectIncludeDirs(
     handle: *Handle,
     include_dirs: *std.ArrayListUnmanaged([]const u8),
 ) !bool {
+    _ = store; // autofix
+    _ = handle; // autofix
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
 
@@ -519,16 +521,7 @@ pub fn collectIncludeDirs(
         include_dirs.appendAssumeCapacity(try allocator.dupe(u8, native_include_dir));
     }
 
-    const collected_all = switch (try handle.getAssociatedBuildFileUri2(store)) {
-        .none => true,
-        .unresolved => false,
-        .resolved => |build_file_uri| blk: {
-            const build_file = store.getBuildFile(build_file_uri).?;
-            break :blk try build_file.collectBuildConfigIncludePaths(allocator, include_dirs);
-        },
-    };
-
-    return collected_all;
+    return true;
 }
 
 /// takes the string inside a @import() node (without the quotation marks)

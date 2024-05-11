@@ -58,3 +58,7 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
         .diagnostics = diagnostics.items,
     };
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

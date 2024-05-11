@@ -1137,7 +1137,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
 
 fn testRender(comptime source: [:0]const u8) !void {
     var tree = try Ast.parse(std.testing.allocator, source, .{
-        .version = .v4_0,
+        .version = .@"4.0",
         .language = .q,
     });
     defer tree.deinit(std.testing.allocator);

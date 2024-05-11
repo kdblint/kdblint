@@ -1645,3 +1645,7 @@ pub fn isRequestMethod(method: []const u8) bool {
 pub fn isNotificationMethod(method: []const u8) bool {
     return NotificationMethodSet.has(method);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

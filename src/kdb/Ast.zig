@@ -2114,7 +2114,7 @@ const RenderSettings = private_render.RenderSettings;
 const log = std.log.scoped(.kdblint_ast);
 
 fn testLastToken(source: [:0]const u8) !void {
-    inline for (&.{.v4_0}) |version| {
+    inline for (&.{.@"4.0"}) |version| {
         inline for (&.{ .k, .q }) |language| {
             try testLastTokenSettings(.{
                 .version = version,
@@ -2134,7 +2134,7 @@ fn testLastTokenVersion(version: Ast.Version, source: [:0]const u8) !void {
 }
 
 fn testLastTokenLanguage(language: Ast.Language, source: [:0]const u8) !void {
-    inline for (&.{.v4_0}) |version| {
+    inline for (&.{.@"4.0"}) |version| {
         try testLastTokenSettings(.{
             .version = version,
             .language = language,
