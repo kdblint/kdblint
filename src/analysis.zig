@@ -32,3 +32,7 @@ pub fn collectImports(allocator: std.mem.Allocator, tree: Ast) error{OutOfMemory
 
     return imports;
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

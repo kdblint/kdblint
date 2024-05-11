@@ -2129,7 +2129,7 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
 }
 
 fn testParse(source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
-    inline for (&.{.v4_0}) |version| {
+    inline for (&.{.@"4.0"}) |version| {
         inline for (&.{ .k, .q }) |language| {
             try testParseSettings(.{
                 .version = version,
@@ -2149,7 +2149,7 @@ fn testParseVersion(version: Ast.Version, source: [:0]const u8, expected_tags: [
 }
 
 fn testParseLanguage(language: Ast.Language, source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
-    inline for (&.{.v4_0}) |version| {
+    inline for (&.{.@"4.0"}) |version| {
         try testParseSettings(.{
             .version = version,
             .language = language,
@@ -2185,7 +2185,7 @@ fn testParseSettings(settings: Ast.ParseSettings, source: [:0]const u8, expected
 }
 
 fn testParseError(source: [:0]const u8, expected_tags: []const Ast.Error.Tag) !void {
-    inline for (&.{.v4_0}) |version| {
+    inline for (&.{.@"4.0"}) |version| {
         inline for (&.{ .k, .q }) |language| {
             try testParseErrorSettings(.{
                 .version = version,
@@ -2205,7 +2205,7 @@ fn testParseErrorVersion(version: Ast.Version, source: [:0]const u8, expected_ta
 }
 
 fn testParseErrorLanguage(language: Ast.Language, source: [:0]const u8, expected_tags: []const Ast.Error.Tag) !void {
-    inline for (&.{.v4_0}) |version| {
+    inline for (&.{.@"4.0"}) |version| {
         try testParseErrorSettings(.{
             .version = version,
             .language = language,

@@ -251,3 +251,7 @@ pub fn findZig(allocator: std.mem.Allocator) error{OutOfMemory}!?[]const u8 {
     }
     return null;
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
