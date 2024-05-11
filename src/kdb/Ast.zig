@@ -45,7 +45,7 @@ pub const RenderError = error{
 };
 
 pub const Version = enum {
-    v4_0,
+    @"4.0",
 };
 
 pub const Language = enum {
