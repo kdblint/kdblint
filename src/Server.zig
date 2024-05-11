@@ -12,7 +12,6 @@ const types = zls.types;
 const Analyser = @import("analysis.zig");
 const ast = @import("ast.zig");
 const offsets = @import("offsets.zig");
-const Ast = std.zig.Ast;
 const tracy = @import("tracy");
 const diff = zls.diff;
 const Transport = zls.Transport;
@@ -633,7 +632,7 @@ fn requestConfiguration(server: *Server) Error!void {
     };
 
     const json_message = try server.sendToClientRequest(
-        .{ .string = "i_haz_configuration" },
+        .{ .string = "kdblint_configuration" },
         "workspace/configuration",
         types.ConfigurationParams{
             .items = &configuration_items,
@@ -707,7 +706,6 @@ fn didChangeWorkspaceFoldersHandler(server: *Server, arena: std.mem.Allocator, n
 }
 
 fn didChangeConfigurationHandler(server: *Server, arena: std.mem.Allocator, notification: types.DidChangeConfigurationParams) Error!void {
-    // if (true) unreachable;
     const settings = switch (notification.settings) {
         .null => {
             if (server.client_capabilities.supports_configuration) {
@@ -759,6 +757,8 @@ pub fn updateConfiguration(server: *Server, new_config: configuration.Configurat
     //                        apply changes
     // <---------------------------------------------------------->
 
+    const new_kdb_version = new_config.kdb_version != null and server.config.kdb_version != new_config.kdb_version;
+
     inline for (std.meta.fields(Config)) |field| {
         if (@field(new_cfg, field.name)) |new_config_value| {
             const old_config_value = @field(server.config, field.name);
@@ -794,9 +794,20 @@ pub fn updateConfiguration(server: *Server, new_config: configuration.Configurat
         }
     }
 
-    server.document_store.config = DocumentStore.Config.fromMainConfig(server.config);
+    server.document_store.config = server.config;
 
     if (server.status == .initialized) {
+        if (new_kdb_version) {
+            for (server.document_store.handles.values()) |handle| {
+                if (!handle.isOpen()) continue;
+                try server.document_store.refreshDocument(handle.uri, handle.tree.source);
+
+                if (server.client_capabilities.supports_publish_diagnostics) {
+                    try server.pushJob(.{ .generate_diagnostics = try server.allocator.dupe(u8, handle.uri) });
+                }
+            }
+        }
+
         const json_message = try server.sendToClientRequest(
             .{ .string = "semantic_tokens_refresh" },
             "workspace/semanticTokens/refresh",
@@ -929,29 +940,51 @@ fn openDocumentHandler(server: *Server, _: std.mem.Allocator, notification: type
 }
 
 fn changeDocumentHandler(server: *Server, _: std.mem.Allocator, notification: types.DidChangeTextDocumentParams) Error!void {
-    _ = server; // autofix
-    _ = notification; // autofix
-    log.debug("changeDocumentHandler NYI", .{});
+    const handle = server.document_store.getHandle(notification.textDocument.uri) orelse return;
+
+    const new_text = try diff.applyContentChanges(server.allocator, handle.tree.source, notification.contentChanges, server.offset_encoding);
+
+    if (new_text.len > DocumentStore.max_document_size) {
+        log.err("change document `{s}` failed: text size ({d}) is above maximum length ({d})", .{
+            notification.textDocument.uri,
+            new_text.len,
+            DocumentStore.max_document_size,
+        });
+        return error.InternalError;
+    }
+
+    try server.document_store.refreshDocument(handle.uri, new_text);
+
+    if (server.client_capabilities.supports_publish_diagnostics) {
+        try server.pushJob(.{
+            .generate_diagnostics = try server.allocator.dupe(u8, handle.uri),
+        });
+    }
 }
 
 fn saveDocumentHandler(server: *Server, arena: std.mem.Allocator, notification: types.DidSaveTextDocumentParams) Error!void {
     _ = server; // autofix
     _ = arena; // autofix
     _ = notification; // autofix
-    log.debug("saveDocumentHandler NYI", .{});
 }
 
 fn closeDocumentHandler(server: *Server, _: std.mem.Allocator, notification: types.DidCloseTextDocumentParams) error{}!void {
-    _ = server; // autofix
-    _ = notification; // autofix
-    log.debug("closeDocumentHandler NYI", .{});
+    server.document_store.closeDocument(notification.textDocument.uri);
+
+    if (server.client_capabilities.supports_publish_diagnostics) {
+        // clear diagnostics on closed file
+        const json_message = server.sendToClientNotification("textDocument/publishDiagnostics", .{
+            .uri = notification.textDocument.uri,
+            .diagnostics = &.{},
+        }) catch return;
+        server.allocator.free(json_message);
+    }
 }
 
 fn willSaveWaitUntilHandler(server: *Server, arena: std.mem.Allocator, request: types.WillSaveTextDocumentParams) Error!?[]types.TextEdit {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("willSaveWaitUntilHandler NYI", .{});
     return null;
 }
 
@@ -959,7 +992,6 @@ fn semanticTokensFullHandler(server: *Server, arena: std.mem.Allocator, request:
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("semanticTokensFullHandler NYI", .{});
     return null;
 }
 
@@ -967,7 +999,6 @@ fn semanticTokensRangeHandler(server: *Server, arena: std.mem.Allocator, request
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("semanticTokensRangeHandler NYI", .{});
     return null;
 }
 
@@ -975,7 +1006,6 @@ fn completionHandler(server: *Server, arena: std.mem.Allocator, request: types.C
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("completionHandler NYI", .{});
     return null;
 }
 
@@ -983,7 +1013,6 @@ fn signatureHelpHandler(server: *Server, arena: std.mem.Allocator, request: type
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("signatureHelpHandler NYI", .{});
     return null;
 }
 
@@ -995,7 +1024,6 @@ fn gotoDefinitionHandler(
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("gotoDefinitionHandler NYI", .{});
     return null;
 }
 
@@ -1003,7 +1031,6 @@ fn gotoTypeDefinitionHandler(server: *Server, arena: std.mem.Allocator, request:
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("gotoTypeDefinitionHandler NYI", .{});
     return null;
 }
 
@@ -1011,7 +1038,6 @@ fn gotoImplementationHandler(server: *Server, arena: std.mem.Allocator, request:
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("gotoImplementationHandler NYI", .{});
     return null;
 }
 
@@ -1019,7 +1045,6 @@ fn gotoDeclarationHandler(server: *Server, arena: std.mem.Allocator, request: ty
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("gotoDeclarationHandler NYI", .{});
     return null;
 }
 
@@ -1027,7 +1052,6 @@ fn hoverHandler(server: *Server, arena: std.mem.Allocator, request: types.HoverP
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("hoverHandler NYI", .{});
     return null;
 }
 
@@ -1035,23 +1059,27 @@ fn documentSymbolsHandler(server: *Server, arena: std.mem.Allocator, request: ty
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("documentSymbolsHandler NYI", .{});
     return null;
 }
 
 fn formattingHandler(server: *Server, arena: std.mem.Allocator, request: types.DocumentFormattingParams) Error!?[]types.TextEdit {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = request; // autofix
-    log.debug("formattingHandler NYI", .{});
-    return null;
+    const handle = server.document_store.getHandle(request.textDocument.uri) orelse return null;
+
+    if (handle.tree.errors.len != 0) return null;
+
+    // TODO: formatting settings
+    const formatted = try handle.tree.render(arena, .{});
+
+    if (std.mem.eql(u8, handle.tree.source, formatted)) return null;
+
+    const text_edits = try diff.edits(arena, handle.tree.source, formatted, server.offset_encoding);
+    return text_edits.items;
 }
 
 fn renameHandler(server: *Server, arena: std.mem.Allocator, request: types.RenameParams) Error!?types.WorkspaceEdit {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("renameHandler NYI", .{});
     return null;
 }
 
@@ -1059,7 +1087,6 @@ fn referencesHandler(server: *Server, arena: std.mem.Allocator, request: types.R
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("referencesHandler NYI", .{});
     return null;
 }
 
@@ -1067,7 +1094,6 @@ fn documentHighlightHandler(server: *Server, arena: std.mem.Allocator, request: 
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("documentHighlightHandler NYI", .{});
     return null;
 }
 
@@ -1075,7 +1101,6 @@ fn inlayHintHandler(server: *Server, arena: std.mem.Allocator, request: types.In
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("inlayHintHandler NYI", .{});
     return null;
 }
 
@@ -1083,7 +1108,6 @@ fn codeActionHandler(server: *Server, arena: std.mem.Allocator, request: types.C
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("codeActionHandler", .{});
     return null;
 }
 
@@ -1091,7 +1115,6 @@ fn foldingRangeHandler(server: *Server, arena: std.mem.Allocator, request: types
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("foldingRangeHandler NYI", .{});
     return null;
 }
 
@@ -1099,7 +1122,6 @@ fn selectionRangeHandler(server: *Server, arena: std.mem.Allocator, request: typ
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
-    log.debug("selectionRangeHandler NYI", .{});
     return null;
 }
 
@@ -1193,7 +1215,7 @@ pub fn create(allocator: std.mem.Allocator) !*Server {
         .config = .{},
         .document_store = .{
             .allocator = allocator,
-            .config = DocumentStore.Config.fromMainConfig(Config{}),
+            .config = Config{},
             .thread_pool = if (zig_builtin.single_threaded) {} else undefined, // set below
         },
         .job_queue = std.fifo.LinearFifo(Job, .Dynamic).init(allocator),
@@ -1545,7 +1567,7 @@ fn handleResponse(server: *Server, response: types.Message.Response) Error!void 
         //
     } else if (std.mem.eql(u8, id, "apply_edit")) {
         //
-    } else if (std.mem.eql(u8, id, "i_haz_configuration")) {
+    } else if (std.mem.eql(u8, id, "kdblint_configuration")) {
         try server.handleConfiguration(response.result.?); // `response.@"error"` and `response.result` can't both be null
     } else {
         log.warn("received response from client with id '{s}' that has no handler!", .{id});
