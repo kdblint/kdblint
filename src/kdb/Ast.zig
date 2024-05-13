@@ -603,6 +603,9 @@ pub const Node = struct {
         delete_rows,
         /// `delete lhs`. `DeleteCols[lhs]`. rhs is unused. main_token is `delete`.
         delete_cols,
+
+        /// `\l ...`. lhs is unused. rhs is unused. main_token is `\l ...`.
+        load,
     };
 
     pub const Data = struct {
@@ -771,6 +774,7 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
+        .load,
         => return tree.getMainToken(i),
 
         .assign,
@@ -1004,6 +1008,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
+        .load,
         => return tree.getMainToken(i),
 
         .assign,
@@ -2006,6 +2011,13 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             }
 
             try stream.print("(!;{s};();0b;{s})", .{ from.items, select.items });
+        },
+
+        .load => {
+            const main_token = tree.getMainToken(i);
+            const source = tree.getSource(main_token)[1..];
+
+            try stream.print("(.,[\"\\\\\"];\"{s}\")", .{source});
         },
     }
 }

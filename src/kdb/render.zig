@@ -772,6 +772,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try ais.writer().writeAll(" from ");
             try renderExpression(r, delete.from, space);
         },
+
+        .load => {
+            try renderToken(r, main_tokens[node], .newline);
+        },
     }
 }
 

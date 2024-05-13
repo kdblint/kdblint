@@ -2,6 +2,8 @@ const std = @import("std");
 const Ast = @import("Ast.zig");
 const Language = Ast.Language;
 
+const log = std.log.scoped(.kdblint_tokenizer);
+
 pub const Token = struct {
     tag: Tag,
     loc: Loc,
