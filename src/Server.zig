@@ -10,7 +10,6 @@ const configuration = @import("configuration.zig");
 const DocumentStore = @import("DocumentStore.zig");
 const types = zls.types;
 const Analyser = @import("analysis.zig");
-const ast = @import("ast.zig");
 const offsets = @import("offsets.zig");
 const tracy = @import("tracy");
 const diff = zls.diff;

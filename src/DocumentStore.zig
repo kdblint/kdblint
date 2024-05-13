@@ -41,9 +41,6 @@ pub const Handle = struct {
     /// Contains one entry for every import in the document
     import_uris: std.ArrayListUnmanaged(Uri) = .{},
 
-    /// error messages from comptime_interpreter or astgen_analyser
-    analysis_errors: std.ArrayListUnmanaged(ErrorMessage) = .{},
-
     /// private field
     impl: struct {
         /// @bitCast from/to `Status`
@@ -55,8 +52,6 @@ pub const Handle = struct {
         condition: std.Thread.Condition = .{},
 
         // document_scope: DocumentScope = undefined,
-        // zir: Zir = undefined,
-        // comptime_interpreter: *ComptimeInterpreter = undefined,
     },
 
     const Status = packed struct(u32) {
@@ -69,14 +64,6 @@ pub const Handle = struct {
         // has_document_scope_lock: bool = false,
         /// true if `handle.impl.document_scope` has been set
         // has_document_scope: bool = false,
-        /// true if a thread has acquired the permission to compute the `ZIR`
-        // has_zir_lock: bool = false,
-        /// all other threads will wait until the given thread has computed the `ZIR` before reading it.
-        /// true if `handle.impl.zir` has been set
-        // has_zir: bool = false,
-        // zir_outdated: bool = undefined,
-        /// true if `handle.impl.comptime_interpreter` has been set
-        // has_comptime_interpreter: bool = false,
         _: u31 = undefined,
     };
 
@@ -152,11 +139,9 @@ pub const Handle = struct {
 
         var old_tree = self.tree;
         var old_import_uris = self.import_uris;
-        var old_analysis_errors = self.analysis_errors;
 
         self.tree = new_tree;
         self.import_uris = .{};
-        self.analysis_errors = .{};
 
         self.impl.lock.unlock();
 
@@ -165,9 +150,6 @@ pub const Handle = struct {
 
         for (old_import_uris.items) |uri| self.impl.allocator.free(uri);
         old_import_uris.deinit(self.impl.allocator);
-
-        for (old_analysis_errors.items) |err| self.impl.allocator.free(err.message);
-        old_analysis_errors.deinit(self.impl.allocator);
     }
 
     fn deinit(self: *Handle) void {
@@ -182,9 +164,6 @@ pub const Handle = struct {
 
         for (self.import_uris.items) |uri| allocator.free(uri);
         self.import_uris.deinit(allocator);
-
-        for (self.analysis_errors.items) |err| allocator.free(err.message);
-        self.analysis_errors.deinit(allocator);
 
         self.* = undefined;
     }
