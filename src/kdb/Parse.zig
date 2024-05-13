@@ -135,12 +135,12 @@ fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
     try p.errors.append(p.gpa, msg);
 }
 
-fn fail(p: *Parse, tag: Ast.Error.Tag) error{ ParseError, OutOfMemory } {
+fn fail(p: *Parse, tag: Ast.Error.Tag) Error {
     @setCold(true);
     return p.failMsg(.{ .tag = tag, .token = p.tok_i });
 }
 
-fn failExpected(p: *Parse, expected_token: Token.Tag) error{ ParseError, OutOfMemory } {
+fn failExpected(p: *Parse, expected_token: Token.Tag) Error {
     @setCold(true);
     return p.failMsg(.{
         .tag = .expected_token,
@@ -149,7 +149,7 @@ fn failExpected(p: *Parse, expected_token: Token.Tag) error{ ParseError, OutOfMe
     });
 }
 
-fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
+fn failMsg(p: *Parse, msg: Ast.Error) Error {
     @setCold(true);
     try p.warnMsg(msg);
     return error.ParseError;
@@ -750,6 +750,7 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .update,
         .delete_rows,
         .delete_cols,
+        .load,
         => return null,
     }
 }
@@ -885,6 +886,29 @@ fn number(p: *Parse) Error!Node.Index {
                 },
             });
         },
+    }
+}
+
+fn system(p: *Parse) Error!Node.Index {
+    const main_token = p.nextToken();
+    const loc = p.token_locs[main_token];
+    const source = p.source[loc.start..loc.end][1..];
+    if (source.len <= 2) return error.ParseError;
+
+    switch (source[0]) {
+        'l' => {
+            if (!std.ascii.isWhitespace(source[1])) return error.ParseError;
+
+            return p.addNode(.{
+                .tag = .load,
+                .main_token = main_token,
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        },
+        else => return error.ParseError,
     }
 }
 
@@ -1871,7 +1895,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
 
     // Misc.
     .comment = .{ .prefix = null, .infix = null, .prec = .none },
-    .system = .{ .prefix = null, .infix = null, .prec = .none },
+    .system = .{ .prefix = system, .infix = null, .prec = .none },
     .invalid = .{ .prefix = null, .infix = null, .prec = .none },
     .eof = .{ .prefix = null, .infix = null, .prec = .none },
 
