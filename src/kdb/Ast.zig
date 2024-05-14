@@ -4,7 +4,7 @@
 source: [:0]const u8,
 
 tokens: TokenList.Slice,
-/// The root AST ndoe is assumed to be index 0. Since there can be no
+/// The root AST node is assumed to be index 0. Since there can be no
 /// references to the root node, this means 0 is available to indicate null.
 nodes: NodeList.Slice,
 extra_data: []Node.Index,
@@ -604,8 +604,10 @@ pub const Node = struct {
         /// `delete lhs`. `DeleteCols[lhs]`. rhs is unused. main_token is `delete`.
         delete_cols,
 
-        /// `\l ...`. lhs is unused. rhs is unused. main_token is `\l ...`.
-        load,
+        /// `\system ...`. lhs is unused. rhs is unused. main_token is `\system ...`.
+        system,
+        /// `\l lhs rhs`. rhs can be omitted. main_token is `\l`.
+        system_load_file_or_directory,
     };
 
     pub const Data = struct {
@@ -774,7 +776,8 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
-        .load,
+        .system,
+        .system_load_file_or_directory,
         => return tree.getMainToken(i),
 
         .assign,
@@ -1008,7 +1011,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
-        .load,
+        .system,
         => return tree.getMainToken(i),
 
         .assign,
@@ -1322,6 +1325,11 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
             const data = tree.getData(i);
             const delete_node = tree.extraData(data.lhs, Node.DeleteColumns);
             return tree.lastToken(delete_node.from);
+        },
+
+        .system_load_file_or_directory => {
+            const data = tree.getData(i);
+            return if (data.rhs > 0) data.rhs else data.lhs;
         },
     }
 }
@@ -2013,11 +2021,17 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(!;{s};();0b;{s})", .{ from.items, select.items });
         },
 
-        .load => {
-            const main_token = tree.getMainToken(i);
-            const source = tree.getSource(main_token)[1..];
+        .system => {
+            const source = tree.getSource(i)[1..];
 
             try stream.print("(.,[\"\\\\\"];\"{s}\")", .{source});
+        },
+        .system_load_file_or_directory => {
+            const data = tree.getData(i);
+            const loc = tree.tokens.items(.loc)[data.lhs];
+            const source = tree.source[loc.start..loc.end];
+
+            try stream.print("(.,[\"\\\\\"];\"l {s}\")", .{source});
         },
     }
 }

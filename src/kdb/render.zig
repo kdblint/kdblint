@@ -773,8 +773,15 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderExpression(r, delete.from, space);
         },
 
-        .load => {
+        .system => {
             try renderToken(r, main_tokens[node], .newline);
+        },
+        .system_load_file_or_directory => {
+            const data = datas[node];
+
+            try renderToken(r, main_tokens[node], .space);
+            try renderToken(r, data.lhs, if (data.rhs > 0) .space else .newline);
+            if (data.rhs > 0) try renderToken(r, data.rhs, .newline);
         },
     }
 }
