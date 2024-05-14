@@ -141,9 +141,43 @@ pub const Token = struct {
 
         // Misc.
         comment,
-        system,
         invalid,
         eof,
+
+        // System - https://code.kx.com/q/basics/syscmds/
+        system,
+        // system_tables,
+        // system_views,
+        // system_pending_views,
+        // system_console_size,
+        // system_change_directory,
+        // system_http_size,
+        // system_directory,
+        // system_error_trap_clients,
+        // system_tls_server_mode,
+        // system_functions,
+        // system_garbage_collection_mode,
+        system_load_file_or_directory,
+        // system_offset_from_utc,
+        // system_listening_port,
+        // system_precision,
+        // system_replication_master,
+        // system_rename,
+        // system_number_of_secondary_threads,
+        // system_random_seed,
+        // system_timer,
+        // system_timeout,
+        // system_time_and_space,
+        // system_reload_user_password_file,
+        // system_variables,
+        // system_workspace,
+        // system_week_offset,
+        // system_expunge,
+        // system_date_parsing,
+        // system_redirect_stdout,
+        // system_redirect_stderr,
+        // system_hide_q_code,
+        system_param,
 
         // Keywords : -1","sv"keyword_",/:string .Q.res;
         keyword_abs,
@@ -198,9 +232,11 @@ pub const Token = struct {
                 .symbol_list_literal,
                 .identifier,
                 .comment,
-                .system,
                 .invalid,
                 .eof,
+                .system,
+                .system_load_file_or_directory,
+                .system_param,
                 => null,
 
                 .l_paren => "(",
@@ -332,7 +368,7 @@ pub const Tokenizer = struct {
     buffer: [:0]const u8,
     pending_token: ?Token = null,
 
-    is_first: bool = true,
+    next_state: ?State = null,
 
     start_lambda: bool = false,
     start_table: bool = false,
@@ -405,6 +441,11 @@ pub const Tokenizer = struct {
         symbol_handle,
 
         identifier,
+
+        system_required_param,
+        system_optional_param,
+        system_param,
+        system_builtin,
 
         maybe_trailing_comment,
         start_trailing_comment,
@@ -519,7 +560,7 @@ pub const Tokenizer = struct {
             return token;
         }
 
-        var state: State = .start;
+        var state = self.next_state orelse .start;
         var result = Token{
             .tag = .eof,
             .loc = .{
@@ -974,6 +1015,57 @@ pub const Tokenizer = struct {
                     },
                 },
 
+                .system_required_param => switch (c) {
+                    0 => {
+                        if (self.impl.index == self.buffer.len) {
+                            break;
+                        }
+                        result.tag = .invalid;
+                        self.advance();
+                        break;
+                    },
+                    ' ', '\t', '\r', '\n' => {
+                        result.loc.start = self.impl.index + 1;
+                    },
+                    else => {
+                        result.tag = .system_param;
+                        state = .system_param;
+                        self.next_state = .system_optional_param;
+                    },
+                },
+                .system_optional_param => switch (c) {
+                    0 => {
+                        if (self.impl.index == self.buffer.len) {
+                            break;
+                        }
+                        result.tag = .invalid;
+                        self.advance();
+                        break;
+                    },
+                    ' ', '\t', '\r', '\n' => {
+                        result.loc.start = self.impl.index + 1;
+                    },
+                    else => {
+                        result.tag = .system_param;
+                        state = .skip_block_start;
+                    },
+                },
+                .system_param => switch (c) {
+                    0, ' ', '\t', '\r', '\n' => break,
+                    else => {},
+                },
+                .system_builtin => switch (c) {
+                    0 => break,
+                    ' ', '\t', '\r', '\n' => {
+                        self.next_state = .system_required_param;
+                        break;
+                    },
+                    else => {
+                        result.tag = .system;
+                        state = .skip_block_start;
+                    },
+                },
+
                 .maybe_trailing_comment => switch (c) {
                     0 => break,
                     ' ', '\t', '\r' => {
@@ -981,6 +1073,10 @@ pub const Tokenizer = struct {
                     },
                     '\n' => {
                         state = .trailing_comment;
+                    },
+                    'l' => {
+                        result.tag = .system_load_file_or_directory;
+                        state = .system_builtin;
                     },
                     else => {
                         result.tag = .system;
@@ -1119,6 +1215,7 @@ pub const Tokenizer = struct {
             self.parens_count = 0;
             self.braces_count = 0;
             self.brackets_count = 0;
+            self.next_state = null;
         }
 
         if (self.start_lambda and switch (result.tag) {
@@ -1164,7 +1261,9 @@ pub const Tokenizer = struct {
                     0 => return true,
                     ' ', '\t', '\n', '\r' => {},
                     '/' => {
-                        if (self.impl.character == 0) {
+                        if (self.next_state != null) {
+                            return self.impl.character == 0;
+                        } else if (self.impl.character == 0) {
                             state = .maybe_block;
                         } else if (std.ascii.isWhitespace(self.buffer[self.impl.index - 1])) {
                             state = .line;
@@ -2139,7 +2238,76 @@ test "tokenize system" {
     });
 }
 
+test "tokenize system_load_file_or_directory" {
+    try testTokenize(
+        \\\l
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l
+        \\ file
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 4, .end = 8 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l
+        \\file
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = true },
+        .{ .tag = .identifier, .loc = .{ .start = 3, .end = 7 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l file
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l file
+        \\ file
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 9, .end = 13 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l file
+        \\file
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = true },
+        .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l file /not a comment
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 22 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l file /not a comment
+        \\file
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 23 }, .eob = true },
+        .{ .tag = .identifier, .loc = .{ .start = 23, .end = 27 }, .eob = true },
+    });
+    try testTokenize(
+        \\\l file /not a comment
+        \\ file
+    , &.{
+        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 28 }, .eob = true },
+    });
+}
+
 // TODO: Validate comment tokens with trailing newlines match
+// TODO: Validate that skip block doesn't capture trailing newlines
 test {
     @import("std").testing.refAllDecls(@This());
 }

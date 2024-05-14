@@ -750,7 +750,8 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .update,
         .delete_rows,
         .delete_cols,
-        .load,
+        .system,
+        .system_load_file_or_directory,
         => return null,
     }
 }
@@ -890,26 +891,31 @@ fn number(p: *Parse) Error!Node.Index {
 }
 
 fn system(p: *Parse) Error!Node.Index {
-    const main_token = p.nextToken();
-    const loc = p.token_locs[main_token];
-    const source = p.source[loc.start..loc.end][1..];
-    if (source.len <= 2) return error.ParseError;
-
-    switch (source[0]) {
-        'l' => {
-            if (!std.ascii.isWhitespace(source[1])) return error.ParseError;
-
-            return p.addNode(.{
-                .tag = .load,
-                .main_token = main_token,
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            });
+    return p.addNode(.{
+        .tag = .system,
+        .main_token = p.nextToken(),
+        .data = .{
+            .lhs = undefined,
+            .rhs = undefined,
         },
-        else => return error.ParseError,
-    }
+    });
+}
+
+fn systemLoadFileOrDirectory(p: *Parse) Error!Node.Index {
+    const main_token = p.assertToken(.system_load_file_or_directory);
+    const lhs = try p.expectToken(.system_param);
+    const rhs = p.eatToken(.system_param) orelse 0;
+
+    if (!p.tokensOnSameLine(main_token, if (rhs > 0) rhs else lhs)) return error.ParseError;
+
+    return p.addNode(.{
+        .tag = .system_load_file_or_directory,
+        .main_token = main_token,
+        .data = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        },
+    });
 }
 
 fn do(p: *Parse) Error!Node.Index {
@@ -1895,9 +1901,13 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
 
     // Misc.
     .comment = .{ .prefix = null, .infix = null, .prec = .none },
-    .system = .{ .prefix = system, .infix = null, .prec = .none },
     .invalid = .{ .prefix = null, .infix = null, .prec = .none },
     .eof = .{ .prefix = null, .infix = null, .prec = .none },
+
+    // System
+    .system = .{ .prefix = system, .infix = null, .prec = .none },
+    .system_load_file_or_directory = .{ .prefix = systemLoadFileOrDirectory, .infix = null, .prec = .none },
+    .system_param = .{ .prefix = null, .infix = null, .prec = .none },
 
     // Keywords
     .keyword_abs = .{ .prefix = Prefix(.abs), .infix = apply, .prec = .secondary },
@@ -2015,6 +2025,8 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .symbol_list_literal,
         .minus,
         .at,
+        .system,
+        .system_load_file_or_directory,
         => {},
         .call => {
             const data = tree.nodes.items(.data)[i];
@@ -2561,6 +2573,22 @@ test "iterators" {
     try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .identifier }, "((\\:;`f);`x;`y)");
     try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .apply, .identifier }, "((\\:;@);`x;`y)");
     try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
+}
+
+test "system" {
+    try testParse("\\ls", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls\")");
+    try testParse("\\ls arg", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls arg\")");
+}
+
+test "system_load_file_or_directory" {
+    try testParse("\\l file", &.{ .implicit_return, .system_load_file_or_directory }, "(.,[\"\\\\\"];\"l file\")");
+    try testParse("\\l file extra", &.{ .implicit_return, .system_load_file_or_directory }, "(.,[\"\\\\\"];\"l file\")");
+
+    try testParseError("\\l", &.{ .expected_token, .parse_error });
+    try testParseError(
+        \\\l file
+        \\ l file
+    , &.{.parse_error});
 }
 
 test {
