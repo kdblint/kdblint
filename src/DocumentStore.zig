@@ -523,7 +523,15 @@ pub fn uriFromImportStr(allocator: std.mem.Allocator, handle: *Handle, import_st
     while (separator_index > 0) : (separator_index -= 1) {
         if (std.fs.path.isSep(handle.uri[separator_index - 1])) break;
     }
-    const base = handle.uri[0 .. separator_index - 1];
+
+    const base = if (builtin.os.tag == .windows) base: {
+        const colon_index = std.mem.indexOf(u8, import_str, ":") orelse import_str.len;
+        const sep_index = std.mem.indexOfAny(u8, import_str, std.fs.path.sep_str_posix ++ std.fs.path.sep_str_windows) orelse 0;
+        break :base if (colon_index < sep_index) "file://" else handle.uri[0 .. separator_index - 1];
+    } else if (std.mem.startsWith(u8, import_str, std.fs.path.sep))
+        "file://"
+    else
+        handle.uri[0 .. separator_index - 1];
 
     return URI.pathRelative(allocator, base, import_str) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
