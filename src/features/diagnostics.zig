@@ -23,18 +23,19 @@ pub fn now() std.time.Instant {
     return std.time.Instant.now() catch zero_instant;
 }
 
-pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *DocumentStore.Handle) error{OutOfMemory}!types.PublishDiagnosticsParams {
+pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *DocumentStore.Handle) !types.PublishDiagnosticsParams {
     std.debug.assert(server.client_capabilities.supports_publish_diagnostics);
 
     const tree = handle.tree;
 
-    try tree.visit(arena);
+    try tree.debug(arena);
 
     var diagnostics = std.ArrayListUnmanaged(types.Diagnostic){};
+
     try diagnostics.ensureUnusedCapacity(arena, tree.errors.len);
     for (tree.errors) |err| {
         var buffer = std.ArrayListUnmanaged(u8){};
-        try buffer.writer(arena).writeAll(if (err.tag == .expected_token) @tagName(err.extra.expected_tag) else "TEST");
+        try tree.renderError(err, buffer.writer(arena).any());
 
         diagnostics.appendAssumeCapacity(.{
             .range = offsets.tokenToRange(tree, err.token, server.offset_encoding),

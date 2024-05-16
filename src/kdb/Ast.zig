@@ -158,6 +158,55 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
     return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
 }
 
+pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !void {
+    const token_tags = tree.tokens.items(.tag);
+    _ = token_tags; // autofix
+    switch (parse_error.tag) {
+        .expected_token => {
+            return writer.writeAll("TODO");
+        },
+        .expected_semi_after_arg => {
+            return writer.writeAll("TODO");
+        },
+        .expected_expr => {
+            return writer.writeAll("TODO");
+        },
+        .expected_end_of_block => {
+            return writer.writeAll("TODO");
+        },
+        .expected_prefix_expr => {
+            return writer.writeAll("TODO");
+        },
+        .expected_infix_expr => {
+            return writer.writeAll("TODO");
+        },
+        .expected_whitespace => {
+            return writer.writeAll("TODO");
+        },
+        .not_yet_implemented => {
+            return writer.writeAll("TODO");
+        },
+        .parse_error => {
+            return writer.writeAll("TODO");
+        },
+        .expected_qsql_token => {
+            return writer.writeAll("TODO");
+        },
+        .expected_from => {
+            return writer.writeAll("TODO");
+        },
+        .expected_select_phrase => {
+            return writer.writeAll("TODO");
+        },
+        .expected_by_phrase => {
+            return writer.writeAll("TODO");
+        },
+        .load_statement_expects_all_tokens_on_same_line => {
+            return writer.writeAll("Load statements should not span multiple lines.");
+        },
+    }
+}
+
 pub fn tokensOnSameLine(tree: Ast, token1: TokenIndex, token2: TokenIndex) bool {
     const token_locs = tree.tokens.items(.loc);
     const source = tree.source[token_locs[token1].start..token_locs[token2].start];
@@ -166,9 +215,6 @@ pub fn tokensOnSameLine(tree: Ast, token1: TokenIndex, token2: TokenIndex) bool 
 
 pub const Error = struct {
     tag: Tag,
-    is_note: bool = false,
-    /// True if `token` points to the token before the token causing an issue.
-    token_is_prev: bool = false,
     token: TokenIndex,
     extra: union {
         none: void,
@@ -196,6 +242,9 @@ pub const Error = struct {
         expected_from,
         expected_select_phrase,
         expected_by_phrase,
+
+        // load statement errors
+        load_statement_expects_all_tokens_on_same_line,
     };
 };
 
@@ -2114,7 +2163,7 @@ fn printList(tree: Ast, list: []Node.Index, stream: anytype, gpa: Allocator) All
     }
 }
 
-pub fn visit(tree: Ast, gpa: Allocator) !void {
+pub fn debug(tree: Ast, gpa: Allocator) !void {
     const data = tree.getData(0);
     for (data.lhs..data.rhs) |extra_data_i| {
         var list = std.ArrayList(u8).init(gpa);

@@ -116,21 +116,21 @@ fn addColumnList(p: *Parse, list: [][]const u8) Allocator.Error!Node.Index {
     return @intCast(p.table_columns.items.len - list.len);
 }
 
-fn warnExpected(p: *Parse, expected_token: Token.Tag) error{OutOfMemory}!void {
+fn warnExpected(p: *Parse, tag: Token.Tag) Allocator.Error!void {
     @setCold(true);
     try p.warnMsg(.{
         .tag = .expected_token,
         .token = p.tok_i,
-        .extra = .{ .expected_tag = expected_token },
+        .extra = .{ .expected_tag = tag },
     });
 }
 
-fn warn(p: *Parse, error_tag: AstError.Tag) error{OutOfMemory}!void {
+fn warn(p: *Parse, error_tag: AstError.Tag) Allocator.Error!void {
     @setCold(true);
     try p.warnMsg(.{ .tag = error_tag, .token = p.tok_i });
 }
 
-fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
+fn warnMsg(p: *Parse, msg: Ast.Error) Allocator.Error!void {
     @setCold(true);
     try p.errors.append(p.gpa, msg);
 }
@@ -140,12 +140,12 @@ fn fail(p: *Parse, tag: Ast.Error.Tag) Error {
     return p.failMsg(.{ .tag = tag, .token = p.tok_i });
 }
 
-fn failExpected(p: *Parse, expected_token: Token.Tag) Error {
+fn failExpected(p: *Parse, tag: Token.Tag) Error {
     @setCold(true);
     return p.failMsg(.{
         .tag = .expected_token,
         .token = p.tok_i,
-        .extra = .{ .expected_tag = expected_token },
+        .extra = .{ .expected_tag = tag },
     });
 }
 
@@ -181,7 +181,6 @@ fn parseBlocks(p: *Parse) Allocator.Error!Blocks {
         const expr = p.parseBlock() catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => blk: {
-                try p.warn(.parse_error);
                 try p.nextBlock(false);
                 break :blk null_node;
             },
@@ -906,7 +905,12 @@ fn systemLoadFileOrDirectory(p: *Parse) Error!Node.Index {
     const lhs = try p.expectToken(.system_param);
     const rhs = p.eatToken(.system_param) orelse 0;
 
-    if (!p.tokensOnSameLine(main_token, if (rhs > 0) rhs else lhs)) return error.ParseError;
+    if (!p.tokensOnSameLine(main_token, if (rhs > 0) rhs else lhs)) {
+        return p.failMsg(.{
+            .tag = .load_statement_expects_all_tokens_on_same_line,
+            .token = rhs,
+        });
+    }
 
     return p.addNode(.{
         .tag = .system_load_file_or_directory,
@@ -1683,7 +1687,7 @@ fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
 }
 
 fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
-    return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].start], '\n') == null;
+    return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].end], '\n') == null;
 }
 
 fn skipComments(p: *Parse) void {
@@ -1747,7 +1751,16 @@ fn expectIdentifier(p: *Parse, comptime identifier: SqlIdentifier) Error!TokenIn
     return p.failMsg(.{
         .tag = .expected_qsql_token,
         .token = p.tok_i,
-        .extra = .{ .expected_string = if (identifier.by) "by" else if (identifier.from) "from" else if (identifier.where) "where" else unreachable },
+        .extra = .{
+            .expected_string = if (identifier.by)
+                "by"
+            else if (identifier.from)
+                "from"
+            else if (identifier.where)
+                "where"
+            else
+                unreachable,
+        },
     });
 }
 
@@ -2291,8 +2304,8 @@ test "lambda" {
     }, "{x;y;}");
     try testParse("{-1}", &.{ .implicit_return, .lambda, .number_literal }, "{-1}");
     try testParse("{-1;}", &.{ .implicit_return, .lambda_semicolon, .number_literal }, "{-1;}");
-    try testParseErrorLanguage(.q, "{[]-1}", &.{ .expected_whitespace, .parse_error });
-    try testParseErrorLanguage(.q, "{[]-1;}", &.{ .expected_whitespace, .parse_error });
+    try testParseErrorLanguage(.q, "{[]-1}", &.{.expected_whitespace});
+    try testParseErrorLanguage(.q, "{[]-1;}", &.{.expected_whitespace});
     try testParseLanguage(.k, "{[]-1}", &.{ .implicit_return, .lambda, .number_literal }, "{[]-1}");
     try testParseLanguage(.k, "{[]-1;}", &.{ .implicit_return, .lambda_semicolon, .number_literal }, "{[]-1;}");
     try testParse("{[] -1}", &.{ .implicit_return, .lambda, .number_literal }, "{[] -1}");
@@ -2584,11 +2597,11 @@ test "system_load_file_or_directory" {
     try testParse("\\l file", &.{ .implicit_return, .system_load_file_or_directory }, "(.,[\"\\\\\"];\"l file\")");
     try testParse("\\l file extra", &.{ .implicit_return, .system_load_file_or_directory }, "(.,[\"\\\\\"];\"l file\")");
 
-    try testParseError("\\l", &.{ .expected_token, .parse_error });
+    try testParseError("\\l", &.{.expected_token});
     try testParseError(
         \\\l file
         \\ l file
-    , &.{.parse_error});
+    , &.{.load_statement_expects_all_tokens_on_same_line});
 }
 
 test {
