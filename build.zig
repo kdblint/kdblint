@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -83,7 +83,7 @@ fn install(
 ) void {
     const exe = b.addExecutable(.{
         .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = b.resolveTargetQuery(.{
             .cpu_arch = arch,
             .os_tag = tag,
