@@ -291,10 +291,6 @@ pub fn refreshDocument(self: *DocumentStore, uri: Uri, new_text: [:0]const u8) !
     }
     try handle.setSource(new_text, self.getParseSettings(uri));
     handle.import_uris = try self.collectImportUris(handle);
-
-    for (handle.import_uris.items) |import_uri| {
-        log.debug("import_uri = {s}", .{import_uri});
-    }
 }
 
 /// The `DocumentStore` represents a graph structure where every
@@ -391,10 +387,6 @@ fn createDocument(self: *DocumentStore, uri: Uri, text: [:0]const u8, open: bool
     _ = handle.setOpen(open);
 
     handle.import_uris = try self.collectImportUris(&handle);
-
-    for (handle.import_uris.items) |import_uri| {
-        log.debug("import_uri = {s}", .{import_uri});
-    }
 
     return handle;
 }

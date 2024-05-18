@@ -57,7 +57,7 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSetting
 
 fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
     const tree = r.tree;
-    const locs = tree.tokens.items(.loc);
+    const locs: []Token.Loc = tree.tokens.items(.loc);
 
     try renderBlock(r, blocks[0], .newline);
     for (blocks[1..]) |block| {
@@ -75,7 +75,7 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const datas = tree.nodes.items(.data);
+    const datas: []Ast.Node.Data = tree.nodes.items(.data);
 
     ais.indent_count = 0;
     ais.indent_next_line = 0;
@@ -94,6 +94,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
+
     switch (node_tags[node]) {
         .root => unreachable,
 
@@ -773,10 +774,18 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderExpression(r, delete.from, space);
         },
 
-        .system => {
+        .system,
+        .current_directory,
+        => {
             try renderToken(r, main_tokens[node], .newline);
         },
-        .system_load_file_or_directory => {
+        .change_directory => {
+            const data = datas[node];
+
+            try renderToken(r, main_tokens[node], .space);
+            try renderToken(r, data.lhs, .newline);
+        },
+        .load_file_or_directory => {
             const data = datas[node];
 
             try renderToken(r, main_tokens[node], .space);
@@ -927,9 +936,9 @@ const Space = enum {
 fn renderComments(r: *Render, token: Ast.TokenIndex) Error!bool {
     const tree = r.tree;
     const ais = r.ais;
-    const tags = tree.tokens.items(.tag);
-    const locs = tree.tokens.items(.loc);
-    const eobs = tree.tokens.items(.eob);
+    const tags: []Token.Tag = tree.tokens.items(.tag);
+    const locs: []Token.Loc = tree.tokens.items(.loc);
+    const eobs: []bool = tree.tokens.items(.eob);
 
     if (tags[token] == .comment) {
         if (mem.containsAtLeast(u8, tree.source[locs[token - 1].start..locs[token].start], 2, "\n")) {
@@ -968,7 +977,7 @@ fn renderExtraNewline(r: *Render, node: Ast.Node.Index) Error!void {
 fn renderExtraNewlineToken(r: *Render, token_index: Ast.TokenIndex) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const token_locs = tree.tokens.items(.loc);
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
     const token_loc = token_locs[token_index];
     if (token_loc.start == 0) return;
     const prev_token_end = if (token_index == 0)

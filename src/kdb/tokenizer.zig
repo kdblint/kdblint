@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Ast = @import("Ast.zig");
 const Language = Ast.Language;
 
@@ -144,39 +145,7 @@ pub const Token = struct {
         invalid,
         eof,
 
-        // System - https://code.kx.com/q/basics/syscmds/
         system,
-        // system_tables,
-        // system_views,
-        // system_pending_views,
-        // system_console_size,
-        // system_change_directory,
-        // system_http_size,
-        // system_directory,
-        // system_error_trap_clients,
-        // system_tls_server_mode,
-        // system_functions,
-        // system_garbage_collection_mode,
-        system_load_file_or_directory,
-        // system_offset_from_utc,
-        // system_listening_port,
-        // system_precision,
-        // system_replication_master,
-        // system_rename,
-        // system_number_of_secondary_threads,
-        // system_random_seed,
-        // system_timer,
-        // system_timeout,
-        // system_time_and_space,
-        // system_reload_user_password_file,
-        // system_variables,
-        // system_workspace,
-        // system_week_offset,
-        // system_expunge,
-        // system_date_parsing,
-        // system_redirect_stdout,
-        // system_redirect_stderr,
-        // system_hide_q_code,
         system_param,
 
         // Keywords : -1","sv"keyword_",/:string .Q.res;
@@ -235,7 +204,6 @@ pub const Token = struct {
                 .invalid,
                 .eof,
                 .system,
-                .system_load_file_or_directory,
                 .system_param,
                 => null,
 
@@ -347,6 +315,24 @@ pub const Token = struct {
             };
         }
 
+        test "Token tags which have a known lexeme parse as expected" {
+            inline for (@typeInfo(Token.Tag).Enum.fields) |field| {
+                const tag: Token.Tag = @enumFromInt(field.value);
+                if (tag.lexeme()) |l| {
+                    const source = try std.testing.allocator.allocSentinel(u8, l.len + 2, 0);
+                    defer std.testing.allocator.free(source);
+                    source[0] = '(';
+                    @memcpy(source[1 .. l.len + 1], l);
+                    source[l.len + 1] = ')';
+                    try testTokenize(source, &.{
+                        .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+                        .{ .tag = tag, .loc = .{ .start = 1, .end = l.len + 1 }, .eob = false },
+                        .{ .tag = .r_paren, .loc = .{ .start = l.len + 1, .end = l.len + 2 }, .eob = true },
+                    });
+                }
+            }
+        }
+
         pub fn symbol(tag: Tag) []const u8 {
             return tag.lexeme() orelse switch (tag) {
                 .number_literal => "a number literal",
@@ -355,11 +341,19 @@ pub const Token = struct {
                 .symbol_list_literal => " a symbol list literal",
                 .identifier => "an identifier",
                 .comment => "a comment",
-                .system => "a system command",
                 .invalid => "invalid bytes",
                 .eof => "EOF",
-                else => unreachable,
+                .system => "a system command",
+                .system_param => "a system command parameter",
+                else => if (builtin.is_test) @panic(@tagName(tag)) else unreachable,
             };
+        }
+
+        test "Token tags are not unreachable when calling symbol()" {
+            inline for (@typeInfo(Token.Tag).Enum.fields) |field| {
+                const tag: Token.Tag = @enumFromInt(field.value);
+                _ = tag.symbol();
+            }
         }
     };
 };
@@ -442,10 +436,9 @@ pub const Tokenizer = struct {
 
         identifier,
 
-        system_required_param,
-        system_optional_param,
         system_param,
-        system_builtin,
+        system_param_no_comment,
+        system_param_allow_comment,
 
         maybe_trailing_comment,
         start_trailing_comment,
@@ -467,14 +460,20 @@ pub const Tokenizer = struct {
 
     fn consumeStartingComment(self: *Tokenizer) void {
         var state: CommentState = .start;
-        const start_index = self.impl.index;
 
+        var checkpoint = self.impl;
         while (true) : (self.advance()) {
             const c = self.buffer[self.impl.index];
             switch (state) {
                 .start => switch (c) {
-                    0 => break,
-                    ' ', '\t', '\n', '\r' => {},
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
+                    ' ', '\t', '\r' => {},
+                    '\n' => {
+                        checkpoint = self.impl;
+                    },
                     '/' => {
                         if (self.impl.character == 0) {
                             state = .maybe_block;
@@ -482,13 +481,17 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         if (self.impl.character == 0) {
+                            self.impl = checkpoint;
                             break;
                         }
                     },
                 },
 
                 .maybe_block => switch (c) {
-                    0 => break,
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
                     ' ', '\t', '\r' => {},
                     '\n' => {
                         state = .block;
@@ -498,7 +501,10 @@ pub const Tokenizer = struct {
                     },
                 },
                 .block => switch (c) {
-                    0 => break,
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
                     '\\' => {
                         if (self.impl.character == 0) {
                             state = .end_block;
@@ -507,9 +513,13 @@ pub const Tokenizer = struct {
                     else => {},
                 },
                 .end_block => switch (c) {
-                    0 => break,
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
                     ' ', '\t', '\r' => {},
                     '\n' => {
+                        checkpoint = self.impl;
                         state = .start;
                     },
                     else => {
@@ -518,8 +528,12 @@ pub const Tokenizer = struct {
                 },
 
                 .line => switch (c) {
-                    0 => break,
+                    0 => {
+                        self.impl = checkpoint;
+                        break;
+                    },
                     '\n' => {
+                        checkpoint = self.impl;
                         state = .start;
                     },
                     else => {},
@@ -527,11 +541,11 @@ pub const Tokenizer = struct {
             }
         }
 
-        if (self.impl.index > start_index) {
+        if (self.impl.index > 0) {
             self.pending_token = Token{
                 .tag = .comment,
                 .loc = .{
-                    .start = start_index,
+                    .start = 0,
                     .end = self.impl.index,
                 },
                 .eob = false,
@@ -576,14 +590,7 @@ pub const Tokenizer = struct {
             const c = self.buffer[self.impl.index];
             switch (state) {
                 .start => switch (c) {
-                    0 => {
-                        if (self.impl.index == self.buffer.len) {
-                            break;
-                        }
-                        result.tag = .invalid;
-                        self.advance();
-                        break;
-                    },
+                    0 => break,
                     ' ', '\t', '\n', '\r' => {
                         result.loc.start = self.impl.index + 1;
                     },
@@ -1016,40 +1023,46 @@ pub const Tokenizer = struct {
                     },
                 },
 
-                .system_required_param => switch (c) {
+                .system_param => switch (c) {
+                    0, ' ', '\t', '\r' => break,
+                    '\n' => {
+                        self.next_state = .system_param_allow_comment;
+                        break;
+                    },
+                    else => {},
+                },
+                .system_param_no_comment => switch (c) {
                     0 => break,
-                    ' ', '\t', '\r', '\n' => {
+                    ' ', '\t', '\r' => {
                         result.loc.start = self.impl.index + 1;
+                    },
+                    '\n' => {
+                        result.loc.start = self.impl.index + 1;
+                        state = .system_param_allow_comment;
+                        self.next_state = .system_param_allow_comment;
                     },
                     else => {
                         result.tag = .system_param;
                         state = .system_param;
-                        self.next_state = .system_optional_param;
                     },
                 },
-                .system_optional_param => switch (c) {
+                .system_param_allow_comment => switch (c) {
                     0 => break,
                     ' ', '\t', '\r', '\n' => {
                         result.loc.start = self.impl.index + 1;
                     },
-                    else => {
-                        result.tag = .system_param; // this gets unset if we have found the end of a block.
-                        state = .skip_block_start;
-                    },
-                },
-                .system_param => switch (c) {
-                    0, ' ', '\t', '\r', '\n' => break,
-                    else => {},
-                },
-                .system_builtin => switch (c) {
-                    0 => break,
-                    ' ', '\t', '\r', '\n' => {
-                        self.next_state = .system_required_param;
-                        break;
+                    '/' => {
+                        if (self.impl.character == 0) {
+                            result.tag = .comment;
+                            state = .maybe_block_comment;
+                        } else if (std.ascii.isWhitespace(self.buffer[self.impl.index - 1])) {
+                            result.tag = .comment;
+                            state = .skip_line;
+                        }
                     },
                     else => {
-                        result.tag = .system;
-                        state = .skip_block_start;
+                        result.tag = .system_param;
+                        state = .system_param;
                     },
                 },
 
@@ -1061,13 +1074,10 @@ pub const Tokenizer = struct {
                     '\n' => {
                         state = .trailing_comment;
                     },
-                    'l' => {
-                        result.tag = .system_load_file_or_directory;
-                        state = .system_builtin;
-                    },
                     else => {
                         result.tag = .system;
-                        state = .skip_block_start;
+                        state = .system_param;
+                        self.next_state = .system_param_no_comment;
                     },
                 },
                 .start_trailing_comment => switch (c) {
@@ -1255,11 +1265,10 @@ pub const Tokenizer = struct {
                     0 => return true,
                     ' ', '\t', '\n', '\r' => {},
                     '/' => {
-                        if (self.next_state != null) {
-                            return self.impl.character == 0;
-                        } else if (self.impl.character == 0) {
+                        if (self.impl.character == 0) {
                             state = .maybe_block;
                         } else if (std.ascii.isWhitespace(self.buffer[self.impl.index - 1])) {
+                            if (self.next_state == .system_param_no_comment) return false;
                             state = .line;
                         } else {
                             return false;
@@ -1321,19 +1330,23 @@ fn testTokenize(source: [:0]const u8, expected: []const Token) !void {
 fn testTokenizeLanguage(language: Language, source: [:0]const u8, expected: []const Token) !void {
     var tokenizer = Tokenizer.init(source, language);
 
-    const actual = try std.testing.allocator.alloc(Token, expected.len);
-    defer std.testing.allocator.free(actual);
-    for (actual) |*token| {
-        token.* = tokenizer.next();
+    var actual = std.ArrayList(Token).init(std.testing.allocator);
+    defer actual.deinit();
+    while (true) {
+        const token = tokenizer.next();
+        try actual.append(token);
+        if (token.tag == .eof) break;
+
+        // Tokens should never end in a newline.
+        try std.testing.expect(source[token.loc.end - 1] != '\n');
     }
 
-    try std.testing.expectEqualSlices(Token, expected, actual);
-    const last_token = tokenizer.next();
+    try std.testing.expectEqualSlices(Token, expected, actual.items[0 .. actual.items.len - 1]);
     try std.testing.expectEqual(Token{
         .tag = .eof,
         .loc = .{ .start = source.len, .end = source.len },
         .eob = true,
-    }, last_token);
+    }, actual.items[actual.items.len - 1]);
 }
 
 test "tokenize blocks" {
@@ -1484,24 +1497,6 @@ test "tokenize blocks" {
         .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 9 }, .eob = false },
         .{ .tag = .r_paren, .loc = .{ .start = 9, .end = 10 }, .eob = true },
     });
-}
-
-test "Token tags" {
-    inline for (@typeInfo(Token.Tag).Enum.fields) |field| {
-        const tag: Token.Tag = @enumFromInt(field.value);
-        if (tag.lexeme()) |lexeme| {
-            const source = try std.testing.allocator.allocSentinel(u8, lexeme.len + 2, 0);
-            defer std.testing.allocator.free(source);
-            source[0] = '(';
-            @memcpy(source[1 .. lexeme.len + 1], lexeme);
-            source[lexeme.len + 1] = ')';
-            try testTokenize(source, &.{
-                .{ .tag = .l_paren, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-                .{ .tag = tag, .loc = .{ .start = 1, .end = lexeme.len + 1 }, .eob = false },
-                .{ .tag = .r_paren, .loc = .{ .start = lexeme.len + 1, .end = lexeme.len + 2 }, .eob = true },
-            });
-        }
-    }
 }
 
 test "tokenize number" {
@@ -1911,7 +1906,7 @@ test "tokenize starting comment" {
         \\ some comments and ends
         \\here
     , &.{
-        .{ .tag = .comment, .loc = .{ .start = 0, .end = 141 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 140 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 141, .end = 145 }, .eob = true },
     });
     try testTokenize(
@@ -1921,7 +1916,7 @@ test "tokenize starting comment" {
         \\\
         \\trailing comment
     , &.{
-        .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 55 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 56, .end = 74 }, .eob = false },
     });
     try testTokenize(
@@ -1931,8 +1926,9 @@ test "tokenize starting comment" {
         \\\d .
         \\identifier
     , &.{
-        .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
-        .{ .tag = .system, .loc = .{ .start = 56, .end = 60 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 55 }, .eob = false },
+        .{ .tag = .system, .loc = .{ .start = 56, .end = 58 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 59, .end = 60 }, .eob = true },
         .{ .tag = .identifier, .loc = .{ .start = 61, .end = 71 }, .eob = true },
     });
     try testTokenize(
@@ -1942,7 +1938,7 @@ test "tokenize starting comment" {
         \\\ d .
         \\identifier
     , &.{
-        .{ .tag = .comment, .loc = .{ .start = 0, .end = 56 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 0, .end = 55 }, .eob = false },
         .{ .tag = .invalid, .loc = .{ .start = 56, .end = 61 }, .eob = true },
         .{ .tag = .identifier, .loc = .{ .start = 62, .end = 72 }, .eob = true },
     });
@@ -2159,22 +2155,38 @@ test "tokenize trailing comment" {
 
 test "tokenize system" {
     try testTokenize(
-        \\\d .
+        \\\ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 4 }, .eob = true },
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls /not a comment
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 4, .end = 8 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 9, .end = 10 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 11, .end = 18 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls .
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
     try testTokenize(
         \\\ls
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 7 }, .eob = true },
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 5, .end = 7 }, .eob = true },
     });
     try testTokenize(
         \\\ls
         \\ ls
         \\1
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 7 }, .eob = true },
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 5, .end = 7 }, .eob = true },
         .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 9 }, .eob = true },
     });
     try testTokenize(
@@ -2186,29 +2198,104 @@ test "tokenize system" {
     });
     try testTokenize(
         \\\ls
-        \\/this is not a comment
+        \\ /line comment
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 5, .end = 18 }, .eob = false },
+    });
+    try testTokenize(
+        \\\ls
+        \\/line comment
+        \\1
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 18, .end = 19 }, .eob = true },
+    });
+    try testTokenize(
+        \\1
+        \\/line comment
+        \\ 2
+    , &.{
+        .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 2, .end = 15 }, .eob = false },
+        .{ .tag = .number_literal, .loc = .{ .start = 17, .end = 18 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\/line comment
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 30 }, .eob = true },
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 19, .end = 21 }, .eob = true },
+    });
+    try testTokenize(
+        \\\ls
+        \\/line comment
+        \\ ls
+        \\/line comment
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 19, .end = 21 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 22, .end = 35 }, .eob = false },
+    });
+    try testTokenize(
+        \\\ls
+        \\/line comment
+        \\ ls
+        \\/line comment
+        \\ ls
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 19, .end = 21 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 22, .end = 35 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 37, .end = 39 }, .eob = true },
     });
     try testTokenize(
         \\\ls
         \\/
-        \\this is not a block comment
+        \\block comment
         \\\
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 39 }, .eob = true },
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
     });
     try testTokenize(
         \\\ls
         \\/
-        \\this is not a block comment
+        \\block comment
         \\\
-        \\ this is not a trailing comment
+        \\ ls
+        \\/
+        \\block comment
+        \\\
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 26, .end = 43 }, .eob = false },
+    });
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+        \\/
+        \\block comment
+        \\\
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 71 }, .eob = true },
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 26, .end = 43 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 45, .end = 47 }, .eob = true },
     });
     try testTokenize(
         \\\ls
@@ -2224,6 +2311,20 @@ test "tokenize system" {
     });
     try testTokenize(
         \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+        \\\
+        \\ trailing comment
+    , &.{
+        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
+        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
+        .{ .tag = .comment, .loc = .{ .start = 26, .end = 45 }, .eob = false },
+    });
+    try testTokenize(
+        \\\ls
         \\\
         \\this is a trailing comment
     , &.{
@@ -2232,103 +2333,6 @@ test "tokenize system" {
     });
 }
 
-test "tokenize system_load_file_or_directory" {
-    try testTokenize(
-        \\\l
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l
-        \\ file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 4, .end = 8 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l
-        \\file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = true },
-        .{ .tag = .identifier, .loc = .{ .start = 3, .end = 7 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file
-        \\ file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 9, .end = 13 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file
-        \\file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = true },
-        .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file /not a comment
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 22 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file /not a comment
-        \\file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 22 }, .eob = true },
-        .{ .tag = .identifier, .loc = .{ .start = 23, .end = 27 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file /not a comment
-        \\ file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 28 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file
-        \\
-        \\\l file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = true },
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 9, .end = 11 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 12, .end = 16 }, .eob = true },
-    });
-    try testTokenize(
-        \\\l file /not a comment
-        \\
-        \\\l file
-    , &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 22 }, .eob = true },
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 24, .end = 26 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 27, .end = 31 }, .eob = true },
-    });
-    try testTokenize("\\l file /not a comment\n \n\\l file", &.{
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 0, .end = 2 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 3, .end = 7 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 8, .end = 22 }, .eob = true },
-        .{ .tag = .system_load_file_or_directory, .loc = .{ .start = 25, .end = 27 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 28, .end = 32 }, .eob = true },
-    });
-}
-
-// TODO: Validate comment tokens with trailing newlines match
 test {
     @import("std").testing.refAllDecls(@This());
 }

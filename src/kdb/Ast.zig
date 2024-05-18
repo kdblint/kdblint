@@ -159,8 +159,7 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
 }
 
 pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !void {
-    const token_tags = tree.tokens.items(.tag);
-    _ = token_tags; // autofix
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
     switch (parse_error.tag) {
         .expected_token => {
             return writer.writeAll("TODO");
@@ -201,16 +200,11 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !voi
         .expected_by_phrase => {
             return writer.writeAll("TODO");
         },
-        .load_statement_expects_all_tokens_on_same_line => {
-            return writer.writeAll("Load statements should not span multiple lines.");
+        .system_expects_all_tokens_on_same_line => {
+            const tag = token_tags[parse_error.token];
+            return writer.print("{s} should not span multiple lines.", .{tag.symbol()});
         },
     }
-}
-
-pub fn tokensOnSameLine(tree: Ast, token1: TokenIndex, token2: TokenIndex) bool {
-    const token_locs = tree.tokens.items(.loc);
-    const source = tree.source[token_locs[token1].start..token_locs[token2].start];
-    return std.mem.indexOfScalar(u8, source, '\n') == null;
 }
 
 pub const Error = struct {
@@ -243,8 +237,8 @@ pub const Error = struct {
         expected_select_phrase,
         expected_by_phrase,
 
-        // load statement errors
-        load_statement_expects_all_tokens_on_same_line,
+        // system command errors
+        system_expects_all_tokens_on_same_line,
     };
 };
 
@@ -653,10 +647,14 @@ pub const Node = struct {
         /// `delete lhs`. `DeleteCols[lhs]`. rhs is unused. main_token is `delete`.
         delete_cols,
 
-        /// `\system ...`. lhs is unused. rhs is unused. main_token is `\system ...`.
+        /// `\system lhs`. `SubRange[lhs]`. lhs can be omitted. rhs is unused. main_token is `\system`.
         system,
+        /// `\cd`. lhs is unused. rhs is unused. main_token is `\cd`.
+        current_directory,
+        /// `\cd lhs`. rhs is unused. main_token is `\cd`.
+        change_directory,
         /// `\l lhs rhs`. rhs can be omitted. main_token is `\l`.
-        system_load_file_or_directory,
+        load_file_or_directory,
     };
 
     pub const Data = struct {
@@ -778,41 +776,12 @@ pub const Node = struct {
     };
 };
 
-fn getTokenTag(tree: Ast, i: Node.Index) Token.Tag {
-    return tree.tokens.items(.tag)[tree.getMainToken(i)];
-}
-
-fn getTokenLoc(tree: Ast, i: Node.Index) Token.Loc {
-    return tree.tokens.items(.loc)[tree.getMainToken(i)];
-}
-
-fn getTokenEob(tree: Ast, i: Node.Index) bool {
-    return tree.tokens.items(.eob)[tree.getMainToken(i)];
-}
-
-fn getSource(tree: Ast, i: Node.Index) []const u8 {
-    const loc = tree.getTokenLoc(i);
-    return tree.source[loc.start..loc.end];
-}
-
-fn getTag(tree: Ast, i: Node.Index) Node.Tag {
-    return tree.nodes.items(.tag)[i];
-}
-
-fn getMainToken(tree: Ast, i: Node.Index) TokenIndex {
-    return tree.nodes.items(.main_token)[i];
-}
-
-fn getData(tree: Ast, i: Node.Index) Node.Data {
-    return tree.nodes.items(.data)[i];
-}
-
-fn getExtraData(tree: Ast, i: usize) Node.Index {
-    return tree.extra_data[i];
-}
-
 pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
-    switch (tree.getTag(i)) {
+    const tags: []Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []TokenIndex = tree.nodes.items(.main_token);
+    const datas: []Node.Data = tree.nodes.items(.data);
+
+    switch (tags[i]) {
         .root => unreachable,
 
         .grouped_expression,
@@ -826,8 +795,10 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .symbol_list_literal,
         .identifier,
         .system,
-        .system_load_file_or_directory,
-        => return tree.getMainToken(i),
+        .current_directory,
+        .change_directory,
+        .load_file_or_directory,
+        => return main_tokens[i],
 
         .assign,
         .global_assign,
@@ -892,10 +863,7 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .within_infix,
         .wsum_infix,
         .xexp_infix,
-        => {
-            const data = tree.getData(i);
-            return tree.firstToken(data.lhs);
-        },
+        => return tree.firstToken(datas[i].lhs),
 
         .colon,
         .colon_colon,
@@ -945,7 +913,7 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        => return tree.getMainToken(i),
+        => return main_tokens[i],
 
         .apostrophe,
         .apostrophe_colon,
@@ -953,10 +921,7 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .slash_colon,
         .backslash,
         .backslash_colon,
-        => {
-            const data = tree.getData(i);
-            return tree.firstToken(data.lhs);
-        },
+        => return tree.firstToken(datas[i].lhs),
 
         .apostrophe_infix,
         .apostrophe_colon_infix,
@@ -965,20 +930,16 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .backslash_infix,
         .backslash_colon_infix,
         => {
-            const data = tree.getData(i);
-            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            const iterator = tree.extraData(datas[i].rhs, Node.Iterator);
             return tree.firstToken(iterator.lhs);
         },
 
-        .implicit_apply => {
-            const data = tree.getData(i);
-            return tree.firstToken(data.lhs);
-        },
+        .implicit_apply => return tree.firstToken(datas[i].lhs),
 
         .lambda,
         .lambda_semicolon,
         .block,
-        => return tree.getMainToken(i),
+        => return main_tokens[i],
 
         .call_one,
         .call,
@@ -986,10 +947,7 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .@"if",
         .@"while",
         .implicit_return,
-        => {
-            const data = tree.getData(i);
-            return tree.firstToken(data.lhs);
-        },
+        => return tree.firstToken(datas[i].lhs),
 
         .@"return" => unreachable,
 
@@ -1040,28 +998,34 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .update,
         .delete_rows,
         .delete_cols,
-        => return tree.getMainToken(i),
+        => return main_tokens[i],
     }
 }
 
 pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
-    switch (tree.getTag(i)) {
+    const tags: []Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []TokenIndex = tree.nodes.items(.main_token);
+    const datas: []Node.Data = tree.nodes.items(.data);
+    const extra_datas = tree.extra_data;
+
+    switch (tags[i]) {
         .root => unreachable,
 
         .grouped_expression,
         .empty_list,
         .list,
         .table_literal,
-        => return tree.getData(i).rhs,
+        => return datas[i].rhs,
 
-        .number_literal => return tree.getMainToken(i),
-        .number_list_literal => return tree.getData(i).rhs,
+        .number_literal => return main_tokens[i],
+        .number_list_literal => return datas[i].rhs,
         .string_literal,
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
         .system,
-        => return tree.getMainToken(i),
+        .current_directory,
+        => return main_tokens[i],
 
         .assign,
         .global_assign,
@@ -1127,11 +1091,11 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .wsum_infix,
         .xexp_infix,
         => {
-            const data = tree.getData(i);
+            const data = datas[i];
             if (data.rhs > 0) {
                 return tree.lastToken(data.rhs);
             }
-            return tree.getMainToken(i);
+            return main_tokens[i];
         },
 
         .colon,
@@ -1188,7 +1152,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .slash_colon,
         .backslash,
         .backslash_colon,
-        => return tree.getMainToken(i),
+        => return main_tokens[i],
 
         .apostrophe_infix,
         .apostrophe_colon_infix,
@@ -1197,13 +1161,13 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .backslash_infix,
         .backslash_colon_infix,
         => {
-            const data = tree.getData(i);
-            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            const iterator = tree.extraData(datas[i].rhs, Node.Iterator);
             return tree.lastToken(iterator.rhs);
         },
 
+        // TODO: do we need to check for >0 here?
         .implicit_apply => {
-            const data = tree.getData(i);
+            const data = datas[i];
             if (data.rhs > 0) {
                 return tree.lastToken(data.rhs);
             }
@@ -1213,14 +1177,14 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .lambda,
         .lambda_semicolon,
         .block,
-        => return tree.getData(i).rhs,
+        => return datas[i].rhs,
 
         .call_one => {
-            const data = tree.getData(i);
+            const data = datas[i];
             var last_token = (if (data.rhs > 0) blk: {
                 break :blk tree.lastToken(data.rhs);
             } else blk: {
-                break :blk tree.getMainToken(i);
+                break :blk main_tokens[i];
             }) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
@@ -1236,18 +1200,17 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .@"if",
         .@"while",
         => {
-            const data = tree.getData(i);
-            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            const sub_range = tree.extraData(datas[i].rhs, Node.SubRange);
             var last_token = (if (sub_range.start == sub_range.end) blk: {
-                break :blk tree.getMainToken(i);
+                break :blk main_tokens[i];
             } else blk: {
                 var extra_data_i = sub_range.end - 1;
-                var node_i = tree.getExtraData(extra_data_i);
+                var node_i = extra_datas[extra_data_i];
                 while (node_i == 0 and extra_data_i > sub_range.start) {
                     extra_data_i -= 1;
-                    node_i = tree.getExtraData(extra_data_i);
+                    node_i = extra_datas[extra_data_i];
                 }
-                break :blk if (node_i == 0) tree.getMainToken(i) else tree.lastToken(node_i);
+                break :blk if (node_i == 0) main_tokens[i] else tree.lastToken(node_i);
             }) + 1;
             while (true) : (last_token += 1) {
                 switch (tree.tokens.items(.tag)[last_token]) {
@@ -1259,7 +1222,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
             return last_token;
         },
 
-        .implicit_return => return tree.lastToken(tree.getData(i).lhs),
+        .implicit_return => return tree.lastToken(datas[i].lhs),
 
         .@"return" => unreachable,
 
@@ -1300,13 +1263,13 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .within,
         .wsum,
         .xexp,
-        => return tree.getMainToken(i),
+        => return main_tokens[i],
 
         .do_one,
         .if_one,
         .while_one,
         => {
-            const data = tree.getData(i);
+            const data = datas[i];
             var last_token = (if (data.rhs > 0) blk: {
                 break :blk tree.lastToken(data.rhs);
             } else blk: {
@@ -1323,11 +1286,10 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         },
 
         .select => {
-            const data = tree.getData(i);
-            const select_node = tree.extraData(data.lhs, Node.Select);
+            const select_node = tree.extraData(datas[i].lhs, Node.Select);
 
             if (select_node.by > select_node.where) {
-                const node = tree.getExtraData(select_node.by - 1);
+                const node = extra_datas[select_node.by - 1];
                 return tree.lastToken(node);
             }
 
@@ -1335,11 +1297,10 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         },
 
         .exec => {
-            const data = tree.getData(i);
-            const exec_node = tree.extraData(data.lhs, Node.Exec);
+            const exec_node = tree.extraData(datas[i].lhs, Node.Exec);
 
             if (exec_node.by > exec_node.where) {
-                const node = tree.getExtraData(exec_node.by - 1);
+                const node = extra_datas[exec_node.by - 1];
                 return tree.lastToken(node);
             }
 
@@ -1347,11 +1308,10 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         },
 
         .update => {
-            const data = tree.getData(i);
-            const update_node = tree.extraData(data.lhs, Node.Update);
+            const update_node = tree.extraData(datas[i].lhs, Node.Update);
 
             if (update_node.by > update_node.where) {
-                const node = tree.getExtraData(update_node.by - 1);
+                const node = extra_datas[update_node.by - 1];
                 return tree.lastToken(node);
             }
 
@@ -1359,11 +1319,10 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         },
 
         .delete_rows => {
-            const data = tree.getData(i);
-            const delete_node = tree.extraData(data.lhs, Node.DeleteRows);
+            const delete_node = tree.extraData(datas[i].lhs, Node.DeleteRows);
 
             if (delete_node.where_end > delete_node.where) {
-                const node = tree.getExtraData(delete_node.where_end - 1);
+                const node = extra_datas[delete_node.where_end - 1];
                 return tree.lastToken(node);
             }
 
@@ -1371,31 +1330,36 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         },
 
         .delete_cols => {
-            const data = tree.getData(i);
-            const delete_node = tree.extraData(data.lhs, Node.DeleteColumns);
+            const delete_node = tree.extraData(datas[i].lhs, Node.DeleteColumns);
             return tree.lastToken(delete_node.from);
         },
 
-        .system_load_file_or_directory => {
-            const data = tree.getData(i);
+        .change_directory => return datas[i].lhs,
+        .load_file_or_directory => {
+            const data = datas[i];
             return if (data.rhs > 0) data.rhs else data.lhs;
         },
     }
 }
 
 pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocator.Error!void {
-    switch (tree.getTag(i)) {
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    const tags: []Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []TokenIndex = tree.nodes.items(.main_token);
+    const datas: []Node.Data = tree.nodes.items(.data);
+    const extra_datas = tree.extra_data;
+
+    switch (tags[i]) {
         .root => unreachable,
         .grouped_expression,
         .implicit_return,
-        => try tree.print(tree.getData(i).lhs, stream, gpa),
+        => try tree.print(datas[i].lhs, stream, gpa),
         .empty_list => try stream.writeAll("()"),
         .list => {
-            const data = tree.getData(i);
             try stream.writeAll("(enlist;");
-            const sub_range = tree.extraData(data.lhs, Node.SubRange);
+            const sub_range = tree.extraData(datas[i].lhs, Node.SubRange);
             for (sub_range.start..sub_range.end) |extra_data_i| {
-                const node_i = tree.getExtraData(extra_data_i);
+                const node_i = extra_datas[extra_data_i];
                 if (node_i == 0) {
                     try stream.writeAll("::");
                 } else {
@@ -1408,8 +1372,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.writeAll(")");
         },
         .table_literal => {
-            const data = tree.getData(i);
-            const table = tree.extraData(data.lhs, Node.Table);
+            const table = tree.extraData(datas[i].lhs, Node.Table);
 
             const columns = tree.table_columns[table.column_start + table.key_len .. table.column_start + table.key_len + table.len];
             const exprs = tree.extra_data[table.expr_start + table.key_len .. table.expr_start + table.key_len + table.len];
@@ -1432,24 +1395,22 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try printTable(tree, columns, exprs, stream, gpa);
             }
         },
-        .number_literal => try stream.writeAll(tree.getSource(i)),
+        .number_literal => try stream.writeAll(tree.tokenSlice(main_tokens[i])),
         .number_list_literal => {
             const data = tree.nodes.items(.data)[i];
             const sub_range = tree.extraData(data.lhs, Node.SubRange);
             const tokens = tree.extra_data[sub_range.start..sub_range.end];
-            const loc = tree.tokens.items(.loc)[tokens[0]];
-            try stream.writeAll(tree.source[loc.start..loc.end]);
+            try stream.writeAll(tree.tokenSlice(tokens[0]));
             for (tokens[1..]) |token| {
-                const token_loc = tree.tokens.items(.loc)[token];
                 try stream.writeByte(' ');
-                try stream.writeAll(tree.source[token_loc.start..token_loc.end]);
+                try stream.writeAll(tree.tokenSlice(token));
             }
         },
-        .string_literal => try stream.writeAll(tree.getSource(i)),
+        .string_literal => try stream.writeAll(tree.tokenSlice(main_tokens[i])),
         .symbol_literal,
         .symbol_list_literal,
-        => try stream.print(",{s}", .{tree.getSource(i)}),
-        .identifier => try stream.print("`{s}", .{tree.getSource(i)}),
+        => try stream.print(",{s}", .{tree.tokenSlice(main_tokens[i])}),
+        .identifier => try stream.print("`{s}", .{tree.tokenSlice(main_tokens[i])}),
         .assign,
         .global_assign,
         .add,
@@ -1514,8 +1475,8 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .wsum_infix,
         .xexp_infix,
         => {
-            const data = tree.getData(i);
-            const symbol = tree.getTokenTag(i).symbol();
+            const data = datas[i];
+            const symbol = token_tags[main_tokens[i]].symbol();
             if (data.rhs > 0) {
                 var rhs = std.ArrayList(u8).init(gpa);
                 defer rhs.deinit();
@@ -1585,9 +1546,9 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        => try stream.writeAll(tree.getTokenTag(i).symbol()),
+        => try stream.writeAll(token_tags[main_tokens[i]].symbol()),
         .implicit_apply => {
-            const data = tree.getData(i);
+            const data = datas[i];
 
             var rhs = std.ArrayList(u8).init(gpa);
             defer rhs.deinit();
@@ -1607,16 +1568,16 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .backslash,
         .backslash_colon,
         => {
-            const data = tree.getData(i);
+            const data = datas[i];
 
             if (data.lhs > 0) {
                 var lhs = std.ArrayList(u8).init(gpa);
                 defer lhs.deinit();
                 try tree.print(data.lhs, lhs.writer(), gpa);
 
-                try stream.print("({s};{s})", .{ tree.getSource(i), lhs.items });
+                try stream.print("({s};{s})", .{ tree.tokenSlice(main_tokens[i]), lhs.items });
             } else {
-                try stream.writeAll(tree.getSource(i));
+                try stream.writeAll(tree.tokenSlice(main_tokens[i]));
             }
         },
 
@@ -1627,7 +1588,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .backslash_infix,
         .backslash_colon_infix,
         => {
-            const data = tree.getData(i);
+            const data = datas[i];
             const iterator = tree.extraData(data.rhs, Node.Iterator);
 
             var lhs = std.ArrayList(u8).init(gpa);
@@ -1642,13 +1603,13 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             defer y.deinit();
             try tree.print(iterator.rhs, y.writer(), gpa);
 
-            try stream.print("(({s};{s});{s};{s})", .{ tree.getSource(i), lhs.items, x.items, y.items });
+            try stream.print("(({s};{s});{s};{s})", .{ tree.tokenSlice(main_tokens[i]), lhs.items, x.items, y.items });
         },
 
         .lambda,
         .lambda_semicolon,
         => {
-            const start_token = tree.getMainToken(i);
+            const start_token = main_tokens[i];
             const start = tree.tokens.items(.loc)[start_token].start;
 
             const last_token = tree.lastToken(i);
@@ -1659,8 +1620,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         },
 
         .block => {
-            const data = tree.getData(i);
-            const sub_range = tree.extraData(data.lhs, Node.SubRange);
+            const sub_range = tree.extraData(datas[i].lhs, Node.SubRange);
             const exprs = tree.extra_data[sub_range.start..sub_range.end];
 
             if (exprs.len > 0) {
@@ -1691,7 +1651,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             }
         },
         .call_one => {
-            const data = tree.getData(i);
+            const data = datas[i];
 
             var rhs = std.ArrayList(u8).init(gpa);
             defer rhs.deinit();
@@ -1708,13 +1668,13 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("({s};{s})", .{ lhs.items, rhs.items });
         },
         .call => {
-            const data = tree.getData(i);
+            const data = datas[i];
 
             var rhs = std.ArrayList(u8).init(gpa);
             defer rhs.deinit();
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
             for (sub_range.start..sub_range.end) |extra_data_i| {
-                const node_i = tree.getExtraData(extra_data_i);
+                const node_i = extra_datas[extra_data_i];
                 if (node_i == 0) {
                     try rhs.appendSlice("::");
                 } else {
@@ -1732,11 +1692,9 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("({s};{s})", .{ lhs.items, rhs.items });
         },
         .@"return" => {
-            const data = tree.getData(i);
-
             var lhs = std.ArrayList(u8).init(gpa);
             defer lhs.deinit();
-            try tree.print(data.lhs, lhs.writer(), gpa);
+            try tree.print(datas[i].lhs, lhs.writer(), gpa);
 
             try stream.print("(\":\";{s})", .{lhs.items});
         },
@@ -1778,13 +1736,13 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .within,
         .wsum,
         .xexp,
-        => try stream.writeAll(tree.getSource(i)),
+        => try stream.writeAll(tree.tokenSlice(main_tokens[i])),
 
         .do_one,
         .if_one,
         .while_one,
         => {
-            const data = tree.getData(i);
+            const data = datas[i];
 
             var lhs = std.ArrayList(u8).init(gpa);
             defer lhs.deinit();
@@ -1798,13 +1756,13 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 try tree.print(data.rhs, rhs.writer(), gpa);
             }
 
-            try stream.print("(`{s};{s};{s})", .{ tree.getSource(i), lhs.items, rhs.items });
+            try stream.print("(`{s};{s};{s})", .{ tree.tokenSlice(main_tokens[i]), lhs.items, rhs.items });
         },
         .do,
         .@"if",
         .@"while",
         => {
-            const data = tree.getData(i);
+            const data = datas[i];
 
             var lhs = std.ArrayList(u8).init(gpa);
             defer lhs.deinit();
@@ -1814,7 +1772,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             defer rhs.deinit();
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
             for (sub_range.start..sub_range.end) |extra_data_i| {
-                const node_i = tree.getExtraData(extra_data_i);
+                const node_i = extra_datas[extra_data_i];
                 if (node_i == 0) {
                     try rhs.appendSlice("::");
                 } else {
@@ -1825,12 +1783,11 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 }
             }
 
-            try stream.print("(`{s};{s};{s})", .{ tree.getSource(i), lhs.items, rhs.items });
+            try stream.print("(`{s};{s};{s})", .{ tree.tokenSlice(main_tokens[i]), lhs.items, rhs.items });
         },
 
         .select => {
-            const data = tree.getData(i);
-            const select_node = tree.extraData(data.lhs, Node.Select);
+            const select_node = tree.extraData(datas[i].lhs, Node.Select);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -1895,8 +1852,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 var order = std.ArrayList(u8).init(gpa);
                 defer order.deinit();
                 const c: u8 = if (select_node.data.ascending) '<' else '>';
-                const loc = tree.tokens.items(.loc)[select_node.order];
-                try order.writer().print(",({c}:;`{s})", .{ c, tree.source[loc.start..loc.end] });
+                try order.writer().print(",({c}:;`{s})", .{ c, tree.tokenSlice(select_node.order) });
 
                 try stream.print("(?;{s};{s};{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items, limit.items, order.items });
             } else if (select_node.limit > 0) {
@@ -1910,8 +1866,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             }
         },
         .exec => {
-            const data = tree.getData(i);
-            const exec_node = tree.extraData(data.lhs, Node.Exec);
+            const exec_node = tree.extraData(datas[i].lhs, Node.Exec);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -1965,8 +1920,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(?;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
         },
         .update => {
-            const data = tree.getData(i);
-            const update_node = tree.extraData(data.lhs, Node.Update);
+            const update_node = tree.extraData(datas[i].lhs, Node.Update);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -2016,8 +1970,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(!;{s};{s};{s};{s})", .{ from.items, where.items, by.items, select.items });
         },
         .delete_rows => {
-            const data = tree.getData(i);
-            const delete_node = tree.extraData(data.lhs, Node.DeleteRows);
+            const delete_node = tree.extraData(datas[i].lhs, Node.DeleteRows);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -2045,8 +1998,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(!;{s};{s};0b;`symbol$())", .{ from.items, where.items });
         },
         .delete_cols => {
-            const data = tree.getData(i);
-            const delete_node = tree.extraData(data.lhs, Node.DeleteColumns);
+            const delete_node = tree.extraData(datas[i].lhs, Node.DeleteColumns);
 
             var from = std.ArrayList(u8).init(gpa);
             defer from.deinit();
@@ -2070,17 +2022,30 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(!;{s};();0b;{s})", .{ from.items, select.items });
         },
 
-        .system => {
-            const source = tree.getSource(i)[1..];
+        .system,
+        .current_directory,
+        .change_directory,
+        .load_file_or_directory,
+        => {
+            const data = datas[i];
+            const main_token_source = tree.tokenSlice(main_tokens[i]);
 
-            try stream.print("(.,[\"\\\\\"];\"{s}\")", .{source});
-        },
-        .system_load_file_or_directory => {
-            const data = tree.getData(i);
-            const loc = tree.tokens.items(.loc)[data.lhs];
-            const source = tree.source[loc.start..loc.end];
+            if (data.lhs > 0) {
+                const sub_range = tree.extraData(datas[i].lhs, Node.SubRange);
+                const params = tree.extra_data[sub_range.start..sub_range.end];
 
-            try stream.print("(.,[\"\\\\\"];\"l {s}\")", .{source});
+                var params_list = std.ArrayList(u8).init(gpa);
+                defer params_list.deinit();
+                for (params, 0..) |param_i, temp_i| {
+                    try params_list.appendSlice(tree.tokenSlice(param_i));
+                    if (temp_i < params.len - 1) {
+                        try params_list.append(' ');
+                    }
+                }
+                try stream.print("(.,[\"\\\\\"];\"{s} {s}\")", .{ main_token_source[1..], params_list.items });
+            } else {
+                try stream.print("(.,[\"\\\\\"];\"{s}\")", .{main_token_source[1..]});
+            }
         },
     }
 }
@@ -2118,6 +2083,8 @@ fn printColumns(tree: Ast, start: Node.Index, len: usize, stream: anytype) Alloc
 }
 
 fn printList(tree: Ast, list: []Node.Index, stream: anytype, gpa: Allocator) Allocator.Error!void {
+    const tags: []Node.Tag = tree.nodes.items(.tag);
+
     switch (list.len) {
         0 => {
             try stream.writeAll("()");
@@ -2132,10 +2099,9 @@ fn printList(tree: Ast, list: []Node.Index, stream: anytype, gpa: Allocator) All
             var hash_set = std.AutoHashMap(Node.Tag, void).init(gpa);
             defer hash_set.deinit();
 
-            try hash_set.put(tree.getTag(list[0]), {});
+            try hash_set.put(tags[list[0]], {});
             for (list[1..]) |i| {
-                const tag = tree.getTag(i);
-                const result = try hash_set.getOrPut(tag);
+                const result = try hash_set.getOrPut(tags[i]);
                 if (!result.found_existing) break;
             } else {
                 var iter = hash_set.keyIterator();
@@ -2164,11 +2130,11 @@ fn printList(tree: Ast, list: []Node.Index, stream: anytype, gpa: Allocator) All
 }
 
 pub fn debug(tree: Ast, gpa: Allocator) !void {
-    const data = tree.getData(0);
+    const data = tree.nodes.items(.data)[0];
     for (data.lhs..data.rhs) |extra_data_i| {
         var list = std.ArrayList(u8).init(gpa);
         defer list.deinit();
-        try tree.print(tree.getExtraData(extra_data_i), list.writer(), gpa);
+        try tree.print(tree.extra_data[extra_data_i], list.writer(), gpa);
         log.debug("{s}", .{list.items});
     }
 }
