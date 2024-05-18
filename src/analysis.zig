@@ -9,7 +9,7 @@ pub fn collectImports(allocator: std.mem.Allocator, tree: Ast) error{OutOfMemory
     errdefer imports.deinit(allocator);
 
     for (tree.nodes.items(.tag), tree.nodes.items(.data)) |tag, data| {
-        if (tag != .system_load_file_or_directory) continue;
+        if (tag != .load_file_or_directory) continue;
 
         const str = tree.tokenSlice(data.lhs);
         try imports.append(allocator, str);

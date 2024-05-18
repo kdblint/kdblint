@@ -750,7 +750,9 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .delete_rows,
         .delete_cols,
         .system,
-        .system_load_file_or_directory,
+        .current_directory,
+        .change_directory,
+        .load_file_or_directory,
         => return null,
     }
 }
@@ -890,34 +892,54 @@ fn number(p: *Parse) Error!Node.Index {
 }
 
 fn system(p: *Parse) Error!Node.Index {
-    return p.addNode(.{
-        .tag = .system,
-        .main_token = p.nextToken(),
-        .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
-        },
-    });
-}
+    const main_token = p.assertToken(.system);
 
-fn systemLoadFileOrDirectory(p: *Parse) Error!Node.Index {
-    const main_token = p.assertToken(.system_load_file_or_directory);
-    const lhs = try p.expectToken(.system_param);
-    const rhs = p.eatToken(.system_param) orelse 0;
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    if (!p.tokensOnSameLine(main_token, if (rhs > 0) rhs else lhs)) {
-        return p.failMsg(.{
-            .tag = .load_statement_expects_all_tokens_on_same_line,
-            .token = rhs,
-        });
+    while (true) {
+        if (p.eob) break;
+        const param = try p.expectToken(.system_param);
+        try p.scratch.append(p.gpa, param);
     }
 
+    const params = p.scratch.items[scratch_top..];
+    if (params.len > 0 and !p.tokensOnSameLine(main_token, params[params.len - 1])) {
+        return p.fail(.system_expects_all_tokens_on_same_line);
+    }
+
+    const loc = p.token_locs[main_token];
+    const source = p.source[loc.start..loc.end][1..];
+    return if (std.mem.eql(u8, source, "l"))
+        p.loadFileOrDirectory(main_token, params)
+    else if (std.mem.eql(u8, source, "cd"))
+        if (params.len == 0)
+            p.systemInternal(.current_directory, main_token, params)
+        else
+            p.changeDirectory(main_token, params)
+    else
+        p.systemInternal(.system, main_token, params);
+}
+
+fn changeDirectory(p: *Parse, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
+    if (params.len == 0) return p.failExpected(.system_param);
+
+    return p.systemInternal(.change_directory, main_token, params);
+}
+
+fn loadFileOrDirectory(p: *Parse, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
+    if (params.len == 0) return p.failExpected(.system_param);
+
+    return p.systemInternal(.load_file_or_directory, main_token, params);
+}
+
+fn systemInternal(p: *Parse, comptime tag: Node.Tag, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
     return p.addNode(.{
-        .tag = .system_load_file_or_directory,
+        .tag = tag,
         .main_token = main_token,
         .data = .{
-            .lhs = lhs,
-            .rhs = rhs,
+            .lhs = if (params.len > 0) try p.addExtra(try p.listToSpan(params)) else 0,
+            .rhs = undefined,
         },
     });
 }
@@ -1919,7 +1941,6 @@ const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
 
     // System
     .system = .{ .prefix = system, .infix = null, .prec = .none },
-    .system_load_file_or_directory = .{ .prefix = systemLoadFileOrDirectory, .infix = null, .prec = .none },
     .system_param = .{ .prefix = null, .infix = null, .prec = .none },
 
     // Keywords
@@ -2039,7 +2060,9 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .minus,
         .at,
         .system,
-        .system_load_file_or_directory,
+        .current_directory,
+        .change_directory,
+        .load_file_or_directory,
         => {},
         .call => {
             const data = tree.nodes.items(.data)[i];
@@ -2591,17 +2614,29 @@ test "iterators" {
 test "system" {
     try testParse("\\ls", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls\")");
     try testParse("\\ls arg", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls arg\")");
+    try testParse("\\ls arg1 arg2", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls arg1 arg2\")");
 }
 
-test "system_load_file_or_directory" {
-    try testParse("\\l file", &.{ .implicit_return, .system_load_file_or_directory }, "(.,[\"\\\\\"];\"l file\")");
-    try testParse("\\l file extra", &.{ .implicit_return, .system_load_file_or_directory }, "(.,[\"\\\\\"];\"l file\")");
-
+test "load_file_or_directory" {
+    try testParse("\\l file", &.{ .implicit_return, .load_file_or_directory }, "(.,[\"\\\\\"];\"l file\")");
+    try testParse("\\l file extra", &.{ .implicit_return, .load_file_or_directory }, "(.,[\"\\\\\"];\"l file extra\")");
     try testParseError("\\l", &.{.expected_token});
     try testParseError(
         \\\l file
         \\ l file
-    , &.{.load_statement_expects_all_tokens_on_same_line});
+    , &.{.system_expects_all_tokens_on_same_line});
+}
+
+test "current_directory" {
+    try testParse("\\cd", &.{ .implicit_return, .current_directory }, "(.,[\"\\\\\"];\"cd\")");
+}
+
+test "change_directory" {
+    try testParse("\\cd path", &.{ .implicit_return, .change_directory }, "(.,[\"\\\\\"];\"cd path\")");
+    try testParseError(
+        \\\cd path
+        \\ cd path
+    , &.{.system_expects_all_tokens_on_same_line});
 }
 
 test {
