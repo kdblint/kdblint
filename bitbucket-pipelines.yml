@@ -1,0 +1,12 @@
+image: alpine/git:latest
+
+pipelines:
+  default:
+  - step:
+      name: GitHub mirror
+      clone:
+        enabled: false
+      script:
+      - git clone --bare git@bitbucket.org:kdblint/zig-kdblint.git
+      - cd zig-kdblint.git
+      - git push --mirror git@github.com:kdbLint/zig-kdblint.git
