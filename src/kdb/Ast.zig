@@ -1165,14 +1165,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
             return tree.lastToken(iterator.rhs);
         },
 
-        // TODO: do we need to check for >0 here?
-        .implicit_apply => {
-            const data = datas[i];
-            if (data.rhs > 0) {
-                return tree.lastToken(data.rhs);
-            }
-            unreachable;
-        },
+        .implicit_apply => return tree.lastToken(datas[i].rhs),
 
         .lambda,
         .lambda_semicolon,
