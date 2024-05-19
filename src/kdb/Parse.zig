@@ -897,8 +897,7 @@ fn system(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    while (true) {
-        if (p.eob) break;
+    while (!p.eob) {
         const param = try p.expectToken(.system_param);
         try p.scratch.append(p.gpa, param);
     }
@@ -910,20 +909,25 @@ fn system(p: *Parse) Error!Node.Index {
 
     const loc = p.token_locs[main_token];
     const source = p.source[loc.start..loc.end][1..];
-    return if (std.mem.eql(u8, source, "l"))
-        p.loadFileOrDirectory(main_token, params)
-    else if (std.mem.eql(u8, source, "cd"))
-        if (params.len == 0)
-            p.systemInternal(.current_directory, main_token, params)
-        else
-            p.changeDirectory(main_token, params)
-    else
-        p.systemInternal(.system, main_token, params);
+    return switch (source.len) {
+        0 => null,
+        1 => switch (source[0]) {
+            'l' => try p.loadFileOrDirectory(main_token, params),
+            else => null,
+        },
+        2 => switch (source[0]) {
+            'c' => switch (source[1]) {
+                'd' => try if (params.len == 0) p.systemInternal(.current_directory, main_token, params) else p.changeDirectory(main_token, params),
+                else => null,
+            },
+            else => null,
+        },
+        else => null,
+    } orelse p.systemInternal(.system, main_token, params);
 }
 
 fn changeDirectory(p: *Parse, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
-    if (params.len == 0) return p.failExpected(.system_param);
-
+    assert(params.len > 0);
     return p.systemInternal(.change_directory, main_token, params);
 }
 
