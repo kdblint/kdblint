@@ -11,7 +11,9 @@ pub fn collectImports(allocator: std.mem.Allocator, tree: Ast) error{OutOfMemory
     for (tree.nodes.items(.tag), tree.nodes.items(.data)) |tag, data| {
         if (tag != .load_file_or_directory) continue;
 
-        const str = tree.tokenSlice(data.lhs);
+        const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+        const extra_data = tree.extra_data[sub_range.start..sub_range.end];
+        const str = tree.tokenSlice(extra_data[0]);
         try imports.append(allocator, str);
     }
 
