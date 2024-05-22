@@ -59,6 +59,142 @@ pub const Token = struct {
         .{ "within", .keyword_within },
         .{ "wsum", .keyword_wsum },
         .{ "xexp", .keyword_xexp },
+
+        .{ "aj", .keyword_q_aj },
+        .{ "aj0", .keyword_q_aj0 },
+        .{ "ajf", .keyword_q_ajf },
+        .{ "ajf0", .keyword_q_ajf0 },
+        .{ "all", .keyword_q_all },
+        .{ "and", .keyword_q_and },
+        .{ "any", .keyword_q_any },
+        .{ "asc", .keyword_q_asc },
+        .{ "asof", .keyword_q_asof },
+        .{ "attr", .keyword_q_attr },
+        .{ "avgs", .keyword_q_avgs },
+        .{ "ceiling", .keyword_q_ceiling },
+        .{ "cols", .keyword_q_cols },
+        .{ "count", .keyword_q_count },
+        .{ "cross", .keyword_q_cross },
+        .{ "csv", .keyword_q_csv },
+        .{ "cut", .keyword_q_cut },
+        .{ "deltas", .keyword_q_deltas },
+        .{ "desc", .keyword_q_desc },
+        .{ "differ", .keyword_q_differ },
+        .{ "distinct", .keyword_q_distinct },
+        .{ "dsave", .keyword_q_dsave },
+        .{ "each", .keyword_q_each },
+        .{ "ej", .keyword_q_ej },
+        .{ "ema", .keyword_q_ema },
+        .{ "eval", .keyword_q_eval },
+        .{ "except", .keyword_q_except },
+        .{ "fby", .keyword_q_fby },
+        .{ "fills", .keyword_q_fills },
+        .{ "first", .keyword_q_first },
+        .{ "fkeys", .keyword_q_fkeys },
+        .{ "flip", .keyword_q_flip },
+        .{ "floor", .keyword_q_floor },
+        .{ "get", .keyword_q_get },
+        .{ "group", .keyword_q_group },
+        .{ "gtime", .keyword_q_gtime },
+        .{ "hclose", .keyword_q_hclose },
+        .{ "hcount", .keyword_q_hcount },
+        .{ "hdel", .keyword_q_hdel },
+        .{ "hsym", .keyword_q_hsym },
+        .{ "iasc", .keyword_q_iasc },
+        .{ "idesc", .keyword_q_idesc },
+        .{ "ij", .keyword_q_ij },
+        .{ "ijf", .keyword_q_ijf },
+        .{ "inter", .keyword_q_inter },
+        .{ "inv", .keyword_q_inv },
+        .{ "key", .keyword_q_key },
+        .{ "keys", .keyword_q_keys },
+        .{ "lj", .keyword_q_lj },
+        .{ "ljf", .keyword_q_ljf },
+        .{ "load", .keyword_q_load },
+        .{ "lower", .keyword_q_lower },
+        .{ "lsq", .keyword_q_lsq },
+        .{ "ltime", .keyword_q_ltime },
+        .{ "ltrim", .keyword_q_ltrim },
+        .{ "mavg", .keyword_q_mavg },
+        .{ "maxs", .keyword_q_maxs },
+        .{ "mcount", .keyword_q_mcount },
+        .{ "md5", .keyword_q_md5 },
+        .{ "mdev", .keyword_q_mdev },
+        .{ "med", .keyword_q_med },
+        .{ "meta", .keyword_q_meta },
+        .{ "mins", .keyword_q_mins },
+        .{ "mmax", .keyword_q_mmax },
+        .{ "mmin", .keyword_q_mmin },
+        .{ "mmu", .keyword_q_mmu },
+        .{ "mod", .keyword_q_mod },
+        .{ "msum", .keyword_q_msum },
+        .{ "neg", .keyword_q_neg },
+        .{ "next", .keyword_q_next },
+        .{ "not", .keyword_q_not },
+        .{ "null", .keyword_q_null },
+        .{ "or", .keyword_q_or },
+        .{ "over", .keyword_q_over },
+        .{ "parse", .keyword_q_parse },
+        .{ "peach", .keyword_q_peach },
+        .{ "pj", .keyword_q_pj },
+        .{ "prds", .keyword_q_prds },
+        .{ "prev", .keyword_q_prev },
+        .{ "prior", .keyword_q_prior },
+        .{ "rand", .keyword_q_rand },
+        .{ "rank", .keyword_q_rank },
+        .{ "ratios", .keyword_q_ratios },
+        .{ "raze", .keyword_q_raze },
+        .{ "read0", .keyword_q_read0 },
+        .{ "read1", .keyword_q_read1 },
+        .{ "reciprocal", .keyword_q_reciprocal },
+        .{ "reval", .keyword_q_reval },
+        .{ "reverse", .keyword_q_reverse },
+        .{ "rload", .keyword_q_rload },
+        .{ "rotate", .keyword_q_rotate },
+        .{ "rsave", .keyword_q_rsave },
+        .{ "rtrim", .keyword_q_rtrim },
+        .{ "save", .keyword_q_save },
+        .{ "scan", .keyword_q_scan },
+        .{ "scov", .keyword_q_scov },
+        .{ "sdev", .keyword_q_sdev },
+        .{ "set", .keyword_q_set },
+        .{ "show", .keyword_q_show },
+        .{ "signum", .keyword_q_signum },
+        .{ "ssr", .keyword_q_ssr },
+        .{ "string", .keyword_q_string },
+        .{ "sublist", .keyword_q_sublist },
+        .{ "sums", .keyword_q_sums },
+        .{ "sv", .keyword_q_sv },
+        .{ "svar", .keyword_q_svar },
+        .{ "system", .keyword_q_system },
+        .{ "tables", .keyword_q_tables },
+        .{ "til", .keyword_q_til },
+        .{ "trim", .keyword_q_trim },
+        .{ "type", .keyword_q_type },
+        .{ "uj", .keyword_q_uj },
+        .{ "ujf", .keyword_q_ujf },
+        .{ "ungroup", .keyword_q_ungroup },
+        .{ "union", .keyword_q_union },
+        .{ "upper", .keyword_q_upper },
+        .{ "upsert", .keyword_q_upsert },
+        .{ "value", .keyword_q_value },
+        .{ "view", .keyword_q_view },
+        .{ "views", .keyword_q_views },
+        .{ "vs", .keyword_q_vs },
+        .{ "where", .keyword_q_where },
+        .{ "wj", .keyword_q_wj },
+        .{ "wj1", .keyword_q_wj1 },
+        .{ "ww", .keyword_q_ww },
+        .{ "xasc", .keyword_q_xasc },
+        .{ "xbar", .keyword_q_xbar },
+        .{ "xcol", .keyword_q_xcol },
+        .{ "xcols", .keyword_q_xcols },
+        .{ "xdesc", .keyword_q_xdesc },
+        .{ "xgroup", .keyword_q_xgroup },
+        .{ "xkey", .keyword_q_xkey },
+        .{ "xlog", .keyword_q_xlog },
+        .{ "xprev", .keyword_q_xprev },
+        .{ "xrank", .keyword_q_xrank },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -143,12 +279,11 @@ pub const Token = struct {
         // Misc.
         comment,
         invalid,
+        os,
+        os_param,
         eof,
 
-        system,
-        system_param,
-
-        // Keywords : -1","sv"keyword_",/:string .Q.res;
+        // Keywords : -1","sv"keyword_",/:string asc .Q.res;
         keyword_abs,
         keyword_acos,
         keyword_asin,
@@ -193,6 +328,143 @@ pub const Token = struct {
         keyword_wsum,
         keyword_xexp,
 
+        // Q Keywords : -1","sv"keyword_q_",/:string asc 1_key`.q;
+        keyword_q_aj,
+        keyword_q_aj0,
+        keyword_q_ajf,
+        keyword_q_ajf0,
+        keyword_q_all,
+        keyword_q_and,
+        keyword_q_any,
+        keyword_q_asc,
+        keyword_q_asof,
+        keyword_q_attr,
+        keyword_q_avgs,
+        keyword_q_ceiling,
+        keyword_q_cols,
+        keyword_q_count,
+        keyword_q_cross,
+        keyword_q_csv,
+        keyword_q_cut,
+        keyword_q_deltas,
+        keyword_q_desc,
+        keyword_q_differ,
+        keyword_q_distinct,
+        keyword_q_dsave,
+        keyword_q_each,
+        keyword_q_ej,
+        keyword_q_ema,
+        keyword_q_eval,
+        keyword_q_except,
+        keyword_q_fby,
+        keyword_q_fills,
+        keyword_q_first,
+        keyword_q_fkeys,
+        keyword_q_flip,
+        keyword_q_floor,
+        keyword_q_get,
+        keyword_q_group,
+        keyword_q_gtime,
+        keyword_q_hclose,
+        keyword_q_hcount,
+        keyword_q_hdel,
+        keyword_q_hsym,
+        keyword_q_iasc,
+        keyword_q_idesc,
+        keyword_q_ij,
+        keyword_q_ijf,
+        keyword_q_inter,
+        keyword_q_inv,
+        keyword_q_key,
+        keyword_q_keys,
+        keyword_q_lj,
+        keyword_q_ljf,
+        keyword_q_load,
+        keyword_q_lower,
+        keyword_q_lsq,
+        keyword_q_ltime,
+        keyword_q_ltrim,
+        keyword_q_mavg,
+        keyword_q_maxs,
+        keyword_q_mcount,
+        keyword_q_md5,
+        keyword_q_mdev,
+        keyword_q_med,
+        keyword_q_meta,
+        keyword_q_mins,
+        keyword_q_mmax,
+        keyword_q_mmin,
+        keyword_q_mmu,
+        keyword_q_mod,
+        keyword_q_msum,
+        keyword_q_neg,
+        keyword_q_next,
+        keyword_q_not,
+        keyword_q_null,
+        keyword_q_or,
+        keyword_q_over,
+        keyword_q_parse,
+        keyword_q_peach,
+        keyword_q_pj,
+        keyword_q_prds,
+        keyword_q_prev,
+        keyword_q_prior,
+        keyword_q_rand,
+        keyword_q_rank,
+        keyword_q_ratios,
+        keyword_q_raze,
+        keyword_q_read0,
+        keyword_q_read1,
+        keyword_q_reciprocal,
+        keyword_q_reval,
+        keyword_q_reverse,
+        keyword_q_rload,
+        keyword_q_rotate,
+        keyword_q_rsave,
+        keyword_q_rtrim,
+        keyword_q_save,
+        keyword_q_scan,
+        keyword_q_scov,
+        keyword_q_sdev,
+        keyword_q_set,
+        keyword_q_show,
+        keyword_q_signum,
+        keyword_q_ssr,
+        keyword_q_string,
+        keyword_q_sublist,
+        keyword_q_sums,
+        keyword_q_sv,
+        keyword_q_svar,
+        keyword_q_system,
+        keyword_q_tables,
+        keyword_q_til,
+        keyword_q_trim,
+        keyword_q_type,
+        keyword_q_uj,
+        keyword_q_ujf,
+        keyword_q_ungroup,
+        keyword_q_union,
+        keyword_q_upper,
+        keyword_q_upsert,
+        keyword_q_value,
+        keyword_q_view,
+        keyword_q_views,
+        keyword_q_vs,
+        keyword_q_where,
+        keyword_q_wj,
+        keyword_q_wj1,
+        keyword_q_ww,
+        keyword_q_xasc,
+        keyword_q_xbar,
+        keyword_q_xcol,
+        keyword_q_xcols,
+        keyword_q_xdesc,
+        keyword_q_xgroup,
+        keyword_q_xkey,
+        keyword_q_xlog,
+        keyword_q_xprev,
+        keyword_q_xrank,
+
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
                 .number_literal,
@@ -203,8 +475,8 @@ pub const Token = struct {
                 .comment,
                 .invalid,
                 .eof,
-                .system,
-                .system_param,
+                .os,
+                .os_param,
                 => null,
 
                 .l_paren => "(",
@@ -312,6 +584,142 @@ pub const Token = struct {
                 .keyword_within => "within",
                 .keyword_wsum => "wsum",
                 .keyword_xexp => "xexp",
+
+                .keyword_q_aj => "aj",
+                .keyword_q_aj0 => "aj0",
+                .keyword_q_ajf => "ajf",
+                .keyword_q_ajf0 => "ajf0",
+                .keyword_q_all => "all",
+                .keyword_q_and => "and",
+                .keyword_q_any => "any",
+                .keyword_q_asc => "asc",
+                .keyword_q_asof => "asof",
+                .keyword_q_attr => "attr",
+                .keyword_q_avgs => "avgs",
+                .keyword_q_ceiling => "ceiling",
+                .keyword_q_cols => "cols",
+                .keyword_q_count => "count",
+                .keyword_q_cross => "cross",
+                .keyword_q_csv => "csv",
+                .keyword_q_cut => "cut",
+                .keyword_q_deltas => "deltas",
+                .keyword_q_desc => "desc",
+                .keyword_q_differ => "differ",
+                .keyword_q_distinct => "distinct",
+                .keyword_q_dsave => "dsave",
+                .keyword_q_each => "each",
+                .keyword_q_ej => "ej",
+                .keyword_q_ema => "ema",
+                .keyword_q_eval => "eval",
+                .keyword_q_except => "except",
+                .keyword_q_fby => "fby",
+                .keyword_q_fills => "fills",
+                .keyword_q_first => "first",
+                .keyword_q_fkeys => "fkeys",
+                .keyword_q_flip => "flip",
+                .keyword_q_floor => "floor",
+                .keyword_q_get => "get",
+                .keyword_q_group => "group",
+                .keyword_q_gtime => "gtime",
+                .keyword_q_hclose => "hclose",
+                .keyword_q_hcount => "hcount",
+                .keyword_q_hdel => "hdel",
+                .keyword_q_hsym => "hsym",
+                .keyword_q_iasc => "iasc",
+                .keyword_q_idesc => "idesc",
+                .keyword_q_ij => "ij",
+                .keyword_q_ijf => "ijf",
+                .keyword_q_inter => "inter",
+                .keyword_q_inv => "inv",
+                .keyword_q_key => "key",
+                .keyword_q_keys => "keys",
+                .keyword_q_lj => "lj",
+                .keyword_q_ljf => "ljf",
+                .keyword_q_load => "load",
+                .keyword_q_lower => "lower",
+                .keyword_q_lsq => "lsq",
+                .keyword_q_ltime => "ltime",
+                .keyword_q_ltrim => "ltrim",
+                .keyword_q_mavg => "mavg",
+                .keyword_q_maxs => "maxs",
+                .keyword_q_mcount => "mcount",
+                .keyword_q_md5 => "md5",
+                .keyword_q_mdev => "mdev",
+                .keyword_q_med => "med",
+                .keyword_q_meta => "meta",
+                .keyword_q_mins => "mins",
+                .keyword_q_mmax => "mmax",
+                .keyword_q_mmin => "mmin",
+                .keyword_q_mmu => "mmu",
+                .keyword_q_mod => "mod",
+                .keyword_q_msum => "msum",
+                .keyword_q_neg => "neg",
+                .keyword_q_next => "next",
+                .keyword_q_not => "not",
+                .keyword_q_null => "null",
+                .keyword_q_or => "or",
+                .keyword_q_over => "over",
+                .keyword_q_parse => "parse",
+                .keyword_q_peach => "peach",
+                .keyword_q_pj => "pj",
+                .keyword_q_prds => "prds",
+                .keyword_q_prev => "prev",
+                .keyword_q_prior => "prior",
+                .keyword_q_rand => "rand",
+                .keyword_q_rank => "rank",
+                .keyword_q_ratios => "ratios",
+                .keyword_q_raze => "raze",
+                .keyword_q_read0 => "read0",
+                .keyword_q_read1 => "read1",
+                .keyword_q_reciprocal => "reciprocal",
+                .keyword_q_reval => "reval",
+                .keyword_q_reverse => "reverse",
+                .keyword_q_rload => "rload",
+                .keyword_q_rotate => "rotate",
+                .keyword_q_rsave => "rsave",
+                .keyword_q_rtrim => "rtrim",
+                .keyword_q_save => "save",
+                .keyword_q_scan => "scan",
+                .keyword_q_scov => "scov",
+                .keyword_q_sdev => "sdev",
+                .keyword_q_set => "set",
+                .keyword_q_show => "show",
+                .keyword_q_signum => "signum",
+                .keyword_q_ssr => "ssr",
+                .keyword_q_string => "string",
+                .keyword_q_sublist => "sublist",
+                .keyword_q_sums => "sums",
+                .keyword_q_sv => "sv",
+                .keyword_q_svar => "svar",
+                .keyword_q_system => "system",
+                .keyword_q_tables => "tables",
+                .keyword_q_til => "til",
+                .keyword_q_trim => "trim",
+                .keyword_q_type => "type",
+                .keyword_q_uj => "uj",
+                .keyword_q_ujf => "ujf",
+                .keyword_q_ungroup => "ungroup",
+                .keyword_q_union => "union",
+                .keyword_q_upper => "upper",
+                .keyword_q_upsert => "upsert",
+                .keyword_q_value => "value",
+                .keyword_q_view => "view",
+                .keyword_q_views => "views",
+                .keyword_q_vs => "vs",
+                .keyword_q_where => "where",
+                .keyword_q_wj => "wj",
+                .keyword_q_wj1 => "wj1",
+                .keyword_q_ww => "ww",
+                .keyword_q_xasc => "xasc",
+                .keyword_q_xbar => "xbar",
+                .keyword_q_xcol => "xcol",
+                .keyword_q_xcols => "xcols",
+                .keyword_q_xdesc => "xdesc",
+                .keyword_q_xgroup => "xgroup",
+                .keyword_q_xkey => "xkey",
+                .keyword_q_xlog => "xlog",
+                .keyword_q_xprev => "xprev",
+                .keyword_q_xrank => "xrank",
             };
         }
 
@@ -343,8 +751,8 @@ pub const Token = struct {
                 .comment => "a comment",
                 .invalid => "invalid bytes",
                 .eof => "EOF",
-                .system => "a system command",
-                .system_param => "a system command parameter",
+                .os => "an OS command",
+                .os_param => "an OS command parameter",
                 else => if (builtin.is_test) @panic(@tagName(tag)) else unreachable,
             };
         }
@@ -436,9 +844,9 @@ pub const Tokenizer = struct {
 
         identifier,
 
-        system_param,
-        system_param_no_comment,
-        system_param_allow_comment,
+        os_param,
+        os_param_no_comment,
+        os_param_allow_comment,
 
         maybe_trailing_comment,
         start_trailing_comment,
@@ -1023,30 +1431,30 @@ pub const Tokenizer = struct {
                     },
                 },
 
-                .system_param => switch (c) {
+                .os_param => switch (c) {
                     0, ' ', '\t', '\r' => break,
                     '\n' => {
-                        self.next_state = .system_param_allow_comment;
+                        self.next_state = .os_param_allow_comment;
                         break;
                     },
                     else => {},
                 },
-                .system_param_no_comment => switch (c) {
+                .os_param_no_comment => switch (c) {
                     0 => break,
                     ' ', '\t', '\r' => {
                         result.loc.start = self.impl.index + 1;
                     },
                     '\n' => {
                         result.loc.start = self.impl.index + 1;
-                        state = .system_param_allow_comment;
-                        self.next_state = .system_param_allow_comment;
+                        state = .os_param_allow_comment;
+                        self.next_state = .os_param_allow_comment;
                     },
                     else => {
-                        result.tag = .system_param;
-                        state = .system_param;
+                        result.tag = .os_param;
+                        state = .os_param;
                     },
                 },
-                .system_param_allow_comment => switch (c) {
+                .os_param_allow_comment => switch (c) {
                     0 => break,
                     ' ', '\t', '\r', '\n' => {
                         result.loc.start = self.impl.index + 1;
@@ -1061,8 +1469,8 @@ pub const Tokenizer = struct {
                         }
                     },
                     else => {
-                        result.tag = .system_param;
-                        state = .system_param;
+                        result.tag = .os_param;
+                        state = .os_param;
                     },
                 },
 
@@ -1075,9 +1483,9 @@ pub const Tokenizer = struct {
                         state = .trailing_comment;
                     },
                     else => {
-                        result.tag = .system;
-                        state = .system_param;
-                        self.next_state = .system_param_no_comment;
+                        result.tag = .os;
+                        state = .os_param;
+                        self.next_state = .os_param_no_comment;
                     },
                 },
                 .start_trailing_comment => switch (c) {
@@ -1268,7 +1676,7 @@ pub const Tokenizer = struct {
                         if (self.impl.character == 0) {
                             state = .maybe_block;
                         } else if (std.ascii.isWhitespace(self.buffer[self.impl.index - 1])) {
-                            if (self.next_state == .system_param_no_comment) return false;
+                            if (self.next_state == .os_param_no_comment) return false;
                             state = .line;
                         } else {
                             return false;
@@ -1787,7 +2195,7 @@ test "tokenize string" {
     , &.{
         .{ .tag = .invalid, .loc = .{ .start = 0, .end = 19 }, .eob = true },
         .{ .tag = .identifier, .loc = .{ .start = 20, .end = 29 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 30, .end = 36 }, .eob = false },
+        .{ .tag = .keyword_q_string, .loc = .{ .start = 30, .end = 36 }, .eob = false },
         .{ .tag = .invalid, .loc = .{ .start = 36, .end = 37 }, .eob = true },
     });
 }
@@ -1927,8 +2335,8 @@ test "tokenize starting comment" {
         \\identifier
     , &.{
         .{ .tag = .comment, .loc = .{ .start = 0, .end = 55 }, .eob = false },
-        .{ .tag = .system, .loc = .{ .start = 56, .end = 58 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 59, .end = 60 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 56, .end = 58 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 59, .end = 60 }, .eob = true },
         .{ .tag = .identifier, .loc = .{ .start = 61, .end = 71 }, .eob = true },
     });
     try testTokenize(
@@ -2025,7 +2433,7 @@ test "tokenize line comment" {
     try testTokenize("1/not a line comment", &.{
         .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .slash, .loc = .{ .start = 1, .end = 2 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 2, .end = 5 }, .eob = false },
+        .{ .tag = .keyword_q_not, .loc = .{ .start = 2, .end = 5 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 6, .end = 7 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 8, .end = 12 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 13, .end = 20 }, .eob = true },
@@ -2033,7 +2441,7 @@ test "tokenize line comment" {
     try testTokenize("1/ not a line comment", &.{
         .{ .tag = .number_literal, .loc = .{ .start = 0, .end = 1 }, .eob = false },
         .{ .tag = .slash, .loc = .{ .start = 1, .end = 2 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 3, .end = 6 }, .eob = false },
+        .{ .tag = .keyword_q_not, .loc = .{ .start = 3, .end = 6 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 7, .end = 8 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 9, .end = 13 }, .eob = false },
         .{ .tag = .identifier, .loc = .{ .start = 14, .end = 21 }, .eob = true },
@@ -2153,54 +2561,54 @@ test "tokenize trailing comment" {
     });
 }
 
-test "tokenize system" {
+test "tokenize OS" {
     try testTokenize(
         \\\ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = true },
     });
     try testTokenize(
         \\\ls /not a comment
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 4, .end = 8 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 9, .end = 10 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 11, .end = 18 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 4, .end = 8 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 9, .end = 10 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 11, .end = 18 }, .eob = true },
     });
     try testTokenize(
         \\\ls .
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 4, .end = 5 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 4, .end = 5 }, .eob = true },
     });
     try testTokenize(
         \\\ls
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 5, .end = 7 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 5, .end = 7 }, .eob = true },
     });
     try testTokenize(
         \\\ls
         \\ ls
         \\1
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 5, .end = 7 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 5, .end = 7 }, .eob = true },
         .{ .tag = .number_literal, .loc = .{ .start = 8, .end = 9 }, .eob = true },
     });
     try testTokenize(
         \\\ls
         \\/line comment
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
     });
     try testTokenize(
         \\\ls
         \\ /line comment
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 5, .end = 18 }, .eob = false },
     });
     try testTokenize(
@@ -2208,7 +2616,7 @@ test "tokenize system" {
         \\/line comment
         \\1
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
         .{ .tag = .number_literal, .loc = .{ .start = 18, .end = 19 }, .eob = true },
     });
@@ -2226,9 +2634,9 @@ test "tokenize system" {
         \\/line comment
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 19, .end = 21 }, .eob = true },
+        .{ .tag = .os_param, .loc = .{ .start = 19, .end = 21 }, .eob = true },
     });
     try testTokenize(
         \\\ls
@@ -2236,9 +2644,9 @@ test "tokenize system" {
         \\ ls
         \\/line comment
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 19, .end = 21 }, .eob = true },
+        .{ .tag = .os_param, .loc = .{ .start = 19, .end = 21 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 22, .end = 35 }, .eob = false },
     });
     try testTokenize(
@@ -2248,11 +2656,11 @@ test "tokenize system" {
         \\/line comment
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 17 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 19, .end = 21 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 19, .end = 21 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 22, .end = 35 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 37, .end = 39 }, .eob = true },
+        .{ .tag = .os_param, .loc = .{ .start = 37, .end = 39 }, .eob = true },
     });
     try testTokenize(
         \\\ls
@@ -2261,9 +2669,9 @@ test "tokenize system" {
         \\\
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
+        .{ .tag = .os_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
     });
     try testTokenize(
         \\\ls
@@ -2275,9 +2683,9 @@ test "tokenize system" {
         \\block comment
         \\\
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
+        .{ .tag = .os_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 26, .end = 43 }, .eob = false },
     });
     try testTokenize(
@@ -2291,11 +2699,11 @@ test "tokenize system" {
         \\\
         \\ ls
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = false },
+        .{ .tag = .os_param, .loc = .{ .start = 23, .end = 25 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 26, .end = 43 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 45, .end = 47 }, .eob = true },
+        .{ .tag = .os_param, .loc = .{ .start = 45, .end = 47 }, .eob = true },
     });
     try testTokenize(
         \\\ls
@@ -2305,7 +2713,7 @@ test "tokenize system" {
         \\\
         \\ trailing comment
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 22, .end = 41 }, .eob = false },
     });
@@ -2318,9 +2726,9 @@ test "tokenize system" {
         \\\
         \\ trailing comment
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = false },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = false },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 21 }, .eob = false },
-        .{ .tag = .system_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
+        .{ .tag = .os_param, .loc = .{ .start = 23, .end = 25 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 26, .end = 45 }, .eob = false },
     });
     try testTokenize(
@@ -2328,7 +2736,7 @@ test "tokenize system" {
         \\\
         \\this is a trailing comment
     , &.{
-        .{ .tag = .system, .loc = .{ .start = 0, .end = 3 }, .eob = true },
+        .{ .tag = .os, .loc = .{ .start = 0, .end = 3 }, .eob = true },
         .{ .tag = .comment, .loc = .{ .start = 4, .end = 32 }, .eob = false },
     });
 }

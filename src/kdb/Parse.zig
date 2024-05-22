@@ -314,9 +314,34 @@ fn Prefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
     }.impl;
 }
 
+fn QPrefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
+    return struct {
+        fn impl(p: *Parse) Error!Node.Index {
+            return switch (p.language) {
+                .k => return operTable[@intFromEnum(Token.Tag.identifier)].prefix.?(p),
+                .q => return Prefix(tag)(p),
+            };
+        }
+    }.impl;
+}
+
 fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index {
     return struct {
         fn impl(p: *Parse, lhs: Node.Index) Error!Node.Index {
+            switch (tag) {
+                .assign => {
+                    const prev_tag = p.nodes.items(.tag)[lhs];
+                    if (prev_tag != .identifier) {
+                        return p.failMsg(.{
+                            .tag = .expected_token,
+                            .token = p.nodes.items(.main_token)[lhs],
+                            .extra = .{ .expected_tag = .identifier },
+                        });
+                    }
+                },
+                else => {},
+            }
+
             const main_token = p.nextToken();
             const iterator_tag: Node.Tag = switch (p.peekTag()) {
                 .apostrophe => .apostrophe_infix,
@@ -585,20 +610,68 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .dynamic_load,
         .implicit_apply,
         .call_one,
+        .and_infix,
+        .asof_infix,
         .bin_infix,
         .binr_infix,
         .cor_infix,
         .cov_infix,
+        .cross_infix,
+        .cut_infix,
         .div_infix,
+        .dsave_infix,
+        .each_infix,
+        .ema_infix,
+        .except_infix,
+        .fby_infix,
+        .ij_infix,
+        .ijf_infix,
         .in_infix,
         .insert_infix,
+        .inter_infix,
         .like_infix,
+        .lj_infix,
+        .ljf_infix,
+        .lsq_infix,
+        .mavg_infix,
+        .mcount_infix,
+        .mdev_infix,
+        .mmax_infix,
+        .mmin_infix,
+        .mmu_infix,
+        .mod_infix,
+        .msum_infix,
+        .or_infix,
+        .over_infix,
+        .peach_infix,
+        .pj_infix,
+        .prior_infix,
+        .rotate_infix,
+        .scan_infix,
+        .scov_infix,
+        .set_infix,
         .setenv_infix,
         .ss_infix,
+        .sublist_infix,
+        .sv_infix,
+        .uj_infix,
+        .ujf_infix,
+        .upsert_infix,
+        .vs_infix,
         .wavg_infix,
         .within_infix,
         .wsum_infix,
+        .xasc_infix,
+        .xbar_infix,
+        .xcol_infix,
+        .xcols_infix,
+        .xdesc_infix,
         .xexp_infix,
+        .xgroup_infix,
+        .xkey_infix,
+        .xlog_infix,
+        .xprev_infix,
+        .xrank_infix,
         .do_one,
         .if_one,
         .while_one,
@@ -710,46 +783,181 @@ fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
         .lambda_semicolon,
         .abs,
         .acos,
+        .aj,
+        .aj0,
+        .ajf,
+        .ajf0,
+        .all,
+        .any,
+        .asc,
         .asin,
         .atan,
+        .attr,
         .avg,
+        .avgs,
+        .ceiling,
+        .cols,
         .cos,
+        .count,
+        .csv,
+        .deltas,
+        .desc,
         .dev,
+        .differ,
+        .distinct,
+        .ej,
         .enlist,
+        .eval,
         .exit,
         .exp,
+        .fills,
+        .first,
+        .fkeys,
+        .flip,
+        .floor,
+        .get,
         .getenv,
+        .group,
+        .gtime,
+        .hclose,
+        .hcount,
+        .hdel,
         .hopen,
+        .hsym,
+        .iasc,
+        .idesc,
+        .inv,
+        .key,
+        .keys,
         .last,
+        .load,
         .log,
+        .lower,
+        .ltime,
+        .ltrim,
         .max,
+        .maxs,
+        .md5,
+        .med,
+        .meta,
         .min,
+        .mins,
+        .neg,
+        .next,
+        .not,
+        .null,
+        .parse,
         .prd,
+        .prds,
+        .prev,
+        .rand,
+        .rank,
+        .ratios,
+        .raze,
+        .read0,
+        .read1,
+        .reciprocal,
+        .reval,
+        .reverse,
+        .rload,
+        .rsave,
+        .rtrim,
+        .save,
+        .sdev,
+        .show,
+        .signum,
         .sin,
         .sqrt,
+        .ssr,
+        .string,
         .sum,
+        .sums,
+        .svar,
+        .system,
+        .tables,
         .tan,
+        .til,
+        .trim,
+        .type,
+        .ungroup,
+        .@"union",
+        .upper,
+        .value,
         .@"var",
+        .view,
+        .views,
+        .where,
+        .wj,
+        .wj1,
+        .ww,
+        .@"and",
+        .asof,
         .bin,
         .binr,
         .cor,
         .cov,
+        .cross,
+        .cut,
         .div,
+        .dsave,
+        .each,
+        .ema,
+        .except,
+        .fby,
+        .ij,
+        .ijf,
         .in,
         .insert,
+        .inter,
         .like,
+        .lj,
+        .ljf,
+        .lsq,
+        .mavg,
+        .mcount,
+        .mdev,
+        .mmax,
+        .mmin,
+        .mmu,
+        .mod,
+        .msum,
+        .@"or",
+        .over,
+        .peach,
+        .pj,
+        .prior,
+        .rotate,
+        .scan,
+        .scov,
+        .set,
         .setenv,
         .ss,
+        .sublist,
+        .sv,
+        .uj,
+        .ujf,
+        .upsert,
+        .vs,
         .wavg,
         .within,
         .wsum,
+        .xasc,
+        .xbar,
+        .xcol,
+        .xcols,
+        .xdesc,
         .xexp,
+        .xgroup,
+        .xkey,
+        .xlog,
+        .xprev,
+        .xrank,
         .select,
         .exec,
         .update,
         .delete_rows,
         .delete_cols,
-        .system,
+        .os,
         .current_directory,
         .change_directory,
         .load_file_or_directory,
@@ -891,20 +1099,20 @@ fn number(p: *Parse) Error!Node.Index {
     }
 }
 
-fn system(p: *Parse) Error!Node.Index {
-    const main_token = p.assertToken(.system);
+fn os(p: *Parse) Error!Node.Index {
+    const main_token = p.assertToken(.os);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (!p.eob) {
-        const param = try p.expectToken(.system_param);
+        const param = try p.expectToken(.os_param);
         try p.scratch.append(p.gpa, param);
     }
 
     const params = p.scratch.items[scratch_top..];
     if (params.len > 0 and !p.tokensOnSameLine(main_token, params[params.len - 1])) {
-        return p.fail(.system_expects_all_tokens_on_same_line);
+        return p.fail(.os_expects_all_tokens_on_same_line);
     }
 
     const loc = p.token_locs[main_token];
@@ -917,27 +1125,27 @@ fn system(p: *Parse) Error!Node.Index {
         },
         2 => switch (source[0]) {
             'c' => switch (source[1]) {
-                'd' => try if (params.len == 0) p.systemInternal(.current_directory, main_token, params) else p.changeDirectory(main_token, params),
+                'd' => try if (params.len == 0) p.osInternal(.current_directory, main_token, params) else p.changeDirectory(main_token, params),
                 else => null,
             },
             else => null,
         },
         else => null,
-    } orelse p.systemInternal(.system, main_token, params);
+    } orelse p.osInternal(.os, main_token, params);
 }
 
 fn changeDirectory(p: *Parse, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
     assert(params.len > 0);
-    return p.systemInternal(.change_directory, main_token, params);
+    return p.osInternal(.change_directory, main_token, params);
 }
 
 fn loadFileOrDirectory(p: *Parse, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
-    if (params.len == 0) return p.failExpected(.system_param);
+    if (params.len == 0) return p.failExpected(.os_param);
 
-    return p.systemInternal(.load_file_or_directory, main_token, params);
+    return p.osInternal(.load_file_or_directory, main_token, params);
 }
 
-fn systemInternal(p: *Parse, comptime tag: Node.Tag, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
+fn osInternal(p: *Parse, comptime tag: Node.Tag, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
     return p.addNode(.{
         .tag = tag,
         .main_token = main_token,
@@ -1131,7 +1339,7 @@ fn select(p: *Parse) Error!Node.Index {
     var ascending = false;
     var limit_expr: Node.Index = 0;
     var order_tok: TokenIndex = 0;
-    if (p.peekIdentifier(.{ .distinct = true })) |_| {
+    if (p.peekTag() == .keyword_q_distinct) {
         var found_by = false;
         var counter = struct {
             paren: u32 = 0,
@@ -1174,7 +1382,7 @@ fn select(p: *Parse) Error!Node.Index {
         }
 
         if (!found_by or skipped_tokens == 0) {
-            _ = p.assertToken(.identifier);
+            _ = p.assertToken(.keyword_q_distinct);
             distinct = true;
         }
     } else if (p.eatToken(.l_bracket)) |_| {
@@ -1266,7 +1474,7 @@ fn select(p: *Parse) Error!Node.Index {
 
     // Where phrase
     const where_top = p.scratch.items.len;
-    if (p.eatIdentifier(.{ .where = true })) |_| {
+    if (p.eatToken(.keyword_q_where)) |_| {
         while (true) {
             const expr = try p.expectSqlExpr(.{});
             try p.scratch.append(p.gpa, expr);
@@ -1416,7 +1624,7 @@ fn exec(p: *Parse) Error!Node.Index {
 
     // Where phrase
     const where_top = p.scratch.items.len;
-    if (p.eatIdentifier(.{ .where = true })) |_| {
+    if (p.eatToken(.keyword_q_where)) |_| {
         while (true) {
             const expr = try p.expectSqlExpr(.{});
             try p.scratch.append(p.gpa, expr);
@@ -1508,7 +1716,7 @@ fn update(p: *Parse) Error!Node.Index {
 
     // Where phrase
     const where_top = p.scratch.items.len;
-    if (p.eatIdentifier(.{ .where = true })) |_| {
+    if (p.eatToken(.keyword_q_where)) |_| {
         while (true) {
             const expr = try p.expectSqlExpr(.{});
             try p.scratch.append(p.gpa, expr);
@@ -1557,7 +1765,7 @@ fn delete(p: *Parse) Error!Node.Index {
 
         // Where phrase
         const where_top = p.scratch.items.len;
-        if (p.eatIdentifier(.{ .where = true })) |_| {
+        if (p.eatToken(.keyword_q_where)) |_| {
             while (true) {
                 const expr = try p.expectSqlExpr(.{});
                 try p.scratch.append(p.gpa, expr);
@@ -1623,6 +1831,13 @@ fn apply(p: *Parse, lhs: Node.Index) Error!Node.Index {
             .rhs = try p.parsePrecedence(.secondary),
         },
     });
+}
+
+fn qApply(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    return switch (p.language) {
+        .k => p.applyIdentifier(lhs),
+        .q => p.apply(lhs),
+    };
 }
 
 fn applyIdentifier(p: *Parse, lhs: Node.Index) Error!Node.Index {
@@ -1756,12 +1971,25 @@ fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
 }
 
 fn peekIdentifier(p: *Parse, comptime identifier: SqlIdentifier) ?TokenIndex {
-    if (p.peekTag() != .identifier) return null;
-    if (identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
-    if (identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
-    if (identifier.where) if (p.identifierEql("where", p.tok_i)) return p.tok_i;
-    if (identifier.distinct) if (p.identifierEql("distinct", p.tok_i)) return p.tok_i;
-    return null;
+    switch (p.language) {
+        .k => {
+            if (p.peekTag() != .identifier) return null;
+            if (identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
+            if (identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
+            if (identifier.where) if (p.identifierEql("where", p.tok_i)) return p.tok_i;
+            if (identifier.distinct) if (p.identifierEql("distinct", p.tok_i)) return p.tok_i;
+            return null;
+        },
+        .q => {
+            if (identifier.where) if (p.peekTag() == .keyword_q_where) return p.tok_i;
+            if (identifier.distinct) if (p.peekTag() == .keyword_q_distinct) return p.tok_i;
+
+            if (p.peekTag() != .identifier) return null;
+            if (identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
+            if (identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
+            return null;
+        },
+    }
 }
 
 fn eatIdentifier(p: *Parse, comptime identifier: SqlIdentifier) ?TokenIndex {
@@ -1827,6 +2055,21 @@ fn getRule(p: *Parse) OperInfo {
     if (p.ends_expr_tags.getLastOrNull()) |t| if (tag == t or tag == .semicolon) {
         return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
     };
+    if (p.ends_sql_expr_identifiers.getLastOrNull()) |i| if (i) |sql_identifier| {
+        switch (tag) {
+            .identifier => {
+                const loc = p.token_locs[p.tok_i];
+                const source = p.source[loc.start..loc.end];
+                if (sql_identifier.by and std.mem.eql(u8, source, "by")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+                if (sql_identifier.from and std.mem.eql(u8, source, "from")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+            },
+            .keyword_q_where => {
+                if (sql_identifier.where) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
+            },
+            .comma => return .{ .prefix = NoOp(false), .infix = null, .prec = .none },
+            else => {},
+        }
+    };
     if (p.ends_sql_expr_identifiers.getLastOrNull()) |i| if (i != null) {
         switch (tag) {
             .identifier => {
@@ -1863,135 +2106,273 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
     return node;
 }
 
-const operTable = std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
-    // Punctuation
-    .l_paren = .{ .prefix = grouping, .infix = apply, .prec = .secondary },
-    .r_paren = .{ .prefix = null, .infix = null, .prec = .none },
-    .l_brace = .{ .prefix = lambda, .infix = apply, .prec = .secondary },
-    .r_brace = .{ .prefix = null, .infix = null, .prec = .none },
-    .l_bracket = .{ .prefix = block, .infix = call, .prec = .secondary },
-    .r_bracket = .{ .prefix = null, .infix = null, .prec = .none },
-    .semicolon = .{ .prefix = null, .infix = null, .prec = .none },
+const operTable = operTable: {
+    @setEvalBranchQuota(1045);
+    break :operTable std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
+        // Punctuation
+        .l_paren = .{ .prefix = grouping, .infix = apply, .prec = .secondary },
+        .r_paren = .{ .prefix = null, .infix = null, .prec = .none },
+        .l_brace = .{ .prefix = lambda, .infix = apply, .prec = .secondary },
+        .r_brace = .{ .prefix = null, .infix = null, .prec = .none },
+        .l_bracket = .{ .prefix = block, .infix = call, .prec = .secondary },
+        .r_bracket = .{ .prefix = null, .infix = null, .prec = .none },
+        .semicolon = .{ .prefix = null, .infix = null, .prec = .none },
 
-    // Verbs
-    .colon = .{ .prefix = Prefix(.colon), .infix = Infix(.assign), .prec = .secondary },
-    .colon_colon = .{ .prefix = Prefix(.colon_colon), .infix = Infix(.global_assign), .prec = .secondary },
-    .plus = .{ .prefix = Prefix(.plus), .infix = Infix(.add), .prec = .secondary },
-    .plus_colon = .{ .prefix = Prefix(.plus_colon), .infix = Infix(.plus_assign), .prec = .secondary },
-    .minus = .{ .prefix = Prefix(.minus), .infix = Infix(.subtract), .prec = .secondary },
-    .minus_colon = .{ .prefix = Prefix(.minus_colon), .infix = Infix(.minus_assign), .prec = .secondary },
-    .asterisk = .{ .prefix = Prefix(.asterisk), .infix = Infix(.multiply), .prec = .secondary },
-    .asterisk_colon = .{ .prefix = Prefix(.asterisk_colon), .infix = Infix(.asterisk_assign), .prec = .secondary },
-    .percent = .{ .prefix = Prefix(.percent), .infix = Infix(.divide), .prec = .secondary },
-    .percent_colon = .{ .prefix = Prefix(.percent_colon), .infix = Infix(.percent_assign), .prec = .secondary },
-    .bang = .{ .prefix = Prefix(.bang), .infix = Infix(.dict), .prec = .secondary },
-    .bang_colon = .{ .prefix = Prefix(.bang_colon), .infix = Infix(.bang_assign), .prec = .secondary },
-    .ampersand = .{ .prefix = Prefix(.ampersand), .infix = Infix(.lesser), .prec = .secondary },
-    .ampersand_colon = .{ .prefix = Prefix(.ampersand_colon), .infix = Infix(.ampersand_assign), .prec = .secondary },
-    .pipe = .{ .prefix = Prefix(.pipe), .infix = Infix(.greater), .prec = .secondary },
-    .pipe_colon = .{ .prefix = Prefix(.pipe_colon), .infix = Infix(.pipe_assign), .prec = .secondary },
-    .angle_bracket_left = .{ .prefix = Prefix(.angle_bracket_left), .infix = Infix(.less_than), .prec = .secondary },
-    .angle_bracket_left_colon = .{ .prefix = Prefix(.angle_bracket_left_colon), .infix = Infix(.angle_bracket_left_assign), .prec = .secondary },
-    .angle_bracket_left_equal = .{ .prefix = Prefix(.angle_bracket_left_equal), .infix = Infix(.less_than_equal), .prec = .secondary },
-    .angle_bracket_left_right = .{ .prefix = Prefix(.angle_bracket_left_right), .infix = Infix(.not_equal), .prec = .secondary },
-    .angle_bracket_right = .{ .prefix = Prefix(.angle_bracket_right), .infix = Infix(.greater_than), .prec = .secondary },
-    .angle_bracket_right_colon = .{ .prefix = Prefix(.angle_bracket_right_colon), .infix = Infix(.angle_bracket_right_assign), .prec = .secondary },
-    .angle_bracket_right_equal = .{ .prefix = Prefix(.angle_bracket_right_equal), .infix = Infix(.greater_than_equal), .prec = .secondary },
-    .equal = .{ .prefix = Prefix(.equal), .infix = Infix(.equals), .prec = .secondary },
-    .equal_colon = .{ .prefix = Prefix(.equal_colon), .infix = Infix(.equal_assign), .prec = .secondary },
-    .tilde = .{ .prefix = Prefix(.tilde), .infix = Infix(.match), .prec = .secondary },
-    .tilde_colon = .{ .prefix = Prefix(.tilde_colon), .infix = Infix(.tilde_assign), .prec = .secondary },
-    .comma = .{ .prefix = Prefix(.comma), .infix = Infix(.join), .prec = .secondary },
-    .comma_colon = .{ .prefix = Prefix(.comma_colon), .infix = Infix(.comma_assign), .prec = .secondary },
-    .caret = .{ .prefix = Prefix(.caret), .infix = Infix(.fill), .prec = .secondary },
-    .caret_colon = .{ .prefix = Prefix(.caret_colon), .infix = Infix(.caret_assign), .prec = .secondary },
-    .hash = .{ .prefix = Prefix(.hash), .infix = Infix(.take), .prec = .secondary },
-    .hash_colon = .{ .prefix = Prefix(.hash_colon), .infix = Infix(.hash_assign), .prec = .secondary },
-    .underscore = .{ .prefix = Prefix(.underscore), .infix = Infix(.drop), .prec = .secondary },
-    .underscore_colon = .{ .prefix = Prefix(.underscore_colon), .infix = Infix(.underscore_assign), .prec = .secondary },
-    .dollar = .{ .prefix = Prefix(.dollar), .infix = Infix(.cast), .prec = .secondary },
-    .dollar_colon = .{ .prefix = Prefix(.dollar_colon), .infix = Infix(.dollar_assign), .prec = .secondary },
-    .question_mark = .{ .prefix = Prefix(.question_mark), .infix = Infix(.find), .prec = .secondary },
-    .question_mark_colon = .{ .prefix = Prefix(.question_mark_colon), .infix = Infix(.question_mark_assign), .prec = .secondary },
-    .at = .{ .prefix = Prefix(.at), .infix = Infix(.apply), .prec = .secondary },
-    .at_colon = .{ .prefix = Prefix(.at_colon), .infix = Infix(.at_assign), .prec = .secondary },
-    .dot = .{ .prefix = Prefix(.dot), .infix = Infix(.apply_n), .prec = .secondary },
-    .dot_colon = .{ .prefix = Prefix(.dot_colon), .infix = Infix(.dot_assign), .prec = .secondary },
-    .zero_colon = .{ .prefix = Prefix(.zero_colon), .infix = Infix(.file_text), .prec = .secondary },
-    .zero_colon_colon = .{ .prefix = Prefix(.zero_colon_colon), .infix = Infix(.zero_colon_assign), .prec = .secondary },
-    .one_colon = .{ .prefix = Prefix(.one_colon), .infix = Infix(.file_binary), .prec = .secondary },
-    .one_colon_colon = .{ .prefix = Prefix(.one_colon_colon), .infix = Infix(.one_colon_assign), .prec = .secondary },
-    .two_colon = .{ .prefix = Prefix(.two_colon), .infix = Infix(.dynamic_load), .prec = .secondary },
+        // Verbs
+        .colon = .{ .prefix = Prefix(.colon), .infix = Infix(.assign), .prec = .secondary },
+        .colon_colon = .{ .prefix = Prefix(.colon_colon), .infix = Infix(.global_assign), .prec = .secondary },
+        .plus = .{ .prefix = Prefix(.plus), .infix = Infix(.add), .prec = .secondary },
+        .plus_colon = .{ .prefix = Prefix(.plus_colon), .infix = Infix(.plus_assign), .prec = .secondary },
+        .minus = .{ .prefix = Prefix(.minus), .infix = Infix(.subtract), .prec = .secondary },
+        .minus_colon = .{ .prefix = Prefix(.minus_colon), .infix = Infix(.minus_assign), .prec = .secondary },
+        .asterisk = .{ .prefix = Prefix(.asterisk), .infix = Infix(.multiply), .prec = .secondary },
+        .asterisk_colon = .{ .prefix = Prefix(.asterisk_colon), .infix = Infix(.asterisk_assign), .prec = .secondary },
+        .percent = .{ .prefix = Prefix(.percent), .infix = Infix(.divide), .prec = .secondary },
+        .percent_colon = .{ .prefix = Prefix(.percent_colon), .infix = Infix(.percent_assign), .prec = .secondary },
+        .bang = .{ .prefix = Prefix(.bang), .infix = Infix(.dict), .prec = .secondary },
+        .bang_colon = .{ .prefix = Prefix(.bang_colon), .infix = Infix(.bang_assign), .prec = .secondary },
+        .ampersand = .{ .prefix = Prefix(.ampersand), .infix = Infix(.lesser), .prec = .secondary },
+        .ampersand_colon = .{ .prefix = Prefix(.ampersand_colon), .infix = Infix(.ampersand_assign), .prec = .secondary },
+        .pipe = .{ .prefix = Prefix(.pipe), .infix = Infix(.greater), .prec = .secondary },
+        .pipe_colon = .{ .prefix = Prefix(.pipe_colon), .infix = Infix(.pipe_assign), .prec = .secondary },
+        .angle_bracket_left = .{ .prefix = Prefix(.angle_bracket_left), .infix = Infix(.less_than), .prec = .secondary },
+        .angle_bracket_left_colon = .{ .prefix = Prefix(.angle_bracket_left_colon), .infix = Infix(.angle_bracket_left_assign), .prec = .secondary },
+        .angle_bracket_left_equal = .{ .prefix = Prefix(.angle_bracket_left_equal), .infix = Infix(.less_than_equal), .prec = .secondary },
+        .angle_bracket_left_right = .{ .prefix = Prefix(.angle_bracket_left_right), .infix = Infix(.not_equal), .prec = .secondary },
+        .angle_bracket_right = .{ .prefix = Prefix(.angle_bracket_right), .infix = Infix(.greater_than), .prec = .secondary },
+        .angle_bracket_right_colon = .{ .prefix = Prefix(.angle_bracket_right_colon), .infix = Infix(.angle_bracket_right_assign), .prec = .secondary },
+        .angle_bracket_right_equal = .{ .prefix = Prefix(.angle_bracket_right_equal), .infix = Infix(.greater_than_equal), .prec = .secondary },
+        .equal = .{ .prefix = Prefix(.equal), .infix = Infix(.equals), .prec = .secondary },
+        .equal_colon = .{ .prefix = Prefix(.equal_colon), .infix = Infix(.equal_assign), .prec = .secondary },
+        .tilde = .{ .prefix = Prefix(.tilde), .infix = Infix(.match), .prec = .secondary },
+        .tilde_colon = .{ .prefix = Prefix(.tilde_colon), .infix = Infix(.tilde_assign), .prec = .secondary },
+        .comma = .{ .prefix = Prefix(.comma), .infix = Infix(.join), .prec = .secondary },
+        .comma_colon = .{ .prefix = Prefix(.comma_colon), .infix = Infix(.comma_assign), .prec = .secondary },
+        .caret = .{ .prefix = Prefix(.caret), .infix = Infix(.fill), .prec = .secondary },
+        .caret_colon = .{ .prefix = Prefix(.caret_colon), .infix = Infix(.caret_assign), .prec = .secondary },
+        .hash = .{ .prefix = Prefix(.hash), .infix = Infix(.take), .prec = .secondary },
+        .hash_colon = .{ .prefix = Prefix(.hash_colon), .infix = Infix(.hash_assign), .prec = .secondary },
+        .underscore = .{ .prefix = Prefix(.underscore), .infix = Infix(.drop), .prec = .secondary },
+        .underscore_colon = .{ .prefix = Prefix(.underscore_colon), .infix = Infix(.underscore_assign), .prec = .secondary },
+        .dollar = .{ .prefix = Prefix(.dollar), .infix = Infix(.cast), .prec = .secondary },
+        .dollar_colon = .{ .prefix = Prefix(.dollar_colon), .infix = Infix(.dollar_assign), .prec = .secondary },
+        .question_mark = .{ .prefix = Prefix(.question_mark), .infix = Infix(.find), .prec = .secondary },
+        .question_mark_colon = .{ .prefix = Prefix(.question_mark_colon), .infix = Infix(.question_mark_assign), .prec = .secondary },
+        .at = .{ .prefix = Prefix(.at), .infix = Infix(.apply), .prec = .secondary },
+        .at_colon = .{ .prefix = Prefix(.at_colon), .infix = Infix(.at_assign), .prec = .secondary },
+        .dot = .{ .prefix = Prefix(.dot), .infix = Infix(.apply_n), .prec = .secondary },
+        .dot_colon = .{ .prefix = Prefix(.dot_colon), .infix = Infix(.dot_assign), .prec = .secondary },
+        .zero_colon = .{ .prefix = Prefix(.zero_colon), .infix = Infix(.file_text), .prec = .secondary },
+        .zero_colon_colon = .{ .prefix = Prefix(.zero_colon_colon), .infix = Infix(.zero_colon_assign), .prec = .secondary },
+        .one_colon = .{ .prefix = Prefix(.one_colon), .infix = Infix(.file_binary), .prec = .secondary },
+        .one_colon_colon = .{ .prefix = Prefix(.one_colon_colon), .infix = Infix(.one_colon_assign), .prec = .secondary },
+        .two_colon = .{ .prefix = Prefix(.two_colon), .infix = Infix(.dynamic_load), .prec = .secondary },
 
-    // Adverbs
-    .apostrophe = .{ .prefix = Prefix(.apostrophe), .infix = null, .prec = .none },
-    .apostrophe_colon = .{ .prefix = Prefix(.apostrophe_colon), .infix = null, .prec = .none },
-    .slash = .{ .prefix = Prefix(.slash), .infix = null, .prec = .none },
-    .slash_colon = .{ .prefix = Prefix(.slash_colon), .infix = null, .prec = .none },
-    .backslash = .{ .prefix = Prefix(.backslash), .infix = null, .prec = .none },
-    .backslash_colon = .{ .prefix = Prefix(.backslash_colon), .infix = null, .prec = .none },
+        // Adverbs
+        .apostrophe = .{ .prefix = Prefix(.apostrophe), .infix = null, .prec = .none },
+        .apostrophe_colon = .{ .prefix = Prefix(.apostrophe_colon), .infix = null, .prec = .none },
+        .slash = .{ .prefix = Prefix(.slash), .infix = null, .prec = .none },
+        .slash_colon = .{ .prefix = Prefix(.slash_colon), .infix = null, .prec = .none },
+        .backslash = .{ .prefix = Prefix(.backslash), .infix = null, .prec = .none },
+        .backslash_colon = .{ .prefix = Prefix(.backslash_colon), .infix = null, .prec = .none },
 
-    // Literals
-    .number_literal = .{ .prefix = number, .infix = apply, .prec = .primary },
-    .string_literal = .{ .prefix = Prefix(.string_literal), .infix = apply, .prec = .secondary },
-    .symbol_literal = .{ .prefix = Prefix(.symbol_literal), .infix = apply, .prec = .secondary },
-    .symbol_list_literal = .{ .prefix = Prefix(.symbol_list_literal), .infix = apply, .prec = .secondary },
-    .identifier = .{ .prefix = Prefix(.identifier), .infix = applyIdentifier, .prec = .secondary },
+        // Literals
+        .number_literal = .{ .prefix = number, .infix = apply, .prec = .primary },
+        .string_literal = .{ .prefix = Prefix(.string_literal), .infix = apply, .prec = .secondary },
+        .symbol_literal = .{ .prefix = Prefix(.symbol_literal), .infix = apply, .prec = .secondary },
+        .symbol_list_literal = .{ .prefix = Prefix(.symbol_list_literal), .infix = apply, .prec = .secondary },
+        .identifier = .{ .prefix = Prefix(.identifier), .infix = applyIdentifier, .prec = .secondary },
 
-    // Misc.
-    .comment = .{ .prefix = null, .infix = null, .prec = .none },
-    .invalid = .{ .prefix = null, .infix = null, .prec = .none },
-    .eof = .{ .prefix = null, .infix = null, .prec = .none },
+        // Misc.
+        .comment = .{ .prefix = null, .infix = null, .prec = .none },
+        .invalid = .{ .prefix = null, .infix = null, .prec = .none },
+        .os = .{ .prefix = os, .infix = null, .prec = .none },
+        .os_param = .{ .prefix = null, .infix = null, .prec = .none },
+        .eof = .{ .prefix = null, .infix = null, .prec = .none },
 
-    // System
-    .system = .{ .prefix = system, .infix = null, .prec = .none },
-    .system_param = .{ .prefix = null, .infix = null, .prec = .none },
+        // Keywords
+        .keyword_abs = .{ .prefix = Prefix(.abs), .infix = apply, .prec = .secondary },
+        .keyword_acos = .{ .prefix = Prefix(.acos), .infix = apply, .prec = .secondary },
+        .keyword_asin = .{ .prefix = Prefix(.asin), .infix = apply, .prec = .secondary },
+        .keyword_atan = .{ .prefix = Prefix(.atan), .infix = apply, .prec = .secondary },
+        .keyword_avg = .{ .prefix = Prefix(.avg), .infix = apply, .prec = .secondary },
+        .keyword_bin = .{ .prefix = Prefix(.bin), .infix = Infix(.bin_infix), .prec = .secondary },
+        .keyword_binr = .{ .prefix = Prefix(.binr), .infix = Infix(.binr_infix), .prec = .secondary },
+        .keyword_cor = .{ .prefix = Prefix(.cor), .infix = Infix(.cor_infix), .prec = .secondary },
+        .keyword_cos = .{ .prefix = Prefix(.cos), .infix = apply, .prec = .secondary },
+        .keyword_cov = .{ .prefix = Prefix(.cov), .infix = Infix(.cov_infix), .prec = .secondary },
+        .keyword_delete = .{ .prefix = delete, .infix = apply, .prec = .secondary },
+        .keyword_dev = .{ .prefix = Prefix(.dev), .infix = apply, .prec = .secondary },
+        .keyword_div = .{ .prefix = Prefix(.div), .infix = Infix(.div_infix), .prec = .secondary },
+        .keyword_do = .{ .prefix = do, .infix = apply, .prec = .secondary },
+        .keyword_enlist = .{ .prefix = Prefix(.enlist), .infix = apply, .prec = .secondary },
+        .keyword_exec = .{ .prefix = exec, .infix = apply, .prec = .secondary },
+        .keyword_exit = .{ .prefix = Prefix(.exit), .infix = apply, .prec = .secondary },
+        .keyword_exp = .{ .prefix = Prefix(.exp), .infix = apply, .prec = .secondary },
+        .keyword_getenv = .{ .prefix = Prefix(.getenv), .infix = apply, .prec = .secondary },
+        .keyword_hopen = .{ .prefix = Prefix(.hopen), .infix = apply, .prec = .secondary },
+        .keyword_if = .{ .prefix = @"if", .infix = apply, .prec = .secondary },
+        .keyword_in = .{ .prefix = Prefix(.in), .infix = Infix(.in_infix), .prec = .secondary },
+        .keyword_insert = .{ .prefix = Prefix(.insert), .infix = Infix(.insert_infix), .prec = .secondary },
+        .keyword_last = .{ .prefix = Prefix(.last), .infix = apply, .prec = .secondary },
+        .keyword_like = .{ .prefix = Prefix(.like), .infix = Infix(.like_infix), .prec = .secondary },
+        .keyword_log = .{ .prefix = Prefix(.log), .infix = apply, .prec = .secondary },
+        .keyword_max = .{ .prefix = Prefix(.max), .infix = apply, .prec = .secondary },
+        .keyword_min = .{ .prefix = Prefix(.min), .infix = apply, .prec = .secondary },
+        .keyword_prd = .{ .prefix = Prefix(.prd), .infix = apply, .prec = .secondary },
+        .keyword_select = .{ .prefix = select, .infix = apply, .prec = .secondary },
+        .keyword_setenv = .{ .prefix = Prefix(.setenv), .infix = Infix(.setenv_infix), .prec = .secondary },
+        .keyword_sin = .{ .prefix = Prefix(.sin), .infix = apply, .prec = .secondary },
+        .keyword_sqrt = .{ .prefix = Prefix(.sqrt), .infix = apply, .prec = .secondary },
+        .keyword_ss = .{ .prefix = Prefix(.ss), .infix = Infix(.ss_infix), .prec = .secondary },
+        .keyword_sum = .{ .prefix = Prefix(.sum), .infix = apply, .prec = .secondary },
+        .keyword_tan = .{ .prefix = Prefix(.tan), .infix = apply, .prec = .secondary },
+        .keyword_update = .{ .prefix = update, .infix = apply, .prec = .secondary },
+        .keyword_var = .{ .prefix = Prefix(.@"var"), .infix = apply, .prec = .secondary },
+        .keyword_wavg = .{ .prefix = Prefix(.wavg), .infix = Infix(.wavg_infix), .prec = .secondary },
+        .keyword_while = .{ .prefix = @"while", .infix = apply, .prec = .secondary },
+        .keyword_within = .{ .prefix = Prefix(.within), .infix = Infix(.within_infix), .prec = .secondary },
+        .keyword_wsum = .{ .prefix = Prefix(.wsum), .infix = Infix(.wsum_infix), .prec = .secondary },
+        .keyword_xexp = .{ .prefix = Prefix(.xexp), .infix = Infix(.xexp_infix), .prec = .secondary },
 
-    // Keywords
-    .keyword_abs = .{ .prefix = Prefix(.abs), .infix = apply, .prec = .secondary },
-    .keyword_acos = .{ .prefix = Prefix(.acos), .infix = apply, .prec = .secondary },
-    .keyword_asin = .{ .prefix = Prefix(.asin), .infix = apply, .prec = .secondary },
-    .keyword_atan = .{ .prefix = Prefix(.atan), .infix = apply, .prec = .secondary },
-    .keyword_avg = .{ .prefix = Prefix(.avg), .infix = apply, .prec = .secondary },
-    .keyword_bin = .{ .prefix = Prefix(.bin), .infix = Infix(.bin_infix), .prec = .secondary },
-    .keyword_binr = .{ .prefix = Prefix(.binr), .infix = Infix(.binr_infix), .prec = .secondary },
-    .keyword_cor = .{ .prefix = Prefix(.cor), .infix = Infix(.cor_infix), .prec = .secondary },
-    .keyword_cos = .{ .prefix = Prefix(.cos), .infix = apply, .prec = .secondary },
-    .keyword_cov = .{ .prefix = Prefix(.cov), .infix = Infix(.cov_infix), .prec = .secondary },
-    .keyword_delete = .{ .prefix = delete, .infix = apply, .prec = .secondary },
-    .keyword_dev = .{ .prefix = Prefix(.dev), .infix = apply, .prec = .secondary },
-    .keyword_div = .{ .prefix = Prefix(.div), .infix = Infix(.div_infix), .prec = .secondary },
-    .keyword_do = .{ .prefix = do, .infix = apply, .prec = .secondary },
-    .keyword_enlist = .{ .prefix = Prefix(.enlist), .infix = apply, .prec = .secondary },
-    .keyword_exec = .{ .prefix = exec, .infix = apply, .prec = .secondary },
-    .keyword_exit = .{ .prefix = Prefix(.exit), .infix = apply, .prec = .secondary },
-    .keyword_exp = .{ .prefix = Prefix(.exp), .infix = apply, .prec = .secondary },
-    .keyword_getenv = .{ .prefix = Prefix(.getenv), .infix = apply, .prec = .secondary },
-    .keyword_hopen = .{ .prefix = Prefix(.hopen), .infix = apply, .prec = .secondary },
-    .keyword_if = .{ .prefix = @"if", .infix = apply, .prec = .secondary },
-    .keyword_in = .{ .prefix = Prefix(.in), .infix = Infix(.in_infix), .prec = .secondary },
-    .keyword_insert = .{ .prefix = Prefix(.insert), .infix = Infix(.insert_infix), .prec = .secondary },
-    .keyword_last = .{ .prefix = Prefix(.last), .infix = apply, .prec = .secondary },
-    .keyword_like = .{ .prefix = Prefix(.like), .infix = Infix(.like_infix), .prec = .secondary },
-    .keyword_log = .{ .prefix = Prefix(.log), .infix = apply, .prec = .secondary },
-    .keyword_max = .{ .prefix = Prefix(.max), .infix = apply, .prec = .secondary },
-    .keyword_min = .{ .prefix = Prefix(.min), .infix = apply, .prec = .secondary },
-    .keyword_prd = .{ .prefix = Prefix(.prd), .infix = apply, .prec = .secondary },
-    .keyword_select = .{ .prefix = select, .infix = apply, .prec = .secondary },
-    .keyword_setenv = .{ .prefix = Prefix(.setenv), .infix = Infix(.setenv_infix), .prec = .secondary },
-    .keyword_sin = .{ .prefix = Prefix(.sin), .infix = apply, .prec = .secondary },
-    .keyword_sqrt = .{ .prefix = Prefix(.sqrt), .infix = apply, .prec = .secondary },
-    .keyword_ss = .{ .prefix = Prefix(.ss), .infix = Infix(.ss_infix), .prec = .secondary },
-    .keyword_sum = .{ .prefix = Prefix(.sum), .infix = apply, .prec = .secondary },
-    .keyword_tan = .{ .prefix = Prefix(.tan), .infix = apply, .prec = .secondary },
-    .keyword_update = .{ .prefix = update, .infix = apply, .prec = .secondary },
-    .keyword_var = .{ .prefix = Prefix(.@"var"), .infix = apply, .prec = .secondary },
-    .keyword_wavg = .{ .prefix = Prefix(.wavg), .infix = Infix(.wavg_infix), .prec = .secondary },
-    .keyword_while = .{ .prefix = @"while", .infix = apply, .prec = .secondary },
-    .keyword_within = .{ .prefix = Prefix(.within), .infix = Infix(.within_infix), .prec = .secondary },
-    .keyword_wsum = .{ .prefix = Prefix(.wsum), .infix = Infix(.wsum_infix), .prec = .secondary },
-    .keyword_xexp = .{ .prefix = Prefix(.xexp), .infix = Infix(.xexp_infix), .prec = .secondary },
-});
+        // Q Keywords
+        .keyword_q_aj = .{ .prefix = QPrefix(.aj), .infix = qApply, .prec = .secondary },
+        .keyword_q_aj0 = .{ .prefix = QPrefix(.aj0), .infix = qApply, .prec = .secondary },
+        .keyword_q_ajf = .{ .prefix = QPrefix(.ajf), .infix = qApply, .prec = .secondary },
+        .keyword_q_ajf0 = .{ .prefix = QPrefix(.ajf0), .infix = qApply, .prec = .secondary },
+        .keyword_q_all = .{ .prefix = QPrefix(.all), .infix = qApply, .prec = .secondary },
+        .keyword_q_and = .{ .prefix = QPrefix(.@"and"), .infix = qApply, .prec = .secondary },
+        .keyword_q_any = .{ .prefix = QPrefix(.any), .infix = qApply, .prec = .secondary },
+        .keyword_q_asc = .{ .prefix = QPrefix(.asc), .infix = qApply, .prec = .secondary },
+        .keyword_q_asof = .{ .prefix = QPrefix(.asof), .infix = qApply, .prec = .secondary },
+        .keyword_q_attr = .{ .prefix = QPrefix(.attr), .infix = qApply, .prec = .secondary },
+        .keyword_q_avgs = .{ .prefix = QPrefix(.avgs), .infix = qApply, .prec = .secondary },
+        .keyword_q_ceiling = .{ .prefix = QPrefix(.ceiling), .infix = qApply, .prec = .secondary },
+        .keyword_q_cols = .{ .prefix = QPrefix(.cols), .infix = qApply, .prec = .secondary },
+        .keyword_q_count = .{ .prefix = QPrefix(.count), .infix = qApply, .prec = .secondary },
+        .keyword_q_cross = .{ .prefix = QPrefix(.cross), .infix = qApply, .prec = .secondary },
+        .keyword_q_csv = .{ .prefix = QPrefix(.csv), .infix = qApply, .prec = .secondary },
+        .keyword_q_cut = .{ .prefix = QPrefix(.cut), .infix = qApply, .prec = .secondary },
+        .keyword_q_deltas = .{ .prefix = QPrefix(.deltas), .infix = qApply, .prec = .secondary },
+        .keyword_q_desc = .{ .prefix = QPrefix(.desc), .infix = qApply, .prec = .secondary },
+        .keyword_q_differ = .{ .prefix = QPrefix(.differ), .infix = qApply, .prec = .secondary },
+        .keyword_q_distinct = .{ .prefix = QPrefix(.distinct), .infix = qApply, .prec = .secondary },
+        .keyword_q_dsave = .{ .prefix = QPrefix(.dsave), .infix = qApply, .prec = .secondary },
+        .keyword_q_each = .{ .prefix = QPrefix(.each), .infix = qApply, .prec = .secondary },
+        .keyword_q_ej = .{ .prefix = QPrefix(.ej), .infix = qApply, .prec = .secondary },
+        .keyword_q_ema = .{ .prefix = QPrefix(.ema), .infix = qApply, .prec = .secondary },
+        .keyword_q_eval = .{ .prefix = QPrefix(.eval), .infix = qApply, .prec = .secondary },
+        .keyword_q_except = .{ .prefix = QPrefix(.except), .infix = qApply, .prec = .secondary },
+        .keyword_q_fby = .{ .prefix = QPrefix(.fby), .infix = qApply, .prec = .secondary },
+        .keyword_q_fills = .{ .prefix = QPrefix(.fills), .infix = qApply, .prec = .secondary },
+        .keyword_q_first = .{ .prefix = QPrefix(.first), .infix = qApply, .prec = .secondary },
+        .keyword_q_fkeys = .{ .prefix = QPrefix(.fkeys), .infix = qApply, .prec = .secondary },
+        .keyword_q_flip = .{ .prefix = QPrefix(.flip), .infix = qApply, .prec = .secondary },
+        .keyword_q_floor = .{ .prefix = QPrefix(.floor), .infix = qApply, .prec = .secondary },
+        .keyword_q_get = .{ .prefix = QPrefix(.get), .infix = qApply, .prec = .secondary },
+        .keyword_q_group = .{ .prefix = QPrefix(.group), .infix = qApply, .prec = .secondary },
+        .keyword_q_gtime = .{ .prefix = QPrefix(.gtime), .infix = qApply, .prec = .secondary },
+        .keyword_q_hclose = .{ .prefix = QPrefix(.hclose), .infix = qApply, .prec = .secondary },
+        .keyword_q_hcount = .{ .prefix = QPrefix(.hcount), .infix = qApply, .prec = .secondary },
+        .keyword_q_hdel = .{ .prefix = QPrefix(.hdel), .infix = qApply, .prec = .secondary },
+        .keyword_q_hsym = .{ .prefix = QPrefix(.hsym), .infix = qApply, .prec = .secondary },
+        .keyword_q_iasc = .{ .prefix = QPrefix(.iasc), .infix = qApply, .prec = .secondary },
+        .keyword_q_idesc = .{ .prefix = QPrefix(.idesc), .infix = qApply, .prec = .secondary },
+        .keyword_q_ij = .{ .prefix = QPrefix(.ij), .infix = qApply, .prec = .secondary },
+        .keyword_q_ijf = .{ .prefix = QPrefix(.ijf), .infix = qApply, .prec = .secondary },
+        .keyword_q_inter = .{ .prefix = QPrefix(.inter), .infix = qApply, .prec = .secondary },
+        .keyword_q_inv = .{ .prefix = QPrefix(.inv), .infix = qApply, .prec = .secondary },
+        .keyword_q_key = .{ .prefix = QPrefix(.key), .infix = qApply, .prec = .secondary },
+        .keyword_q_keys = .{ .prefix = QPrefix(.keys), .infix = qApply, .prec = .secondary },
+        .keyword_q_lj = .{ .prefix = QPrefix(.lj), .infix = qApply, .prec = .secondary },
+        .keyword_q_ljf = .{ .prefix = QPrefix(.ljf), .infix = qApply, .prec = .secondary },
+        .keyword_q_load = .{ .prefix = QPrefix(.load), .infix = qApply, .prec = .secondary },
+        .keyword_q_lower = .{ .prefix = QPrefix(.lower), .infix = qApply, .prec = .secondary },
+        .keyword_q_lsq = .{ .prefix = QPrefix(.lsq), .infix = qApply, .prec = .secondary },
+        .keyword_q_ltime = .{ .prefix = QPrefix(.ltime), .infix = qApply, .prec = .secondary },
+        .keyword_q_ltrim = .{ .prefix = QPrefix(.ltrim), .infix = qApply, .prec = .secondary },
+        .keyword_q_mavg = .{ .prefix = QPrefix(.mavg), .infix = qApply, .prec = .secondary },
+        .keyword_q_maxs = .{ .prefix = QPrefix(.maxs), .infix = qApply, .prec = .secondary },
+        .keyword_q_mcount = .{ .prefix = QPrefix(.mcount), .infix = qApply, .prec = .secondary },
+        .keyword_q_md5 = .{ .prefix = QPrefix(.md5), .infix = qApply, .prec = .secondary },
+        .keyword_q_mdev = .{ .prefix = QPrefix(.mdev), .infix = qApply, .prec = .secondary },
+        .keyword_q_med = .{ .prefix = QPrefix(.med), .infix = qApply, .prec = .secondary },
+        .keyword_q_meta = .{ .prefix = QPrefix(.meta), .infix = qApply, .prec = .secondary },
+        .keyword_q_mins = .{ .prefix = QPrefix(.mins), .infix = qApply, .prec = .secondary },
+        .keyword_q_mmax = .{ .prefix = QPrefix(.mmax), .infix = qApply, .prec = .secondary },
+        .keyword_q_mmin = .{ .prefix = QPrefix(.mmin), .infix = qApply, .prec = .secondary },
+        .keyword_q_mmu = .{ .prefix = QPrefix(.mmu), .infix = qApply, .prec = .secondary },
+        .keyword_q_mod = .{ .prefix = QPrefix(.mod), .infix = qApply, .prec = .secondary },
+        .keyword_q_msum = .{ .prefix = QPrefix(.msum), .infix = qApply, .prec = .secondary },
+        .keyword_q_neg = .{ .prefix = QPrefix(.neg), .infix = qApply, .prec = .secondary },
+        .keyword_q_next = .{ .prefix = QPrefix(.next), .infix = qApply, .prec = .secondary },
+        .keyword_q_not = .{ .prefix = QPrefix(.not), .infix = qApply, .prec = .secondary },
+        .keyword_q_null = .{ .prefix = QPrefix(.null), .infix = qApply, .prec = .secondary },
+        .keyword_q_or = .{ .prefix = QPrefix(.@"or"), .infix = qApply, .prec = .secondary },
+        .keyword_q_over = .{ .prefix = QPrefix(.over), .infix = qApply, .prec = .secondary },
+        .keyword_q_parse = .{ .prefix = QPrefix(.parse), .infix = qApply, .prec = .secondary },
+        .keyword_q_peach = .{ .prefix = QPrefix(.peach), .infix = qApply, .prec = .secondary },
+        .keyword_q_pj = .{ .prefix = QPrefix(.pj), .infix = qApply, .prec = .secondary },
+        .keyword_q_prds = .{ .prefix = QPrefix(.prds), .infix = qApply, .prec = .secondary },
+        .keyword_q_prev = .{ .prefix = QPrefix(.prev), .infix = qApply, .prec = .secondary },
+        .keyword_q_prior = .{ .prefix = QPrefix(.prior), .infix = qApply, .prec = .secondary },
+        .keyword_q_rand = .{ .prefix = QPrefix(.rand), .infix = qApply, .prec = .secondary },
+        .keyword_q_rank = .{ .prefix = QPrefix(.rank), .infix = qApply, .prec = .secondary },
+        .keyword_q_ratios = .{ .prefix = QPrefix(.ratios), .infix = qApply, .prec = .secondary },
+        .keyword_q_raze = .{ .prefix = QPrefix(.raze), .infix = qApply, .prec = .secondary },
+        .keyword_q_read0 = .{ .prefix = QPrefix(.read0), .infix = qApply, .prec = .secondary },
+        .keyword_q_read1 = .{ .prefix = QPrefix(.read1), .infix = qApply, .prec = .secondary },
+        .keyword_q_reciprocal = .{ .prefix = QPrefix(.reciprocal), .infix = qApply, .prec = .secondary },
+        .keyword_q_reval = .{ .prefix = QPrefix(.reval), .infix = qApply, .prec = .secondary },
+        .keyword_q_reverse = .{ .prefix = QPrefix(.reverse), .infix = qApply, .prec = .secondary },
+        .keyword_q_rload = .{ .prefix = QPrefix(.rload), .infix = qApply, .prec = .secondary },
+        .keyword_q_rotate = .{ .prefix = QPrefix(.rotate), .infix = qApply, .prec = .secondary },
+        .keyword_q_rsave = .{ .prefix = QPrefix(.rsave), .infix = qApply, .prec = .secondary },
+        .keyword_q_rtrim = .{ .prefix = QPrefix(.rtrim), .infix = qApply, .prec = .secondary },
+        .keyword_q_save = .{ .prefix = QPrefix(.save), .infix = qApply, .prec = .secondary },
+        .keyword_q_scan = .{ .prefix = QPrefix(.scan), .infix = qApply, .prec = .secondary },
+        .keyword_q_scov = .{ .prefix = QPrefix(.scov), .infix = qApply, .prec = .secondary },
+        .keyword_q_sdev = .{ .prefix = QPrefix(.sdev), .infix = qApply, .prec = .secondary },
+        .keyword_q_set = .{ .prefix = QPrefix(.set), .infix = qApply, .prec = .secondary },
+        .keyword_q_show = .{ .prefix = QPrefix(.show), .infix = qApply, .prec = .secondary },
+        .keyword_q_signum = .{ .prefix = QPrefix(.signum), .infix = qApply, .prec = .secondary },
+        .keyword_q_ssr = .{ .prefix = QPrefix(.ssr), .infix = qApply, .prec = .secondary },
+        .keyword_q_string = .{ .prefix = QPrefix(.string), .infix = qApply, .prec = .secondary },
+        .keyword_q_sublist = .{ .prefix = QPrefix(.sublist), .infix = qApply, .prec = .secondary },
+        .keyword_q_sums = .{ .prefix = QPrefix(.sums), .infix = qApply, .prec = .secondary },
+        .keyword_q_sv = .{ .prefix = QPrefix(.sv), .infix = qApply, .prec = .secondary },
+        .keyword_q_svar = .{ .prefix = QPrefix(.svar), .infix = qApply, .prec = .secondary },
+        .keyword_q_system = .{ .prefix = QPrefix(.system), .infix = qApply, .prec = .secondary },
+        .keyword_q_tables = .{ .prefix = QPrefix(.tables), .infix = qApply, .prec = .secondary },
+        .keyword_q_til = .{ .prefix = QPrefix(.til), .infix = qApply, .prec = .secondary },
+        .keyword_q_trim = .{ .prefix = QPrefix(.trim), .infix = qApply, .prec = .secondary },
+        .keyword_q_type = .{ .prefix = QPrefix(.type), .infix = qApply, .prec = .secondary },
+        .keyword_q_uj = .{ .prefix = QPrefix(.uj), .infix = qApply, .prec = .secondary },
+        .keyword_q_ujf = .{ .prefix = QPrefix(.ujf), .infix = qApply, .prec = .secondary },
+        .keyword_q_ungroup = .{ .prefix = QPrefix(.ungroup), .infix = qApply, .prec = .secondary },
+        .keyword_q_union = .{ .prefix = QPrefix(.@"union"), .infix = qApply, .prec = .secondary },
+        .keyword_q_upper = .{ .prefix = QPrefix(.upper), .infix = qApply, .prec = .secondary },
+        .keyword_q_upsert = .{ .prefix = QPrefix(.upsert), .infix = qApply, .prec = .secondary },
+        .keyword_q_value = .{ .prefix = QPrefix(.value), .infix = qApply, .prec = .secondary },
+        .keyword_q_view = .{ .prefix = QPrefix(.view), .infix = qApply, .prec = .secondary },
+        .keyword_q_views = .{ .prefix = QPrefix(.views), .infix = qApply, .prec = .secondary },
+        .keyword_q_vs = .{ .prefix = QPrefix(.vs), .infix = qApply, .prec = .secondary },
+        .keyword_q_where = .{ .prefix = QPrefix(.where), .infix = qApply, .prec = .secondary },
+        .keyword_q_wj = .{ .prefix = QPrefix(.wj), .infix = qApply, .prec = .secondary },
+        .keyword_q_wj1 = .{ .prefix = QPrefix(.wj1), .infix = qApply, .prec = .secondary },
+        .keyword_q_ww = .{ .prefix = QPrefix(.ww), .infix = qApply, .prec = .secondary },
+        .keyword_q_xasc = .{ .prefix = QPrefix(.xasc), .infix = qApply, .prec = .secondary },
+        .keyword_q_xbar = .{ .prefix = QPrefix(.xbar), .infix = qApply, .prec = .secondary },
+        .keyword_q_xcol = .{ .prefix = QPrefix(.xcol), .infix = qApply, .prec = .secondary },
+        .keyword_q_xcols = .{ .prefix = QPrefix(.xcols), .infix = qApply, .prec = .secondary },
+        .keyword_q_xdesc = .{ .prefix = QPrefix(.xdesc), .infix = qApply, .prec = .secondary },
+        .keyword_q_xgroup = .{ .prefix = QPrefix(.xgroup), .infix = qApply, .prec = .secondary },
+        .keyword_q_xkey = .{ .prefix = QPrefix(.xkey), .infix = qApply, .prec = .secondary },
+        .keyword_q_xlog = .{ .prefix = QPrefix(.xlog), .infix = qApply, .prec = .secondary },
+        .keyword_q_xprev = .{ .prefix = QPrefix(.xprev), .infix = qApply, .prec = .secondary },
+        .keyword_q_xrank = .{ .prefix = QPrefix(.xrank), .infix = qApply, .prec = .secondary },
+    });
+};
 
 const null_node: Node.Index = 0;
 
@@ -2058,12 +2439,14 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .number_literal,
         .number_list_literal,
         .empty_list,
+        .distinct,
         .sum,
+        .til,
         .symbol_literal,
         .symbol_list_literal,
         .minus,
         .at,
-        .system,
+        .os,
         .current_directory,
         .change_directory,
         .load_file_or_directory,
@@ -2461,8 +2844,10 @@ test "table" {
     try testParse("([]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier }, "(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))))");
     try testParse("([]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum }, "(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))))");
     try testParse("([](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier }, "(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))))");
-    try testParse("([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)))");
-    try testParse("([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))))");
+    try testParseLanguage(.k, "([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)))");
+    try testParseLanguage(.q, "([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .til }, "(+:;(!;,`x`x1`x1;(enlist;(til;10);1;2)))");
+    try testParseLanguage(.k, "([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))))");
+    try testParseLanguage(.q, "([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .til, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(til;10)))))");
 
     try testParse("([()]())", &.{ .implicit_return, .table_literal, .empty_list, .empty_list }, "(!;(+:;(!;,,`x;(enlist;())));(+:;(!;,,`x;(enlist;()))))");
     try testParse("([1 2]1 2)", &.{ .implicit_return, .table_literal, .number_list_literal, .number_list_literal }, "(!;(+:;(!;,,`x;(enlist;1 2)));(+:;(!;,,`x;(enlist;1 2))))");
@@ -2473,8 +2858,10 @@ test "table" {
     try testParse("([b+sum a]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier, .add, .implicit_apply, .identifier, .sum, .identifier }, "(!;(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))));(+:;(!;,,`a;(enlist;(+;`b;(sum;`a))))))");
     try testParse("([sum[a]+b]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum, .add, .identifier, .call_one, .identifier, .sum }, "(!;(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))));(+:;(!;,,`b;(enlist;(+;(sum;`a);`b)))))");
     try testParse("([(a;b;c)](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier, .list, .identifier, .identifier, .identifier }, "(!;(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))));(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c)))))");
-    try testParse("([til 10;x1:1;2]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(!;(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)));(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2))))");
-    try testParse("([a;a::til 10]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(!;(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))));(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10))))))");
+    try testParseLanguage(.k, "([til 10;x1:1;2]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier, .number_literal, .number_literal, .implicit_apply, .number_literal, .identifier }, "(!;(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)));(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2))))");
+    try testParseLanguage(.q, "([til 10;x1:1;2]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .number_literal, .number_literal, .implicit_apply, .number_literal, .til, .number_literal, .number_literal, .implicit_apply, .number_literal, .til }, "(!;(+:;(!;,`x`x1`x1;(enlist;(til;10);1;2)));(+:;(!;,`x`x1`x1;(enlist;(til;10);1;2))))");
+    try testParseLanguage(.k, "([a;a::til 10]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier, .global_assign, .implicit_apply, .number_literal, .identifier, .identifier, .identifier }, "(!;(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))));(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10))))))");
+    try testParseLanguage(.q, "([a;a::til 10]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .number_literal, .til, .identifier, .identifier, .global_assign, .implicit_apply, .number_literal, .til, .identifier, .identifier }, "(!;(+:;(!;,`a`x;(enlist;`a;(::;`a;(til;10)))));(+:;(!;,`a`x;(enlist;`a;(::;`a;(til;10))))))");
 }
 
 test "select" {
@@ -2518,7 +2905,8 @@ test "select" {
     try testParse("select distinct by from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();()!();())");
     try testParse("select distinct a by from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();()!();(,`a)!,`a)");
     try testParse("select distinct by b from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();(,`b)!,`b;())");
-    try testParse("select distinct a by b from x", &.{ .implicit_return, .select, .identifier, .identifier, .implicit_apply, .identifier, .identifier }, "(?;`x;();(,`b)!,`b;(,`a)!,(`distinct;`a))");
+    try testParseLanguage(.k, "select distinct a by b from x", &.{ .implicit_return, .select, .identifier, .identifier, .implicit_apply, .identifier, .identifier }, "(?;`x;();(,`b)!,`b;(,`a)!,(`distinct;`a))");
+    try testParseLanguage(.q, "select distinct a by b from x", &.{ .implicit_return, .select, .identifier, .identifier, .implicit_apply, .identifier, .distinct }, "(?;`x;();(,`b)!,`b;(,`a)!,(distinct;`a))");
 
     try testParse("select[1]from x", &.{ .implicit_return, .select, .identifier, .number_literal }, "(?;`x;();0b;();1)");
     try testParse("select[a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();`a)");
@@ -2615,10 +3003,10 @@ test "iterators" {
     try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
 }
 
-test "system" {
-    try testParse("\\ls", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls\")");
-    try testParse("\\ls arg", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls arg\")");
-    try testParse("\\ls arg1 arg2", &.{ .implicit_return, .system }, "(.,[\"\\\\\"];\"ls arg1 arg2\")");
+test "os" {
+    try testParse("\\ls", &.{ .implicit_return, .os }, "(.,[\"\\\\\"];\"ls\")");
+    try testParse("\\ls arg", &.{ .implicit_return, .os }, "(.,[\"\\\\\"];\"ls arg\")");
+    try testParse("\\ls arg1 arg2", &.{ .implicit_return, .os }, "(.,[\"\\\\\"];\"ls arg1 arg2\")");
 }
 
 test "load_file_or_directory" {
@@ -2628,7 +3016,7 @@ test "load_file_or_directory" {
     try testParseError(
         \\\l file
         \\ l file
-    , &.{.system_expects_all_tokens_on_same_line});
+    , &.{.os_expects_all_tokens_on_same_line});
 }
 
 test "current_directory" {
@@ -2640,7 +3028,7 @@ test "change_directory" {
     try testParseError(
         \\\cd path
         \\ cd path
-    , &.{.system_expects_all_tokens_on_same_line});
+    , &.{.os_expects_all_tokens_on_same_line});
 }
 
 test {

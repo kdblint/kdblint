@@ -162,8 +162,14 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !voi
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     switch (parse_error.tag) {
         .expected_token => {
-            return writer.writeAll("TODO");
+            const found_tag = token_tags[parse_error.token];
+            const expected_symbol = parse_error.extra.expected_tag.symbol();
+            switch (found_tag) {
+                .invalid => return writer.print("expected '{s}', found invalid bytes", .{expected_symbol}),
+                else => return writer.print("expected '{s}', found '{s}'", .{ expected_symbol, found_tag.symbol() }),
+            }
         },
+
         .expected_semi_after_arg => {
             return writer.writeAll("TODO");
         },
@@ -200,7 +206,7 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !voi
         .expected_by_phrase => {
             return writer.writeAll("TODO");
         },
-        .system_expects_all_tokens_on_same_line => {
+        .os_expects_all_tokens_on_same_line => {
             const tag = token_tags[parse_error.token];
             return writer.print("{s} should not span multiple lines.", .{tag.symbol()});
         },
@@ -237,8 +243,8 @@ pub const Error = struct {
         expected_select_phrase,
         expected_by_phrase,
 
-        // system command errors
-        system_expects_all_tokens_on_same_line,
+        // os command errors
+        os_expects_all_tokens_on_same_line,
     };
 };
 
@@ -248,11 +254,6 @@ pub const Node = struct {
     data: Data,
 
     pub const Index = u32;
-
-    comptime {
-        // Goal is to keep this under one byte for efficiency.
-        std.debug.assert(@sizeOf(Tag) <= 1);
-    }
 
     pub const Tag = enum {
         /// extra_data[lhs...rhs]
@@ -526,46 +527,224 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         acos,
         /// Both lhs and rhs unused.
+        aj,
+        /// Both lhs and rhs unused.
+        aj0,
+        /// Both lhs and rhs unused.
+        ajf,
+        /// Both lhs and rhs unused.
+        ajf0,
+        /// Both lhs and rhs unused.
+        all,
+        /// Both lhs and rhs unused.
+        any,
+        /// Both lhs and rhs unused.
+        asc,
+        /// Both lhs and rhs unused.
         asin,
         /// Both lhs and rhs unused.
         atan,
         /// Both lhs and rhs unused.
+        attr,
+        /// Both lhs and rhs unused.
         avg,
+        /// Both lhs and rhs unused.
+        avgs,
+        /// Both lhs and rhs unused.
+        ceiling,
+        /// Both lhs and rhs unused.
+        cols,
         /// Both lhs and rhs unused.
         cos,
         /// Both lhs and rhs unused.
+        count,
+        /// Both lhs and rhs unused.
+        csv,
+        /// Both lhs and rhs unused.
+        deltas,
+        /// Both lhs and rhs unused.
+        desc,
+        /// Both lhs and rhs unused.
         dev,
         /// Both lhs and rhs unused.
+        differ,
+        /// Both lhs and rhs unused.
+        distinct,
+        /// Both lhs and rhs unused.
+        ej,
+        /// Both lhs and rhs unused.
         enlist,
+        /// Both lhs and rhs unused.
+        eval,
         /// Both lhs and rhs unused.
         exit,
         /// Both lhs and rhs unused.
         exp,
         /// Both lhs and rhs unused.
+        fills,
+        /// Both lhs and rhs unused.
+        first,
+        /// Both lhs and rhs unused.
+        fkeys,
+        /// Both lhs and rhs unused.
+        flip,
+        /// Both lhs and rhs unused.
+        floor,
+        /// Both lhs and rhs unused.
+        get,
+        /// Both lhs and rhs unused.
         getenv,
+        /// Both lhs and rhs unused.
+        group,
+        /// Both lhs and rhs unused.
+        gtime,
+        /// Both lhs and rhs unused.
+        hclose,
+        /// Both lhs and rhs unused.
+        hcount,
+        /// Both lhs and rhs unused.
+        hdel,
         /// Both lhs and rhs unused.
         hopen,
         /// Both lhs and rhs unused.
+        hsym,
+        /// Both lhs and rhs unused.
+        iasc,
+        /// Both lhs and rhs unused.
+        idesc,
+        /// Both lhs and rhs unused.
+        inv,
+        /// Both lhs and rhs unused.
+        key,
+        /// Both lhs and rhs unused.
+        keys,
+        /// Both lhs and rhs unused.
         last,
+        /// Both lhs and rhs unused.
+        load,
         /// Both lhs and rhs unused.
         log,
         /// Both lhs and rhs unused.
+        lower,
+        /// Both lhs and rhs unused.
+        ltime,
+        /// Both lhs and rhs unused.
+        ltrim,
+        /// Both lhs and rhs unused.
         max,
+        /// Both lhs and rhs unused.
+        maxs,
+        /// Both lhs and rhs unused.
+        md5,
+        /// Both lhs and rhs unused.
+        med,
+        /// Both lhs and rhs unused.
+        meta,
         /// Both lhs and rhs unused.
         min,
         /// Both lhs and rhs unused.
+        mins,
+        /// Both lhs and rhs unused.
+        neg,
+        /// Both lhs and rhs unused.
+        next,
+        /// Both lhs and rhs unused.
+        not,
+        /// Both lhs and rhs unused.
+        null,
+        /// Both lhs and rhs unused.
+        parse,
+        /// Both lhs and rhs unused.
         prd,
+        /// Both lhs and rhs unused.
+        prds,
+        /// Both lhs and rhs unused.
+        prev,
+        /// Both lhs and rhs unused.
+        rand,
+        /// Both lhs and rhs unused.
+        rank,
+        /// Both lhs and rhs unused.
+        ratios,
+        /// Both lhs and rhs unused.
+        raze,
+        /// Both lhs and rhs unused.
+        read0,
+        /// Both lhs and rhs unused.
+        read1,
+        /// Both lhs and rhs unused.
+        reciprocal,
+        /// Both lhs and rhs unused.
+        reval,
+        /// Both lhs and rhs unused.
+        reverse,
+        /// Both lhs and rhs unused.
+        rload,
+        /// Both lhs and rhs unused.
+        rsave,
+        /// Both lhs and rhs unused.
+        rtrim,
+        /// Both lhs and rhs unused.
+        save,
+        /// Both lhs and rhs unused.
+        sdev,
+        /// Both lhs and rhs unused.
+        show,
+        /// Both lhs and rhs unused.
+        signum,
         /// Both lhs and rhs unused.
         sin,
         /// Both lhs and rhs unused.
         sqrt,
         /// Both lhs and rhs unused.
+        ssr,
+        /// Both lhs and rhs unused.
+        string,
+        /// Both lhs and rhs unused.
         sum,
+        /// Both lhs and rhs unused.
+        sums,
+        /// Both lhs and rhs unused.
+        svar,
+        /// Both lhs and rhs unused.
+        system,
+        /// Both lhs and rhs unused.
+        tables,
         /// Both lhs and rhs unused.
         tan,
         /// Both lhs and rhs unused.
+        til,
+        /// Both lhs and rhs unused.
+        trim,
+        /// Both lhs and rhs unused.
+        type,
+        /// Both lhs and rhs unused.
+        ungroup,
+        /// Both lhs and rhs unused.
+        @"union",
+        /// Both lhs and rhs unused.
+        upper,
+        /// Both lhs and rhs unused.
+        value,
+        /// Both lhs and rhs unused.
         @"var",
+        /// Both lhs and rhs unused.
+        view,
+        /// Both lhs and rhs unused.
+        views,
+        /// Both lhs and rhs unused.
+        where,
+        /// Both lhs and rhs unused.
+        wj,
+        /// Both lhs and rhs unused.
+        wj1,
+        /// Both lhs and rhs unused.
+        ww,
 
+        /// Both lhs and rhs unused.
+        @"and",
+        /// Both lhs and rhs unused.
+        asof,
         /// Both lhs and rhs unused.
         bin,
         /// Both lhs and rhs unused.
@@ -575,17 +754,89 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         cov,
         /// Both lhs and rhs unused.
+        cross,
+        /// Both lhs and rhs unused.
+        cut,
+        /// Both lhs and rhs unused.
         div,
+        /// Both lhs and rhs unused.
+        dsave,
+        /// Both lhs and rhs unused.
+        each,
+        /// Both lhs and rhs unused.
+        ema,
+        /// Both lhs and rhs unused.
+        except,
+        /// Both lhs and rhs unused.
+        fby,
+        /// Both lhs and rhs unused.
+        ij,
+        /// Both lhs and rhs unused.
+        ijf,
         /// Both lhs and rhs unused.
         in,
         /// Both lhs and rhs unused.
         insert,
         /// Both lhs and rhs unused.
+        inter,
+        /// Both lhs and rhs unused.
         like,
+        /// Both lhs and rhs unused.
+        lj,
+        /// Both lhs and rhs unused.
+        ljf,
+        /// Both lhs and rhs unused.
+        lsq,
+        /// Both lhs and rhs unused.
+        mavg,
+        /// Both lhs and rhs unused.
+        mcount,
+        /// Both lhs and rhs unused.
+        mdev,
+        /// Both lhs and rhs unused.
+        mmax,
+        /// Both lhs and rhs unused.
+        mmin,
+        /// Both lhs and rhs unused.
+        mmu,
+        /// Both lhs and rhs unused.
+        mod,
+        /// Both lhs and rhs unused.
+        msum,
+        /// Both lhs and rhs unused.
+        @"or",
+        /// Both lhs and rhs unused.
+        over,
+        /// Both lhs and rhs unused.
+        peach,
+        /// Both lhs and rhs unused.
+        pj,
+        /// Both lhs and rhs unused.
+        prior,
+        /// Both lhs and rhs unused.
+        rotate,
+        /// Both lhs and rhs unused.
+        scan,
+        /// Both lhs and rhs unused.
+        scov,
+        /// Both lhs and rhs unused.
+        set,
         /// Both lhs and rhs unused.
         setenv,
         /// Both lhs and rhs unused.
         ss,
+        /// Both lhs and rhs unused.
+        sublist,
+        /// Both lhs and rhs unused.
+        sv,
+        /// Both lhs and rhs unused.
+        uj,
+        /// Both lhs and rhs unused.
+        ujf,
+        /// Both lhs and rhs unused.
+        upsert,
+        /// Both lhs and rhs unused.
+        vs,
         /// Both lhs and rhs unused.
         wavg,
         /// Both lhs and rhs unused.
@@ -593,7 +844,31 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         wsum,
         /// Both lhs and rhs unused.
+        xasc,
+        /// Both lhs and rhs unused.
+        xbar,
+        /// Both lhs and rhs unused.
+        xcol,
+        /// Both lhs and rhs unused.
+        xcols,
+        /// Both lhs and rhs unused.
+        xdesc,
+        /// Both lhs and rhs unused.
         xexp,
+        /// Both lhs and rhs unused.
+        xgroup,
+        /// Both lhs and rhs unused.
+        xkey,
+        /// Both lhs and rhs unused.
+        xlog,
+        /// Both lhs and rhs unused.
+        xprev,
+        /// Both lhs and rhs unused.
+        xrank,
+        /// `lhs and rhs`. rhs can be omitted. main_token is `and`.
+        and_infix,
+        /// `lhs asof rhs`. rhs can be omitted. main_token is `asof`.
+        asof_infix,
         /// `lhs bin rhs`. rhs can be omitted. main_token is `bin`.
         bin_infix,
         /// `lhs binr rhs`. rhs can be omitted. main_token is `binr`.
@@ -602,26 +877,118 @@ pub const Node = struct {
         cor_infix,
         /// `lhs cov rhs`. rhs can be omitted. main_token is `cov`.
         cov_infix,
+        /// `lhs cross rhs`. rhs can be omitted. main_token is `cross`.
+        cross_infix,
+        /// `lhs cut rhs`. rhs can be omitted. main_token is `cut`.
+        cut_infix,
         /// `lhs div rhs`. rhs can be omitted. main_token is `div`.
         div_infix,
+        /// `lhs dsave rhs`. rhs can be omitted. main_token is `dsave`.
+        dsave_infix,
+        /// `lhs each rhs`. rhs can be omitted. main_token is `each`.
+        each_infix,
+        /// `lhs ema rhs`. rhs can be omitted. main_token is `ema`.
+        ema_infix,
+        /// `lhs except rhs`. rhs can be omitted. main_token is `except`.
+        except_infix,
+        /// `lhs fby rhs`. rhs can be omitted. main_token is `fby`.
+        fby_infix,
+        /// `lhs ij rhs`. rhs can be omitted. main_token is `ij`.
+        ij_infix,
+        /// `lhs ijf rhs`. rhs can be omitted. main_token is `ijf`.
+        ijf_infix,
         /// `lhs in rhs`. rhs can be omitted. main_token is `in`.
         in_infix,
         /// `lhs insert rhs`. rhs can be omitted. main_token is `insert`.
         insert_infix,
+        /// `lhs inter rhs`. rhs can be omitted. main_token is `inter`.
+        inter_infix,
         /// `lhs like rhs`. rhs can be omitted. main_token is `like`.
         like_infix,
+        /// `lhs lj rhs`. rhs can be omitted. main_token is `lj`.
+        lj_infix,
+        /// `lhs ljf rhs`. rhs can be omitted. main_token is `ljf`.
+        ljf_infix,
+        /// `lhs lsq rhs`. rhs can be omitted. main_token is `lsq`.
+        lsq_infix,
+        /// `lhs mavg rhs`. rhs can be omitted. main_token is `mavg`.
+        mavg_infix,
+        /// `lhs mcount rhs`. rhs can be omitted. main_token is `mcount`.
+        mcount_infix,
+        /// `lhs mdev rhs`. rhs can be omitted. main_token is `mdev`.
+        mdev_infix,
+        /// `lhs mmax rhs`. rhs can be omitted. main_token is `mmax`.
+        mmax_infix,
+        /// `lhs mmin rhs`. rhs can be omitted. main_token is `mmin`.
+        mmin_infix,
+        /// `lhs mmu rhs`. rhs can be omitted. main_token is `mmu`.
+        mmu_infix,
+        /// `lhs mod rhs`. rhs can be omitted. main_token is `mod`.
+        mod_infix,
+        /// `lhs msum rhs`. rhs can be omitted. main_token is `msum`.
+        msum_infix,
+        /// `lhs or rhs`. rhs can be omitted. main_token is `or`.
+        or_infix,
+        /// `lhs over rhs`. rhs can be omitted. main_token is `over`.
+        over_infix,
+        /// `lhs peach rhs`. rhs can be omitted. main_token is `peach`.
+        peach_infix,
+        /// `lhs pj rhs`. rhs can be omitted. main_token is `pj`.
+        pj_infix,
+        /// `lhs prior rhs`. rhs can be omitted. main_token is `prior`.
+        prior_infix,
+        /// `lhs rotate rhs`. rhs can be omitted. main_token is `rotate`.
+        rotate_infix,
+        /// `lhs scan rhs`. rhs can be omitted. main_token is `scan`.
+        scan_infix,
+        /// `lhs scov rhs`. rhs can be omitted. main_token is `scov`.
+        scov_infix,
+        /// `lhs set rhs`. rhs can be omitted. main_token is `set`.
+        set_infix,
         /// `lhs setenv rhs`. rhs can be omitted. main_token is `setenv`.
         setenv_infix,
         /// `lhs ss rhs`. rhs can be omitted. main_token is `ss`.
         ss_infix,
+        /// `lhs sublist rhs`. rhs can be omitted. main_token is `sublist`.
+        sublist_infix,
+        /// `lhs sv rhs`. rhs can be omitted. main_token is `sv`.
+        sv_infix,
+        /// `lhs uj rhs`. rhs can be omitted. main_token is `uj`.
+        uj_infix,
+        /// `lhs ujf rhs`. rhs can be omitted. main_token is `ujf`.
+        ujf_infix,
+        /// `lhs upsert rhs`. rhs can be omitted. main_token is `upsert`.
+        upsert_infix,
+        /// `lhs vs rhs`. rhs can be omitted. main_token is `vs`.
+        vs_infix,
         /// `lhs wavg rhs`. rhs can be omitted. main_token is `wavg`.
         wavg_infix,
         /// `lhs within rhs`. rhs can be omitted. main_token is `within`.
         within_infix,
         /// `lhs wsum rhs`. rhs can be omitted. main_token is `wsum`.
         wsum_infix,
+        /// `lhs xasc rhs`. rhs can be omitted. main_token is `xasc`.
+        xasc_infix,
+        /// `lhs xbar rhs`. rhs can be omitted. main_token is `xbar`.
+        xbar_infix,
+        /// `lhs xcol rhs`. rhs can be omitted. main_token is `xcol`.
+        xcol_infix,
+        /// `lhs xcols rhs`. rhs can be omitted. main_token is `xcols`.
+        xcols_infix,
+        /// `lhs xdesc rhs`. rhs can be omitted. main_token is `xdesc`.
+        xdesc_infix,
         /// `lhs xexp rhs`. rhs can be omitted. main_token is `xexp`.
         xexp_infix,
+        /// `lhs xgroup rhs`. rhs can be omitted. main_token is `xgroup`.
+        xgroup_infix,
+        /// `lhs xkey rhs`. rhs can be omitted. main_token is `xkey`.
+        xkey_infix,
+        /// `lhs xlog rhs`. rhs can be omitted. main_token is `xlog`.
+        xlog_infix,
+        /// `lhs xprev rhs`. rhs can be omitted. main_token is `xprev`.
+        xprev_infix,
+        /// `lhs xrank rhs`. rhs can be omitted. main_token is `xrank`.
+        xrank_infix,
 
         /// `do[lhs;rhs]`. rhs can be omitted. main_token is `do`.
         do_one,
@@ -647,8 +1014,8 @@ pub const Node = struct {
         /// `delete lhs`. `DeleteCols[lhs]`. rhs is unused. main_token is `delete`.
         delete_cols,
 
-        /// `\system lhs`. `SubRange[lhs]`. lhs can be omitted. rhs is unused. main_token is `\system`.
-        system,
+        /// `\os lhs`. `SubRange[lhs]`. lhs can be omitted. rhs is unused. main_token is `\os`.
+        os,
         /// `\cd`. lhs is unused. rhs is unused. main_token is `\cd`.
         current_directory,
         /// `\cd lhs`. rhs is unused. main_token is `\cd`.
@@ -794,7 +1161,7 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
-        .system,
+        .os,
         .current_directory,
         .change_directory,
         .load_file_or_directory,
@@ -849,20 +1216,68 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
         .one_colon_assign,
         .dynamic_load,
 
+        .and_infix,
+        .asof_infix,
         .bin_infix,
         .binr_infix,
         .cor_infix,
         .cov_infix,
+        .cross_infix,
+        .cut_infix,
         .div_infix,
+        .dsave_infix,
+        .each_infix,
+        .ema_infix,
+        .except_infix,
+        .fby_infix,
+        .ij_infix,
+        .ijf_infix,
         .in_infix,
         .insert_infix,
+        .inter_infix,
         .like_infix,
+        .lj_infix,
+        .ljf_infix,
+        .lsq_infix,
+        .mavg_infix,
+        .mcount_infix,
+        .mdev_infix,
+        .mmax_infix,
+        .mmin_infix,
+        .mmu_infix,
+        .mod_infix,
+        .msum_infix,
+        .or_infix,
+        .over_infix,
+        .peach_infix,
+        .pj_infix,
+        .prior_infix,
+        .rotate_infix,
+        .scan_infix,
+        .scov_infix,
+        .set_infix,
         .setenv_infix,
         .ss_infix,
+        .sublist_infix,
+        .sv_infix,
+        .uj_infix,
+        .ujf_infix,
+        .upsert_infix,
+        .vs_infix,
         .wavg_infix,
         .within_infix,
         .wsum_infix,
+        .xasc_infix,
+        .xbar_infix,
+        .xcol_infix,
+        .xcols_infix,
+        .xdesc_infix,
         .xexp_infix,
+        .xgroup_infix,
+        .xkey_infix,
+        .xlog_infix,
+        .xprev_infix,
+        .xrank_infix,
         => return tree.firstToken(datas[i].lhs),
 
         .colon,
@@ -953,41 +1368,176 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
 
         .abs,
         .acos,
+        .aj,
+        .aj0,
+        .ajf,
+        .ajf0,
+        .all,
+        .any,
+        .asc,
         .asin,
         .atan,
+        .attr,
         .avg,
+        .avgs,
+        .ceiling,
+        .cols,
         .cos,
+        .count,
+        .csv,
+        .deltas,
+        .desc,
         .dev,
+        .differ,
+        .distinct,
+        .ej,
         .enlist,
+        .eval,
         .exit,
         .exp,
+        .fills,
+        .first,
+        .fkeys,
+        .flip,
+        .floor,
+        .get,
         .getenv,
+        .group,
+        .gtime,
+        .hclose,
+        .hcount,
+        .hdel,
         .hopen,
+        .hsym,
+        .iasc,
+        .idesc,
+        .inv,
+        .key,
+        .keys,
         .last,
+        .load,
         .log,
+        .lower,
+        .ltime,
+        .ltrim,
         .max,
+        .maxs,
+        .md5,
+        .med,
+        .meta,
         .min,
+        .mins,
+        .neg,
+        .next,
+        .not,
+        .null,
+        .parse,
         .prd,
+        .prds,
+        .prev,
+        .rand,
+        .rank,
+        .ratios,
+        .raze,
+        .read0,
+        .read1,
+        .reciprocal,
+        .reval,
+        .reverse,
+        .rload,
+        .rsave,
+        .rtrim,
+        .save,
+        .sdev,
+        .show,
+        .signum,
         .sin,
         .sqrt,
+        .ssr,
+        .string,
         .sum,
+        .sums,
+        .svar,
+        .system,
+        .tables,
         .tan,
+        .til,
+        .trim,
+        .type,
+        .ungroup,
+        .@"union",
+        .upper,
+        .value,
         .@"var",
+        .view,
+        .views,
+        .where,
+        .wj,
+        .wj1,
+        .ww,
 
+        .@"and",
+        .asof,
         .bin,
         .binr,
         .cor,
         .cov,
+        .cross,
+        .cut,
         .div,
+        .dsave,
+        .each,
+        .ema,
+        .except,
+        .fby,
+        .ij,
+        .ijf,
         .in,
         .insert,
+        .inter,
         .like,
+        .lj,
+        .ljf,
+        .lsq,
+        .mavg,
+        .mcount,
+        .mdev,
+        .mmax,
+        .mmin,
+        .mmu,
+        .mod,
+        .msum,
+        .@"or",
+        .over,
+        .peach,
+        .pj,
+        .prior,
+        .rotate,
+        .scan,
+        .scov,
+        .set,
         .setenv,
         .ss,
+        .sublist,
+        .sv,
+        .uj,
+        .ujf,
+        .upsert,
+        .vs,
         .wavg,
         .within,
         .wsum,
+        .xasc,
+        .xbar,
+        .xcol,
+        .xcols,
+        .xdesc,
         .xexp,
+        .xgroup,
+        .xkey,
+        .xlog,
+        .xprev,
+        .xrank,
 
         .do_one,
         .if_one,
@@ -1023,7 +1573,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
-        .system,
+        .os,
         .current_directory,
         => return main_tokens[i],
 
@@ -1076,20 +1626,68 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
         .one_colon_assign,
         .dynamic_load,
 
+        .and_infix,
+        .asof_infix,
         .bin_infix,
         .binr_infix,
         .cor_infix,
         .cov_infix,
+        .cross_infix,
+        .cut_infix,
         .div_infix,
+        .dsave_infix,
+        .each_infix,
+        .ema_infix,
+        .except_infix,
+        .fby_infix,
+        .ij_infix,
+        .ijf_infix,
         .in_infix,
         .insert_infix,
+        .inter_infix,
         .like_infix,
+        .lj_infix,
+        .ljf_infix,
+        .lsq_infix,
+        .mavg_infix,
+        .mcount_infix,
+        .mdev_infix,
+        .mmax_infix,
+        .mmin_infix,
+        .mmu_infix,
+        .mod_infix,
+        .msum_infix,
+        .or_infix,
+        .over_infix,
+        .peach_infix,
+        .pj_infix,
+        .prior_infix,
+        .rotate_infix,
+        .scan_infix,
+        .scov_infix,
+        .set_infix,
         .setenv_infix,
         .ss_infix,
+        .sublist_infix,
+        .sv_infix,
+        .uj_infix,
+        .ujf_infix,
+        .upsert_infix,
+        .vs_infix,
         .wavg_infix,
         .within_infix,
         .wsum_infix,
+        .xasc_infix,
+        .xbar_infix,
+        .xcol_infix,
+        .xcols_infix,
+        .xdesc_infix,
         .xexp_infix,
+        .xgroup_infix,
+        .xkey_infix,
+        .xlog_infix,
+        .xprev_infix,
+        .xrank_infix,
         => {
             const data = datas[i];
             if (data.rhs > 0) {
@@ -1221,41 +1819,176 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
 
         .abs,
         .acos,
+        .aj,
+        .aj0,
+        .ajf,
+        .ajf0,
+        .all,
+        .any,
+        .asc,
         .asin,
         .atan,
+        .attr,
         .avg,
+        .avgs,
+        .ceiling,
+        .cols,
         .cos,
+        .count,
+        .csv,
+        .deltas,
+        .desc,
         .dev,
+        .differ,
+        .distinct,
+        .ej,
         .enlist,
+        .eval,
         .exit,
         .exp,
+        .fills,
+        .first,
+        .fkeys,
+        .flip,
+        .floor,
+        .get,
         .getenv,
+        .group,
+        .gtime,
+        .hclose,
+        .hcount,
+        .hdel,
         .hopen,
+        .hsym,
+        .iasc,
+        .idesc,
+        .inv,
+        .key,
+        .keys,
         .last,
+        .load,
         .log,
+        .lower,
+        .ltime,
+        .ltrim,
         .max,
+        .maxs,
+        .md5,
+        .med,
+        .meta,
         .min,
+        .mins,
+        .neg,
+        .next,
+        .not,
+        .null,
+        .parse,
         .prd,
+        .prds,
+        .prev,
+        .rand,
+        .rank,
+        .ratios,
+        .raze,
+        .read0,
+        .read1,
+        .reciprocal,
+        .reval,
+        .reverse,
+        .rload,
+        .rsave,
+        .rtrim,
+        .save,
+        .sdev,
+        .show,
+        .signum,
         .sin,
         .sqrt,
+        .ssr,
+        .string,
         .sum,
+        .sums,
+        .svar,
+        .system,
+        .tables,
         .tan,
+        .til,
+        .trim,
+        .type,
+        .ungroup,
+        .@"union",
+        .upper,
+        .value,
         .@"var",
+        .view,
+        .views,
+        .where,
+        .wj,
+        .wj1,
+        .ww,
 
+        .@"and",
+        .asof,
         .bin,
         .binr,
         .cor,
         .cov,
+        .cross,
+        .cut,
         .div,
+        .dsave,
+        .each,
+        .ema,
+        .except,
+        .fby,
+        .ij,
+        .ijf,
         .in,
         .insert,
+        .inter,
         .like,
+        .lj,
+        .ljf,
+        .lsq,
+        .mavg,
+        .mcount,
+        .mdev,
+        .mmax,
+        .mmin,
+        .mmu,
+        .mod,
+        .msum,
+        .@"or",
+        .over,
+        .peach,
+        .pj,
+        .prior,
+        .rotate,
+        .scan,
+        .scov,
+        .set,
         .setenv,
         .ss,
+        .sublist,
+        .sv,
+        .uj,
+        .ujf,
+        .upsert,
+        .vs,
         .wavg,
         .within,
         .wsum,
+        .xasc,
+        .xbar,
+        .xcol,
+        .xcols,
+        .xdesc,
         .xexp,
+        .xgroup,
+        .xkey,
+        .xlog,
+        .xprev,
+        .xrank,
         => return main_tokens[i],
 
         .do_one,
@@ -1453,20 +2186,68 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .one_colon_assign,
         .dynamic_load,
 
+        .and_infix,
+        .asof_infix,
         .bin_infix,
         .binr_infix,
         .cor_infix,
         .cov_infix,
+        .cross_infix,
+        .cut_infix,
         .div_infix,
+        .dsave_infix,
+        .each_infix,
+        .ema_infix,
+        .except_infix,
+        .fby_infix,
+        .ij_infix,
+        .ijf_infix,
         .in_infix,
         .insert_infix,
+        .inter_infix,
         .like_infix,
+        .lj_infix,
+        .ljf_infix,
+        .lsq_infix,
+        .mavg_infix,
+        .mcount_infix,
+        .mdev_infix,
+        .mmax_infix,
+        .mmin_infix,
+        .mmu_infix,
+        .mod_infix,
+        .msum_infix,
+        .or_infix,
+        .over_infix,
+        .peach_infix,
+        .pj_infix,
+        .prior_infix,
+        .rotate_infix,
+        .scan_infix,
+        .scov_infix,
+        .set_infix,
         .setenv_infix,
         .ss_infix,
+        .sublist_infix,
+        .sv_infix,
+        .uj_infix,
+        .ujf_infix,
+        .upsert_infix,
+        .vs_infix,
         .wavg_infix,
         .within_infix,
         .wsum_infix,
+        .xasc_infix,
+        .xbar_infix,
+        .xcol_infix,
+        .xcols_infix,
+        .xdesc_infix,
         .xexp_infix,
+        .xgroup_infix,
+        .xkey_infix,
+        .xlog_infix,
+        .xprev_infix,
+        .xrank_infix,
         => {
             const data = datas[i];
             const symbol = token_tags[main_tokens[i]].symbol();
@@ -1694,41 +2475,176 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
 
         .abs,
         .acos,
+        .aj,
+        .aj0,
+        .ajf,
+        .ajf0,
+        .all,
+        .any,
+        .asc,
         .asin,
         .atan,
+        .attr,
         .avg,
+        .avgs,
+        .ceiling,
+        .cols,
         .cos,
+        .count,
+        .csv,
+        .deltas,
+        .desc,
         .dev,
+        .differ,
+        .distinct,
+        .ej,
         .enlist,
+        .eval,
         .exit,
         .exp,
+        .fills,
+        .first,
+        .fkeys,
+        .flip,
+        .floor,
+        .get,
         .getenv,
+        .group,
+        .gtime,
+        .hclose,
+        .hcount,
+        .hdel,
         .hopen,
+        .hsym,
+        .iasc,
+        .idesc,
+        .inv,
+        .key,
+        .keys,
         .last,
+        .load,
         .log,
+        .lower,
+        .ltime,
+        .ltrim,
         .max,
+        .maxs,
+        .md5,
+        .med,
+        .meta,
         .min,
+        .mins,
+        .neg,
+        .next,
+        .not,
+        .null,
+        .parse,
         .prd,
+        .prds,
+        .prev,
+        .rand,
+        .rank,
+        .ratios,
+        .raze,
+        .read0,
+        .read1,
+        .reciprocal,
+        .reval,
+        .reverse,
+        .rload,
+        .rsave,
+        .rtrim,
+        .save,
+        .sdev,
+        .show,
+        .signum,
         .sin,
         .sqrt,
+        .ssr,
+        .string,
         .sum,
+        .sums,
+        .svar,
+        .system,
+        .tables,
         .tan,
+        .til,
+        .trim,
+        .type,
+        .ungroup,
+        .@"union",
+        .upper,
+        .value,
         .@"var",
+        .view,
+        .views,
+        .where,
+        .wj,
+        .wj1,
+        .ww,
 
+        .@"and",
+        .asof,
         .bin,
         .binr,
         .cor,
         .cov,
+        .cross,
+        .cut,
         .div,
+        .dsave,
+        .each,
+        .ema,
+        .except,
+        .fby,
+        .ij,
+        .ijf,
         .in,
         .insert,
+        .inter,
         .like,
+        .lj,
+        .ljf,
+        .lsq,
+        .mavg,
+        .mcount,
+        .mdev,
+        .mmax,
+        .mmin,
+        .mmu,
+        .mod,
+        .msum,
+        .@"or",
+        .over,
+        .peach,
+        .pj,
+        .prior,
+        .rotate,
+        .scan,
+        .scov,
+        .set,
         .setenv,
         .ss,
+        .sublist,
+        .sv,
+        .uj,
+        .ujf,
+        .upsert,
+        .vs,
         .wavg,
         .within,
         .wsum,
+        .xasc,
+        .xbar,
+        .xcol,
+        .xcols,
+        .xdesc,
         .xexp,
+        .xgroup,
+        .xkey,
+        .xlog,
+        .xprev,
+        .xrank,
         => try stream.writeAll(tree.tokenSlice(main_tokens[i])),
 
         .do_one,
@@ -2015,7 +2931,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             try stream.print("(!;{s};();0b;{s})", .{ from.items, select.items });
         },
 
-        .system,
+        .os,
         .current_directory,
         .change_directory,
         .load_file_or_directory,
