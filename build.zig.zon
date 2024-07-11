@@ -3,8 +3,8 @@
     .version = "0.1.0",
     .dependencies = .{
         .zls = .{
-            .url = "https://github.com/zigtools/zls/archive/ab928b51c6e48b2f4cca2e58c332cea75d683d17.tar.gz",
-            .hash = "122094e1396076fed26de3fc4d78af7ce8401b3d4d20287925547b36b2cbd6c7f1ca",
+            .url = "https://github.com/zigtools/zls/archive/b8dd9cbbcc7591159f28eb41c21315f5ef5ca995.tar.gz",
+            .hash = "12206cd7caa3bcea506e2dc05fc48c7426aceda9d9bbf2299dd0e532834baa947055",
         },
     },
     .paths = .{

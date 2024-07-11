@@ -511,16 +511,19 @@ pub fn uriFromImportStr(allocator: std.mem.Allocator, handle: *Handle, import_st
     const tracy_zone = tracy.trace(@src());
     defer tracy_zone.end();
 
-    var separator_index = handle.uri.len;
-    while (separator_index > 0) : (separator_index -= 1) {
-        if (std.fs.path.isSep(handle.uri[separator_index - 1])) break;
-    }
-    const base = if (std.fs.path.isAbsolute(import_str)) "file://" else handle.uri[0 .. separator_index - 1];
-
-    return URI.pathRelative(allocator, base, import_str) catch |err| switch (err) {
+    const base_path = URI.parse(allocator, handle.uri) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.UriBadScheme => return null,
+        else => return null,
     };
+    defer allocator.free(base_path);
+
+    const joined_path = std.fs.path.resolve(allocator, &.{ base_path, "..", import_str }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
+    defer allocator.free(joined_path);
+
+    return try URI.fromPath(allocator, joined_path);
 }
 
 fn getParseSettings(self: DocumentStore, uri: Uri) Ast.ParseSettings {
