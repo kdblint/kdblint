@@ -102,6 +102,23 @@ fn install(
             },
         },
     }).step);
+
+    const exe_check = b.addExecutable(.{
+        .name = "kdblint",
+        .root_source_file = b.path("src/main.zig"),
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = arch,
+            .os_tag = tag,
+        }),
+        .optimize = optimize,
+    });
+    exe_check.root_module.addImport("build_options", build_options);
+    exe_check.root_module.addImport("zls", zls);
+    exe_check.root_module.addImport("known_folders", known_folders);
+    exe_check.root_module.addImport("tracy", tracy);
+
+    const check = b.step("check", "Check");
+    check.dependOn(&exe_check.step);
 }
 
 const Version = struct {

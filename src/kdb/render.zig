@@ -8,6 +8,7 @@ const Ast = kdb.Ast;
 const Token = kdb.Token;
 const primitives = kdb.primitives;
 const panic = std.debug.panic;
+const Value = @import("parser/number_parser.zig").Value;
 
 const indent_delta = 4;
 const asm_indent_delta = 2;
@@ -158,17 +159,53 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderToken(r, data.rhs, space);
         },
 
-        .number_literal => try renderToken(r, main_tokens[node], space),
-        .number_list_literal => {
+        .boolean_literal,
+        .boolean_list_literal,
+        .guid_literal,
+        .byte_literal,
+        .byte_list_literal,
+        .short_literal,
+        .int_literal,
+        .long_literal,
+        .real_literal,
+        .float_literal,
+        .char_number_literal,
+        .char_number_list_literal,
+        .timestamp_literal,
+        .month_literal,
+        .date_literal,
+        .datetime_literal,
+        .timespan_literal,
+        .minute_literal,
+        .second_literal,
+        .time_literal,
+        => {
             const data = datas[node];
-            const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
-            const tokens = tree.extra_data[sub_range.start .. sub_range.end - 1];
-            for (tokens) |token| {
-                try renderToken(r, token, .space);
-            }
-            try renderToken(r, data.rhs, space);
+            const value = tree.values[data.lhs];
+            try renderValue(r, value, main_tokens[node], space);
         },
-        .string_literal,
+        .guid_list_literal,
+        .short_list_literal,
+        .int_list_literal,
+        .long_list_literal,
+        .real_list_literal,
+        .float_list_literal,
+        .timestamp_list_literal,
+        .month_list_literal,
+        .date_list_literal,
+        .datetime_list_literal,
+        .timespan_list_literal,
+        .minute_list_literal,
+        .second_list_literal,
+        .time_list_literal,
+        => {
+            const data = datas[node];
+            const value = tree.values[data.lhs];
+            const last_token = tree.lastToken(node);
+            try renderValue(r, value, last_token, space);
+        },
+        .char_literal,
+        .char_list_literal,
         .symbol_literal,
         .symbol_list_literal,
         .identifier,
@@ -286,7 +323,44 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 },
                 .apply_n, .dot_assign => {
                     try renderExpression(r, data.lhs, switch (node_tags[data.lhs]) {
-                        .number_literal, .number_list_literal, .symbol_literal, .symbol_list_literal, .identifier => .space,
+                        .boolean_literal,
+                        .boolean_list_literal,
+                        .guid_literal,
+                        .guid_list_literal,
+                        .byte_literal,
+                        .byte_list_literal,
+                        .short_literal,
+                        .short_list_literal,
+                        .int_literal,
+                        .int_list_literal,
+                        .long_literal,
+                        .long_list_literal,
+                        .real_literal,
+                        .real_list_literal,
+                        .float_literal,
+                        .float_list_literal,
+                        .char_literal,
+                        .char_list_literal,
+                        .symbol_literal,
+                        .symbol_list_literal,
+                        .timestamp_literal,
+                        .timestamp_list_literal,
+                        .month_literal,
+                        .month_list_literal,
+                        .date_literal,
+                        .date_list_literal,
+                        .datetime_literal,
+                        .datetime_list_literal,
+                        .timespan_literal,
+                        .timespan_list_literal,
+                        .minute_literal,
+                        .minute_list_literal,
+                        .second_literal,
+                        .second_list_literal,
+                        .time_literal,
+                        .time_list_literal,
+                        .identifier,
+                        => .space,
                         else => .none,
                     });
                     try renderToken(r, main_tokens[node], if (data.rhs > 0) switch (token_tags[Ast.firstToken(tree, data.rhs)]) {
@@ -1172,6 +1246,13 @@ fn renderToken(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void
     const ais = r.ais;
     const lexeme = tree.tokenSlice(token_index);
     try ais.writer().writeAll(lexeme);
+    try renderSpace(r, token_index, space);
+    r.prev_token = token_index;
+}
+
+fn renderValue(r: *Render, value: Value, token_index: Ast.TokenIndex, space: Space) Error!void {
+    const ais = r.ais;
+    try ais.writer().print("{}", .{value});
     try renderSpace(r, token_index, space);
     r.prev_token = token_index;
 }
