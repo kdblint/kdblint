@@ -56,6 +56,23 @@ pub fn build(b: *std.Build) !void {
         );
     }
 
+    const exe_check = b.addExecutable(.{
+        .name = "kdblint",
+        .root_source_file = b.path("src/main.zig"),
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = builtin.cpu.arch,
+            .os_tag = builtin.os.tag,
+        }),
+        .optimize = optimize,
+    });
+    exe_check.root_module.addImport("build_options", build_options_module);
+    exe_check.root_module.addImport("zls", zls_module);
+    exe_check.root_module.addImport("known_folders", known_folders_module);
+    exe_check.root_module.addImport("tracy", tracy_module);
+
+    const check = b.step("check", "Check");
+    check.dependOn(&exe_check.step);
+
     const exe_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -102,23 +119,6 @@ fn install(
             },
         },
     }).step);
-
-    const exe_check = b.addExecutable(.{
-        .name = "kdblint",
-        .root_source_file = b.path("src/main.zig"),
-        .target = b.resolveTargetQuery(.{
-            .cpu_arch = arch,
-            .os_tag = tag,
-        }),
-        .optimize = optimize,
-    });
-    exe_check.root_module.addImport("build_options", build_options);
-    exe_check.root_module.addImport("zls", zls);
-    exe_check.root_module.addImport("known_folders", known_folders);
-    exe_check.root_module.addImport("tracy", tracy);
-
-    const check = b.step("check", "Check");
-    check.dependOn(&exe_check.step);
 }
 
 const Version = struct {
