@@ -16,7 +16,7 @@ const zero_instant = std.time.Instant{
         .wasi => builtin.link_libc,
         .windows, .uefi => false,
         else => true,
-    }) .{ .tv_nsec = 0, .tv_sec = 0 } else 0,
+    }) .{ .nsec = 0, .sec = 0 } else 0,
 };
 
 pub fn now() std.time.Instant {
