@@ -32,12 +32,12 @@ test "valid long inputs" {
     try testNumberParser("-0W", .long, @as(i64, -inf_long));
     try testNumberParser("-9223372036854775807", .long, @as(i64, -inf_long));
 
-    if (true) return error.SkipZigTest;
-
+    try testParse("0N 0N", &.{ .implicit_return, .long_list_literal }, "0N 0N");
     try testParse("0N 0Nj", &.{ .implicit_return, .long_list_literal }, "0N 0N");
     try testParse("0N 0nj", &.{ .implicit_return, .long_list_literal }, "0N 0N");
     try testParse("0n 0Nj", &.{ .implicit_return, .long_list_literal }, "0N 0N");
     try testParse("0n 0nj", &.{ .implicit_return, .long_list_literal }, "0N 0N");
+    try testParse("0N 0N 0N", &.{ .implicit_return, .long_list_literal }, "0N 0N 0N");
     try testParse("0N 0N 0Nj", &.{ .implicit_return, .long_list_literal }, "0N 0N 0N");
     try testParse("0N 0N 0nj", &.{ .implicit_return, .long_list_literal }, "0N 0N 0N");
     try testParse("0N 0n 0Nj", &.{ .implicit_return, .long_list_literal }, "0N 0N 0N");
