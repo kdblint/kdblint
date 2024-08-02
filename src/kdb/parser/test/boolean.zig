@@ -42,10 +42,15 @@ test "valid boolean inputs" {
     try testParse("0 1 0b", &.{ .implicit_return, .implicit_apply, .boolean_literal, .long_list_literal }, "(0 1;0b)");
     try testParse("0 1 01b", &.{ .implicit_return, .implicit_apply, .boolean_list_literal, .long_list_literal }, "(0 1;01b)");
 
-    try testParse("0. 0b", &.{ .implicit_return, .implicit_apply, .boolean_literal, .float_literal }, "(0f;0b)");
-    try testParse("0. 01b", &.{ .implicit_return, .implicit_apply, .boolean_list_literal, .float_literal }, "(0f;01b)");
-    try testParse("0. 1 0b", &.{ .implicit_return, .implicit_apply, .boolean_literal, .float_list_literal }, "(0 1f;0b)");
-    try testParse("0. 1 01b", &.{ .implicit_return, .implicit_apply, .boolean_list_literal, .float_list_literal }, "(0 1f;01b)");
+    try testParse("0f 0b", &.{ .implicit_return, .implicit_apply, .boolean_literal, .float_literal }, "(0f;0b)");
+    try testParse("0f 01b", &.{ .implicit_return, .implicit_apply, .boolean_list_literal, .float_literal }, "(0f;01b)");
+    try testParse("0 1f 0b", &.{ .implicit_return, .implicit_apply, .boolean_literal, .float_list_literal }, "(0 1f;0b)");
+    try testParse("0 1f 01b", &.{ .implicit_return, .implicit_apply, .boolean_list_literal, .float_list_literal }, "(0 1f;01b)");
+
+    try testParse("0b 0", &.{ .implicit_return, .implicit_apply, .long_literal, .boolean_literal }, "(0b;0)");
+    try testParse("0b 0 1", &.{ .implicit_return, .implicit_apply, .long_list_literal, .boolean_literal }, "(0b;0 1)");
+    try testParse("01b 0", &.{ .implicit_return, .implicit_apply, .long_literal, .boolean_list_literal }, "(01b;0)");
+    try testParse("01b 0 1", &.{ .implicit_return, .implicit_apply, .long_list_literal, .boolean_list_literal }, "(01b;0 1)");
 }
 
 test "invalid boolean inputs" {

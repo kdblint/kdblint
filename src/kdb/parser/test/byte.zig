@@ -1,6 +1,8 @@
 const number_parser = @import("../number_parser.zig");
+const Parse = @import("../../Parse.zig");
 const testNumberParser = number_parser.testNumberParser;
 const testNumberParserError = number_parser.testNumberParserError;
+const testParse = Parse.testParse;
 
 test "valid byte inputs" {
     try testNumberParser("0x0", .byte, @as(u8, 0));
@@ -18,6 +20,27 @@ test "valid byte inputs" {
     try testNumberParser("0xFF", .byte, @as(u8, 255));
 
     try testNumberParser("0x", .byte_list, .{});
+
+    try testParse("0 0x00", &.{ .implicit_return, .implicit_apply, .byte_literal, .long_literal }, "(0;0x00)");
+    try testParse("0 0x", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .long_literal }, "(0;`byte$())");
+    try testParse("0 0x0001", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .long_literal }, "(0;0x0001)");
+    try testParse("0 1 0x00", &.{ .implicit_return, .implicit_apply, .byte_literal, .long_list_literal }, "(0 1;0x00)");
+    try testParse("0 1 0x", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .long_list_literal }, "(0 1;`byte$())");
+    try testParse("0 1 0x0001", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .long_list_literal }, "(0 1;0x0001)");
+
+    try testParse("0f 0x00", &.{ .implicit_return, .implicit_apply, .byte_literal, .float_literal }, "(0f;0x00)");
+    try testParse("0f 0x", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .float_literal }, "(0f;`byte$())");
+    try testParse("0f 0x0001", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .float_literal }, "(0f;0x0001)");
+    try testParse("0 1f 0x00", &.{ .implicit_return, .implicit_apply, .byte_literal, .float_list_literal }, "(0 1f;0x00)");
+    try testParse("0 1f 0x", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .float_list_literal }, "(0 1f;`byte$())");
+    try testParse("0 1f 0x0001", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .float_list_literal }, "(0 1f;0x0001)");
+
+    try testParse("0x00 0", &.{ .implicit_return, .implicit_apply, .long_literal, .byte_literal }, "(0x00;0)");
+    try testParse("0x00 0 1", &.{ .implicit_return, .implicit_apply, .long_list_literal, .byte_literal }, "(0x00;0 1)");
+    try testParse("0x 0", &.{ .implicit_return, .implicit_apply, .long_literal, .byte_list_literal }, "(`byte$();0)");
+    try testParse("0x 0 1", &.{ .implicit_return, .implicit_apply, .long_list_literal, .byte_list_literal }, "(`byte$();0 1)");
+    try testParse("0x0001 0", &.{ .implicit_return, .implicit_apply, .long_literal, .byte_list_literal }, "(0x0001;0)");
+    try testParse("0x0001 0 1", &.{ .implicit_return, .implicit_apply, .long_list_literal, .byte_list_literal }, "(0x0001;0 1)");
 }
 
 test "invalid byte inputs" {

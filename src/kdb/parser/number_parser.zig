@@ -33,22 +33,28 @@ pub fn parse(p: *Parse) Parse.Error!Ast.Node.Index {
     while (true) {
         if (p.eob) break;
         if (p.eatToken(.number_literal)) |number_literal| {
-            const loc = p.token_locs[number_literal];
-            const source = p.source[loc.start..loc.end];
-            number_parser.parseNumber(source) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ShouldBacktrack => {
-                    p.tok_i -= 1;
-                    p.eob = false;
-                    break;
-                },
-                else => return p.failMsg(.{ .tag = .parse_error, .token = number_literal }),
-            };
+            {
+                const loc = p.token_locs[number_literal];
+                const source = p.source[loc.start..loc.end];
+                number_parser.parseNumber(source) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.ShouldBacktrack => {
+                        p.tok_i -= 1;
+                        p.eob = false;
+                        break;
+                    },
+                    else => return p.failMsg(.{ .tag = .parse_error, .token = number_literal }),
+                };
+            }
             try p.scratch.append(p.gpa, number_literal);
             switch (number_parser.result.?.value) {
                 .boolean, .boolean_list, .byte, .byte_list => break,
                 else => if (number_parser.result.?.has_suffix) {
                     if (p.peekTag() == .number_literal) {
+                        const loc = p.token_locs[p.tok_i];
+                        const source = p.source[loc.start..loc.end];
+                        if (source[source.len - 1] == 'b') break;
+                        if (source.len > 1 and source[1] == 'x') break;
                         return p.fail(.parse_error);
                     }
                 } else continue,
@@ -281,8 +287,15 @@ pub const Value = union(ValueType) {
                     try writer.writeAll("00000000-0000-0000-0000-000000000000");
                 } else unreachable;
             },
-            .byte => unreachable,
-            .byte_list => unreachable,
+            .byte => |value| try writer.print("0x{x:0>2}", .{value}),
+            .byte_list => |value| {
+                if (value.len == 0) {
+                    try writer.writeAll("`byte$()");
+                } else {
+                    try writer.writeAll("0x");
+                    for (value) |v| try writer.print("{x:0>2}", .{v});
+                }
+            },
             .char => unreachable,
             .char_list => unreachable,
             .short => unreachable,
@@ -467,11 +480,15 @@ const NumberParser = struct {
         errdefer value.deinit(self.allocator);
 
         if (self.result) |prev_result| {
+            switch (value) {
+                .boolean, .boolean_list, .byte, .byte_list => return error.ShouldBacktrack,
+                else => {},
+            }
+
             // TODO: Test cases for null/inf conversions.
             switch (prev_result.value) {
                 .long => |prev_v| {
                     switch (value) {
-                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => |v| {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             const list = try self.allocator.alloc([16]u8, 2);
@@ -500,13 +517,13 @@ const NumberParser = struct {
                                 .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
+                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
                         .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
                 .long_list => |prev_v| {
                     switch (value) {
-                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             defer prev_result.deinit(self.allocator);
@@ -541,13 +558,13 @@ const NumberParser = struct {
                                 .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
+                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
                         .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
                 .float => |prev_v| {
                     switch (value) {
-                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => |v| {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             const list = try self.allocator.alloc([16]u8, 2);
@@ -587,13 +604,13 @@ const NumberParser = struct {
                                 .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
+                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
                         .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
                 .float_list => |prev_v| {
                     switch (value) {
-                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             defer prev_result.deinit(self.allocator);
@@ -640,11 +657,12 @@ const NumberParser = struct {
                                 .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
+                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
                         .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
-                .boolean, .boolean_list, .guid, .guid_list => unreachable,
+                .boolean, .boolean_list, .guid, .guid_list, .byte, .byte_list => unreachable,
                 else => |t| std.debug.panic("parseNumber: {s} ({s})", .{ @tagName(t), self.str }),
             }
         } else {
