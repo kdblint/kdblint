@@ -497,7 +497,7 @@ const NumberParser = struct {
                             list[1] = v;
                             self.result = .{
                                 .value = .{ .float_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
                         .guid_list => unreachable,
@@ -538,7 +538,7 @@ const NumberParser = struct {
                             list[prev_v.len] = v;
                             self.result = .{
                                 .value = .{ .float_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
                         .guid_list => unreachable,
@@ -559,13 +559,24 @@ const NumberParser = struct {
                             };
                         },
                         .long => |v| {
-                            const list = try self.allocator.alloc(f64, 2);
-                            list[0] = prev_v;
-                            list[1] = if (v == null_long) null_float else @floatFromInt(v);
-                            self.result = .{
-                                .value = .{ .float_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'j',
-                            };
+                            if (self.str[self.str.len - 1] == 'j') {
+                                if (!prev_result.value.isNull()) return error.ParseError;
+                                const list = try self.allocator.alloc(i64, 2);
+                                list[0] = null_long;
+                                list[1] = v;
+                                self.result = .{
+                                    .value = .{ .long_list = list },
+                                    .has_suffix = true,
+                                };
+                            } else {
+                                const list = try self.allocator.alloc(f64, 2);
+                                list[0] = prev_v;
+                                list[1] = if (v == null_long) null_float else @floatFromInt(v);
+                                self.result = .{
+                                    .value = .{ .float_list = list },
+                                    .has_suffix = false,
+                                };
+                            }
                         },
                         .float => |v| {
                             const list = try self.allocator.alloc(f64, 2);
@@ -573,7 +584,7 @@ const NumberParser = struct {
                             list[1] = v;
                             self.result = .{
                                 .value = .{ .float_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
                         .guid_list => unreachable,
@@ -596,14 +607,28 @@ const NumberParser = struct {
                             };
                         },
                         .long => |v| {
-                            defer prev_result.deinit(self.allocator);
-                            const list = try self.allocator.alloc(f64, prev_v.len + 1);
-                            @memcpy(list[0..prev_v.len], prev_v);
-                            list[prev_v.len] = if (v == null_long) null_float else @floatFromInt(v);
-                            self.result = .{
-                                .value = .{ .float_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'j',
-                            };
+                            if (self.str[self.str.len - 1] == 'j') {
+                                if (!prev_result.value.isNull()) return error.ParseError;
+                                defer prev_result.deinit(self.allocator);
+                                const list = try self.allocator.alloc(i64, prev_v.len + 1);
+                                for (list[0..prev_v.len]) |*l| {
+                                    l.* = null_long;
+                                }
+                                list[prev_v.len] = v;
+                                self.result = .{
+                                    .value = .{ .long_list = list },
+                                    .has_suffix = true,
+                                };
+                            } else {
+                                defer prev_result.deinit(self.allocator);
+                                const list = try self.allocator.alloc(f64, prev_v.len + 1);
+                                @memcpy(list[0..prev_v.len], prev_v);
+                                list[prev_v.len] = if (v == null_long) null_float else @floatFromInt(v);
+                                self.result = .{
+                                    .value = .{ .float_list = list },
+                                    .has_suffix = false,
+                                };
+                            }
                         },
                         .float => |v| {
                             defer prev_result.deinit(self.allocator);
@@ -612,7 +637,7 @@ const NumberParser = struct {
                             list[prev_v.len] = v;
                             self.result = .{
                                 .value = .{ .float_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'f',
                             };
                         },
                         .guid_list => unreachable,
@@ -635,8 +660,8 @@ const NumberParser = struct {
                     .long => self.str[self.str.len - 1] == 'j',
                     .timestamp => self.str[self.str.len - 1] == 'p',
                     .timespan => self.str[self.str.len - 1] == 'n',
-                    .real => false, // TODO: Determine suffix
-                    .float => false, // TODO: Determine suffix
+                    .real => self.str[self.str.len - 1] == 'e',
+                    .float => self.str[self.str.len - 1] == 'f',
                     .datetime => self.str[self.str.len - 1] == 'z',
                     else => unreachable,
                 },
