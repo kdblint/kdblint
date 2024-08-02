@@ -39,6 +39,7 @@ pub fn parse(p: *Parse) Parse.Error!Ast.Node.Index {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ShouldBacktrack => {
                     p.tok_i -= 1;
+                    p.eob = false;
                     break;
                 },
                 else => return p.failMsg(.{ .tag = .parse_error, .token = number_literal }),
@@ -328,7 +329,17 @@ pub const Value = union(ValueType) {
             .timespan_list => unreachable,
             .real => unreachable,
             .real_list => unreachable,
-            .float => unreachable,
+            .float => |value| {
+                if (std.math.isNan(value)) {
+                    try writer.writeAll("0n");
+                } else {
+                    if (@floor(value) == value) {
+                        try writer.print("{d}f", .{value});
+                    } else {
+                        try writer.print("{d}", .{value});
+                    }
+                }
+            },
             .float_list => |value| {
                 var requires_suffix = true;
                 var i: usize = 0;
@@ -344,13 +355,14 @@ pub const Value = union(ValueType) {
                 }
                 const v = value[i];
                 if (std.math.isNan(v)) {
-                    requires_suffix = false;
                     try writer.writeAll("0n");
                 } else {
-                    requires_suffix = requires_suffix and @floor(v) == v;
-                    try writer.print("{d}", .{v});
+                    if (requires_suffix and @floor(v) == v) {
+                        try writer.print("{d}f", .{v});
+                    } else {
+                        try writer.print("{d}", .{v});
+                    }
                 }
-                if (requires_suffix) try writer.writeByte('f');
             },
             .datetime => unreachable,
             .datetime_list => unreachable,
@@ -462,8 +474,10 @@ const NumberParser = struct {
 
             // TODO: Test cases for null/inf conversions.
             switch (prev_result.value) {
+                .boolean, .boolean_list => unreachable,
                 .long => |prev_v| {
                     switch (value) {
+                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => |v| {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             const list = try self.allocator.alloc([16]u8, 2);
@@ -497,7 +511,7 @@ const NumberParser = struct {
                 },
                 .long_list => |prev_v| {
                     switch (value) {
-                        .boolean_list => return error.ShouldBacktrack,
+                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             defer prev_result.deinit(self.allocator);
@@ -537,6 +551,7 @@ const NumberParser = struct {
                 },
                 .float => |prev_v| {
                     switch (value) {
+                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => |v| {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             const list = try self.allocator.alloc([16]u8, 2);
@@ -570,6 +585,7 @@ const NumberParser = struct {
                 },
                 .float_list => |prev_v| {
                     switch (value) {
+                        .boolean, .boolean_list => return error.ShouldBacktrack,
                         .guid => {
                             if (!prev_result.value.isNull()) return error.ParseError;
                             defer prev_result.deinit(self.allocator);
@@ -610,7 +626,7 @@ const NumberParser = struct {
         } else {
             self.result = .{
                 .value = value,
-                .has_suffix = false,
+                .has_suffix = false, // TODO: Determine suffix
             };
         }
     }
