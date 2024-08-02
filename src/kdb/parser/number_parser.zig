@@ -467,14 +467,8 @@ const NumberParser = struct {
         errdefer value.deinit(self.allocator);
 
         if (self.result) |prev_result| {
-            // TODO: Handle suffix
-            if (prev_result.has_suffix) {
-                std.debug.panic("parseNumber: has suffix - {s}", .{self.str});
-            }
-
             // TODO: Test cases for null/inf conversions.
             switch (prev_result.value) {
-                .boolean, .boolean_list => unreachable,
                 .long => |prev_v| {
                     switch (value) {
                         .boolean, .boolean_list => return error.ShouldBacktrack,
@@ -494,7 +488,7 @@ const NumberParser = struct {
                             list[1] = v;
                             self.result = .{
                                 .value = .{ .long_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'j',
                             };
                         },
                         .float => |v| {
@@ -506,6 +500,7 @@ const NumberParser = struct {
                                 .has_suffix = false, // TODO: Determine suffix
                             };
                         },
+                        .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
@@ -531,7 +526,7 @@ const NumberParser = struct {
                             list[prev_v.len] = v;
                             self.result = .{
                                 .value = .{ .long_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'j',
                             };
                         },
                         .float => |v| {
@@ -546,6 +541,7 @@ const NumberParser = struct {
                                 .has_suffix = false, // TODO: Determine suffix
                             };
                         },
+                        .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
@@ -568,7 +564,7 @@ const NumberParser = struct {
                             list[1] = if (v == null_long) null_float else @floatFromInt(v);
                             self.result = .{
                                 .value = .{ .float_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'j',
                             };
                         },
                         .float => |v| {
@@ -580,6 +576,7 @@ const NumberParser = struct {
                                 .has_suffix = false, // TODO: Determine suffix
                             };
                         },
+                        .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
@@ -605,7 +602,7 @@ const NumberParser = struct {
                             list[prev_v.len] = if (v == null_long) null_float else @floatFromInt(v);
                             self.result = .{
                                 .value = .{ .float_list = list },
-                                .has_suffix = false, // TODO: Determine suffix
+                                .has_suffix = self.str[self.str.len - 1] == 'j',
                             };
                         },
                         .float => |v| {
@@ -618,15 +615,31 @@ const NumberParser = struct {
                                 .has_suffix = false, // TODO: Determine suffix
                             };
                         },
+                        .guid_list => unreachable,
                         else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
                     }
                 },
-                else => unreachable,
+                .boolean, .boolean_list, .guid, .guid_list => unreachable,
+                else => |t| std.debug.panic("parseNumber: {s} ({s})", .{ @tagName(t), self.str }),
             }
         } else {
             self.result = .{
                 .value = value,
-                .has_suffix = false, // TODO: Determine suffix
+                .has_suffix = switch (value) {
+                    .boolean, .boolean_list, .guid, .char, .short, .int, .month => true,
+                    .byte, .byte_list => false,
+                    .date => self.str[self.str.len - 1] == 'd',
+                    .minute => self.str[self.str.len - 1] == 'u',
+                    .second => self.str[self.str.len - 1] == 'v',
+                    .time => self.str[self.str.len - 1] == 't',
+                    .long => self.str[self.str.len - 1] == 'j',
+                    .timestamp => self.str[self.str.len - 1] == 'p',
+                    .timespan => self.str[self.str.len - 1] == 'n',
+                    .real => false, // TODO: Determine suffix
+                    .float => false, // TODO: Determine suffix
+                    .datetime => self.str[self.str.len - 1] == 'z',
+                    else => unreachable,
+                },
             };
         }
     }

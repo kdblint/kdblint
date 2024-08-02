@@ -78,6 +78,9 @@ test "valid guid inputs" {
 test "invalid guid inputs" {
     try testNumberParserError("00000000-0000-0000-0000-000000000000", error.InvalidCharacter);
 
+    try testNumberParserError("0wg", error.InvalidCharacter);
+    try testNumberParserError("0Wg", error.InvalidCharacter);
+
     try testParseError("1 0Ng", &.{.parse_error});
     try testParseError("1 2 0Ng", &.{.parse_error});
     try testParseError("1. 0Ng", &.{.parse_error});
