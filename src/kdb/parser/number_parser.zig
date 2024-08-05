@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const Ast = @import("../Ast.zig");
 const Parse = @import("../Parse.zig");
+const utils = @import("utils.zig");
 
 pub const null_guid: [16]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
@@ -299,7 +300,33 @@ pub const Value = union(ValueType) {
             .char => unreachable,
             .char_list => unreachable,
             .short => unreachable,
-            .short_list => unreachable,
+            .short_list => |value| {
+                if (value.len == 0) {
+                    try writer.writeAll("`short$()");
+                } else {
+                    for (value[0 .. value.len - 1]) |v| {
+                        if (v == null_short) {
+                            try writer.writeAll("0N ");
+                        } else if (v == inf_short) {
+                            try writer.writeAll("0W ");
+                        } else if (v == -inf_short) {
+                            try writer.writeAll("-0W ");
+                        } else {
+                            try writer.print("{d} ", .{v});
+                        }
+                    }
+                    const v = value[value.len - 1];
+                    if (v == null_short) {
+                        try writer.writeAll("0Nh");
+                    } else if (v == inf_short) {
+                        try writer.writeAll("0Wh");
+                    } else if (v == -inf_short) {
+                        try writer.writeAll("-0Wh");
+                    } else {
+                        try writer.print("{d}h", .{v});
+                    }
+                }
+            },
             .int => unreachable,
             .int_list => unreachable,
             .month => unreachable,
@@ -485,186 +512,7 @@ const NumberParser = struct {
                 else => {},
             }
 
-            // TODO: Test cases for null/inf conversions.
-            switch (prev_result.value) {
-                .long => |prev_v| {
-                    switch (value) {
-                        .guid => |v| {
-                            if (!prev_result.value.isNull()) return error.ParseError;
-                            const list = try self.allocator.alloc([16]u8, 2);
-                            list[0] = std.mem.zeroes([16]u8);
-                            list[1] = v;
-                            self.result = .{
-                                .value = .{ .guid_list = list },
-                                .has_suffix = true,
-                            };
-                        },
-                        .long => |v| {
-                            const list = try self.allocator.alloc(i64, 2);
-                            list[0] = prev_v;
-                            list[1] = v;
-                            self.result = .{
-                                .value = .{ .long_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'j',
-                            };
-                        },
-                        .float => |v| {
-                            const list = try self.allocator.alloc(f64, 2);
-                            list[0] = if (prev_v == null_long) null_float else @floatFromInt(prev_v);
-                            list[1] = v;
-                            self.result = .{
-                                .value = .{ .float_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'f',
-                            };
-                        },
-                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
-                        .guid_list => unreachable,
-                        else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
-                    }
-                },
-                .long_list => |prev_v| {
-                    switch (value) {
-                        .guid => {
-                            if (!prev_result.value.isNull()) return error.ParseError;
-                            defer prev_result.deinit(self.allocator);
-                            const list = try self.allocator.alloc([16]u8, prev_v.len + 1);
-                            for (list) |*l| {
-                                l.* = std.mem.zeroes([16]u8);
-                            }
-                            self.result = .{
-                                .value = .{ .guid_list = list },
-                                .has_suffix = true,
-                            };
-                        },
-                        .long => |v| {
-                            defer prev_result.deinit(self.allocator);
-                            const list = try self.allocator.alloc(i64, prev_v.len + 1);
-                            @memcpy(list[0..prev_v.len], prev_v);
-                            list[prev_v.len] = v;
-                            self.result = .{
-                                .value = .{ .long_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'j',
-                            };
-                        },
-                        .float => |v| {
-                            defer prev_result.deinit(self.allocator);
-                            const list = try self.allocator.alloc(f64, prev_v.len + 1);
-                            for (prev_v, 0..) |prev, i| {
-                                list[i] = if (prev == null_long) null_float else @floatFromInt(prev);
-                            }
-                            list[prev_v.len] = v;
-                            self.result = .{
-                                .value = .{ .float_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'f',
-                            };
-                        },
-                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
-                        .guid_list => unreachable,
-                        else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
-                    }
-                },
-                .float => |prev_v| {
-                    switch (value) {
-                        .guid => |v| {
-                            if (!prev_result.value.isNull()) return error.ParseError;
-                            const list = try self.allocator.alloc([16]u8, 2);
-                            list[0] = std.mem.zeroes([16]u8);
-                            list[1] = v;
-                            self.result = .{
-                                .value = .{ .guid_list = list },
-                                .has_suffix = true,
-                            };
-                        },
-                        .long => |v| {
-                            if (self.str[self.str.len - 1] == 'j') {
-                                if (!prev_result.value.isNull()) return error.ParseError;
-                                const list = try self.allocator.alloc(i64, 2);
-                                list[0] = null_long;
-                                list[1] = v;
-                                self.result = .{
-                                    .value = .{ .long_list = list },
-                                    .has_suffix = true,
-                                };
-                            } else {
-                                const list = try self.allocator.alloc(f64, 2);
-                                list[0] = prev_v;
-                                list[1] = if (v == null_long) null_float else @floatFromInt(v);
-                                self.result = .{
-                                    .value = .{ .float_list = list },
-                                    .has_suffix = false,
-                                };
-                            }
-                        },
-                        .float => |v| {
-                            const list = try self.allocator.alloc(f64, 2);
-                            list[0] = prev_v;
-                            list[1] = v;
-                            self.result = .{
-                                .value = .{ .float_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'f',
-                            };
-                        },
-                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
-                        .guid_list => unreachable,
-                        else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
-                    }
-                },
-                .float_list => |prev_v| {
-                    switch (value) {
-                        .guid => {
-                            if (!prev_result.value.isNull()) return error.ParseError;
-                            defer prev_result.deinit(self.allocator);
-                            const list = try self.allocator.alloc([16]u8, prev_v.len + 1);
-                            for (list) |*l| {
-                                l.* = std.mem.zeroes([16]u8);
-                            }
-                            self.result = .{
-                                .value = .{ .guid_list = list },
-                                .has_suffix = true,
-                            };
-                        },
-                        .long => |v| {
-                            if (self.str[self.str.len - 1] == 'j') {
-                                if (!prev_result.value.isNull()) return error.ParseError;
-                                defer prev_result.deinit(self.allocator);
-                                const list = try self.allocator.alloc(i64, prev_v.len + 1);
-                                for (list[0..prev_v.len]) |*l| {
-                                    l.* = null_long;
-                                }
-                                list[prev_v.len] = v;
-                                self.result = .{
-                                    .value = .{ .long_list = list },
-                                    .has_suffix = true,
-                                };
-                            } else {
-                                defer prev_result.deinit(self.allocator);
-                                const list = try self.allocator.alloc(f64, prev_v.len + 1);
-                                @memcpy(list[0..prev_v.len], prev_v);
-                                list[prev_v.len] = if (v == null_long) null_float else @floatFromInt(v);
-                                self.result = .{
-                                    .value = .{ .float_list = list },
-                                    .has_suffix = false,
-                                };
-                            }
-                        },
-                        .float => |v| {
-                            defer prev_result.deinit(self.allocator);
-                            const list = try self.allocator.alloc(f64, prev_v.len + 1);
-                            @memcpy(list[0..prev_v.len], prev_v);
-                            list[prev_v.len] = v;
-                            self.result = .{
-                                .value = .{ .float_list = list },
-                                .has_suffix = self.str[self.str.len - 1] == 'f',
-                            };
-                        },
-                        .boolean, .boolean_list, .byte, .byte_list => unreachable,
-                        .guid_list => unreachable,
-                        else => |t| std.debug.panic("parseNumber: {s} -> {s} ({s})", .{ @tagName(prev_result.value), @tagName(t), self.str }),
-                    }
-                },
-                .boolean, .boolean_list, .guid, .guid_list, .byte, .byte_list => unreachable,
-                else => |t| std.debug.panic("parseNumber: {s} ({s})", .{ @tagName(t), self.str }),
-            }
+            self.result = try self.join(prev_result.value, value);
         } else {
             self.result = .{
                 .value = value,
@@ -685,6 +533,260 @@ const NumberParser = struct {
                 },
             };
         }
+    }
+
+    fn join(self: *NumberParser, prev_value: Value, value: Value) !ParseResult {
+        return switch (prev_value) {
+            .long => |prev_v| self.joinLong(prev_v, value),
+            .long_list => |prev_v| self.joinLongList(prev_v, value),
+            .float => |prev_v| self.joinFloat(prev_v, value),
+            .float_list => |prev_v| self.joinFloatList(prev_v, value),
+            .boolean, .boolean_list, .guid, .guid_list, .byte, .byte_list => unreachable,
+            else => |t| std.debug.panic("join: {s} ({s})", .{ @tagName(t), self.str }),
+        };
+    }
+
+    fn joinLong(self: *NumberParser, prev_value: i64, value: Value) !ParseResult {
+        return switch (value) {
+            .guid => self.joinLongGuid(prev_value),
+            .short => |v| self.joinLongShort(prev_value, v),
+            .long => |v| self.joinLongLong(prev_value, v),
+            .float => |v| self.joinLongFloat(prev_value, v),
+            else => |t| std.debug.panic("joinLong: {s} ({s})", .{ @tagName(t), self.str }),
+        };
+    }
+
+    fn joinLongGuid(self: *NumberParser, prev_value: i64) !ParseResult {
+        if (!utils.isNull(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc([16]u8, 2);
+        list[0] = null_guid;
+        list[1] = null_guid;
+        return .{
+            .value = .{ .guid_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinLongShort(self: *NumberParser, prev_value: i64, value: i16) !ParseResult {
+        const list = try self.allocator.alloc(i16, 2);
+        list[0] = utils.cast(i16, prev_value);
+        list[1] = value;
+        return .{
+            .value = .{ .short_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinLongLong(self: *NumberParser, prev_value: i64, value: i64) !ParseResult {
+        const list = try self.allocator.alloc(i64, 2);
+        list[0] = prev_value;
+        list[1] = value;
+        return .{
+            .value = .{ .long_list = list },
+            .has_suffix = self.str[self.str.len - 1] == 'j',
+        };
+    }
+
+    fn joinLongFloat(self: *NumberParser, prev_value: i64, value: f64) !ParseResult {
+        const list = try self.allocator.alloc(f64, 2);
+        list[0] = utils.cast(f64, prev_value);
+        list[1] = value;
+        return .{
+            .value = .{ .float_list = list },
+            .has_suffix = self.str[self.str.len - 1] == 'f',
+        };
+    }
+
+    fn joinLongList(self: *NumberParser, prev_value: []const i64, value: Value) !ParseResult {
+        return switch (value) {
+            .guid => self.joinLongListGuid(prev_value),
+            .short => |v| self.joinLongListShort(prev_value, v),
+            .long => |v| self.joinLongListLong(prev_value, v),
+            .float => |v| self.joinLongListFloat(prev_value, v),
+            else => |t| std.debug.panic("joinLongList: {s} ({s})", .{ @tagName(t), self.str }),
+        };
+    }
+
+    fn joinLongListGuid(self: *NumberParser, prev_value: []const i64) !ParseResult {
+        if (!utils.isNull(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc([16]u8, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        for (list) |*l| l.* = null_guid;
+        return .{
+            .value = .{ .guid_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinLongListShort(self: *NumberParser, prev_value: []const i64, value: i16) !ParseResult {
+        const list = try self.allocator.alloc(i16, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        for (prev_value, 0..) |prev_v, i| {
+            list[i] = utils.cast(i16, prev_v);
+        }
+        list[prev_value.len] = value;
+        return .{
+            .value = .{ .short_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinLongListLong(self: *NumberParser, prev_value: []const i64, value: i64) !ParseResult {
+        const list = try self.allocator.alloc(i64, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        @memcpy(list[0..prev_value.len], prev_value);
+        list[prev_value.len] = value;
+        return .{
+            .value = .{ .long_list = list },
+            .has_suffix = self.str[self.str.len - 1] == 'j',
+        };
+    }
+
+    fn joinLongListFloat(self: *NumberParser, prev_value: []const i64, value: f64) !ParseResult {
+        const list = try self.allocator.alloc(f64, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        for (prev_value, 0..) |prev_v, i| {
+            list[i] = utils.cast(f64, prev_v);
+        }
+        list[prev_value.len] = value;
+        return .{
+            .value = .{ .float_list = list },
+            .has_suffix = self.str[self.str.len - 1] == 'f',
+        };
+    }
+
+    fn joinFloat(self: *NumberParser, prev_value: f64, value: Value) !ParseResult {
+        return switch (value) {
+            .guid => self.joinFloatGuid(prev_value),
+            .short => |v| self.joinFloatShort(prev_value, v),
+            .long => |v| self.joinFloatLong(prev_value, v),
+            .float => |v| self.joinFloatFloat(prev_value, v),
+            else => |t| std.debug.panic("joinFloat: {s} ({s})", .{ @tagName(t), self.str }),
+        };
+    }
+
+    fn joinFloatGuid(self: *NumberParser, prev_value: f64) !ParseResult {
+        if (!utils.isNull(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc([16]u8, 2);
+        list[0] = null_guid;
+        list[1] = null_guid;
+        return .{
+            .value = .{ .guid_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinFloatShort(self: *NumberParser, prev_value: f64, value: i16) !ParseResult {
+        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc(i16, 2);
+        list[0] = utils.cast(i16, prev_value);
+        list[1] = value;
+        return .{
+            .value = .{ .short_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinFloatLong(self: *NumberParser, prev_value: f64, value: i64) !ParseResult {
+        const has_suffix = self.str[self.str.len - 1] == 'j';
+        if (has_suffix) {
+            const list = try self.allocator.alloc(i64, 2);
+            list[0] = utils.cast(i64, prev_value);
+            list[1] = value;
+            return .{
+                .value = .{ .long_list = list },
+                .has_suffix = has_suffix,
+            };
+        } else {
+            const list = try self.allocator.alloc(f64, 2);
+            list[0] = prev_value;
+            list[1] = utils.cast(f64, value);
+            return .{
+                .value = .{ .float_list = list },
+                .has_suffix = has_suffix,
+            };
+        }
+    }
+
+    fn joinFloatFloat(self: *NumberParser, prev_value: f64, value: f64) !ParseResult {
+        const list = try self.allocator.alloc(f64, 2);
+        list[0] = prev_value;
+        list[1] = value;
+        return .{
+            .value = .{ .float_list = list },
+            .has_suffix = self.str[self.str.len - 1] == 'f',
+        };
+    }
+
+    fn joinFloatList(self: *NumberParser, prev_value: []const f64, value: Value) !ParseResult {
+        return switch (value) {
+            .guid => self.joinFloatListGuid(prev_value),
+            .short => |v| self.joinFloatListShort(prev_value, v),
+            .long => |v| self.joinFloatListLong(prev_value, v),
+            .float => |v| self.joinFloatListFloat(prev_value, v),
+            else => |t| std.debug.panic("joinFloatList: {s} ({s})", .{ @tagName(t), self.str }),
+        };
+    }
+
+    fn joinFloatListGuid(self: *NumberParser, prev_value: []const f64) !ParseResult {
+        if (!utils.isNull(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc([16]u8, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        for (list) |*l| l.* = null_guid;
+        return .{
+            .value = .{ .guid_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinFloatListShort(self: *NumberParser, prev_value: []const f64, value: i16) !ParseResult {
+        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc(i16, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        for (prev_value, 0..) |prev_v, i| {
+            list[i] = utils.cast(i16, prev_v);
+        }
+        list[prev_value.len] = value;
+        return .{
+            .value = .{ .short_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinFloatListLong(self: *NumberParser, prev_value: []const f64, value: i64) !ParseResult {
+        const has_suffix = self.str[self.str.len - 1] == 'j';
+        if (has_suffix) {
+            const list = try self.allocator.alloc(i64, prev_value.len + 1);
+            defer self.allocator.free(prev_value);
+            for (prev_value, 0..) |prev_v, i| {
+                list[i] = utils.cast(i64, prev_v);
+            }
+            list[prev_value.len] = value;
+            return .{
+                .value = .{ .long_list = list },
+                .has_suffix = has_suffix,
+            };
+        } else {
+            const list = try self.allocator.alloc(f64, prev_value.len + 1);
+            defer self.allocator.free(prev_value);
+            @memcpy(list[0..prev_value.len], prev_value);
+            list[prev_value.len] = utils.cast(f64, value);
+            return .{
+                .value = .{ .float_list = list },
+                .has_suffix = has_suffix,
+            };
+        }
+    }
+
+    fn joinFloatListFloat(self: *NumberParser, prev_value: []const f64, value: f64) !ParseResult {
+        const list = try self.allocator.alloc(f64, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        @memcpy(list[0..prev_value.len], prev_value);
+        list[prev_value.len] = value;
+        return .{
+            .value = .{ .float_list = list },
+            .has_suffix = self.str[self.str.len - 1] == 'f',
+        };
     }
 
     fn maybeBoolean(self: NumberParser, index: usize) !Value {
