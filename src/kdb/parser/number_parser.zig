@@ -1651,6 +1651,7 @@ pub fn testNumberParser(input: []const u8, comptime expected_type: ValueType, co
         },
         else => {
             switch (@TypeOf(expected_value)) {
+                comptime_float => @compileError("comptime_float is not supported."),
                 f32, f64 => |T| {
                     if (!std.math.isNan(expected_value) or !std.math.isNan(actual)) {
                         if (std.math.isInf(expected_value) or std.math.isInf(actual)) {

@@ -5,52 +5,52 @@ const null_int = number_parser.null_int;
 const inf_int = number_parser.inf_int;
 
 test "valid second inputs" {
-    try testNumberParser("0nv", .second, @as(i32, null_int));
-    try testNumberParser("0Nv", .second, @as(i32, null_int));
-    try testNumberParser("0wv", .second, @as(i32, inf_int));
-    try testNumberParser("0Wv", .second, @as(i32, inf_int));
-    try testNumberParser("-0wv", .second, @as(i32, -inf_int));
-    try testNumberParser("-0Wv", .second, @as(i32, -inf_int));
+    try testNumberParser("0nv", .second, null_int);
+    try testNumberParser("0Nv", .second, null_int);
+    try testNumberParser("0wv", .second, inf_int);
+    try testNumberParser("0Wv", .second, inf_int);
+    try testNumberParser("-0wv", .second, -inf_int);
+    try testNumberParser("-0Wv", .second, -inf_int);
 
-    try testNumberParser("0v", .second, @as(i32, 0));
-    try testNumberParser("9v", .second, @as(i32, 32400));
-    try testNumberParser("-9v", .second, @as(i32, -32400));
+    try testNumberParser("0v", .second, 0);
+    try testNumberParser("9v", .second, 32400);
+    try testNumberParser("-9v", .second, -32400);
 
-    try testNumberParser("00v", .second, @as(i32, 0));
-    try testNumberParser("99v", .second, @as(i32, 356400));
-    try testNumberParser("-99v", .second, @as(i32, -356400));
+    try testNumberParser("00v", .second, 0);
+    try testNumberParser("99v", .second, 356400);
+    try testNumberParser("-99v", .second, -356400);
 
-    try testNumberParser("000v", .second, @as(i32, 0));
-    try testNumberParser("959v", .second, @as(i32, 35940));
-    try testNumberParser("-959v", .second, @as(i32, -35940));
+    try testNumberParser("000v", .second, 0);
+    try testNumberParser("959v", .second, 35940);
+    try testNumberParser("-959v", .second, -35940);
 
-    try testNumberParser("0000v", .second, @as(i32, 0));
-    try testNumberParser("9959v", .second, @as(i32, 359940));
-    try testNumberParser("-9959v", .second, @as(i32, -359940));
+    try testNumberParser("0000v", .second, 0);
+    try testNumberParser("9959v", .second, 359940);
+    try testNumberParser("-9959v", .second, -359940);
 
-    try testNumberParser("00000v", .second, @as(i32, 0));
-    try testNumberParser("99959v", .second, @as(i32, 3599940));
-    try testNumberParser("-99959v", .second, @as(i32, -3599940));
+    try testNumberParser("00000v", .second, 0);
+    try testNumberParser("99959v", .second, 3599940);
+    try testNumberParser("-99959v", .second, -3599940);
 
-    try testNumberParser("000000v", .second, @as(i32, 0));
-    try testNumberParser("995959v", .second, @as(i32, 359999));
-    try testNumberParser("-995959v", .second, @as(i32, -359999));
+    try testNumberParser("000000v", .second, 0);
+    try testNumberParser("995959v", .second, 359999);
+    try testNumberParser("-995959v", .second, -359999);
 
-    try testNumberParser("0000000v", .second, @as(i32, 0));
-    try testNumberParser("9995959v", .second, @as(i32, 3599999));
-    try testNumberParser("-9995959v", .second, @as(i32, -3599999));
+    try testNumberParser("0000000v", .second, 0);
+    try testNumberParser("9995959v", .second, 3599999);
+    try testNumberParser("-9995959v", .second, -3599999);
 
-    try testNumberParser("00000000000000v", .second, @as(i32, 0));
-    try testNumberParser("21474836475959v", .second, @as(i32, -1));
-    try testNumberParser("-21474836475959v", .second, @as(i32, 1));
+    try testNumberParser("00000000000000v", .second, 0);
+    try testNumberParser("21474836475959v", .second, -1);
+    try testNumberParser("-21474836475959v", .second, 1);
 
-    try testNumberParser("00:00:00", .second, @as(i32, 0));
-    try testNumberParser("99:59:59", .second, @as(i32, 359999));
-    try testNumberParser("-99:59:59", .second, @as(i32, -359999));
+    try testNumberParser("00:00:00", .second, 0);
+    try testNumberParser("99:59:59", .second, 359999);
+    try testNumberParser("-99:59:59", .second, -359999);
 
-    try testNumberParser("000:00:00", .second, @as(i32, 0));
-    try testNumberParser("999:59:59", .second, @as(i32, 3599999));
-    try testNumberParser("-999:59:59", .second, @as(i32, -3599999));
+    try testNumberParser("000:00:00", .second, 0);
+    try testNumberParser("999:59:59", .second, 3599999);
+    try testNumberParser("-999:59:59", .second, -3599999);
 }
 
 test "invalid second inputs" {

@@ -4,18 +4,18 @@ const testNumberParserError = number_parser.testNumberParserError;
 const null_char = number_parser.null_char;
 
 test "valid char inputs" {
-    try testNumberParser("0c", .char, @as(u8, '0'));
-    try testNumberParser("1c", .char, @as(u8, '1'));
-    try testNumberParser("2c", .char, @as(u8, '2'));
-    try testNumberParser("3c", .char, @as(u8, '3'));
-    try testNumberParser("4c", .char, @as(u8, '4'));
-    try testNumberParser("5c", .char, @as(u8, '5'));
-    try testNumberParser("6c", .char, @as(u8, '6'));
-    try testNumberParser("7c", .char, @as(u8, '7'));
-    try testNumberParser("8c", .char, @as(u8, '8'));
-    try testNumberParser("9c", .char, @as(u8, '9'));
-    try testNumberParser("0Nc", .char, @as(u8, null_char));
-    try testNumberParser("0nc", .char, @as(u8, null_char));
+    try testNumberParser("0c", .char, '0');
+    try testNumberParser("1c", .char, '1');
+    try testNumberParser("2c", .char, '2');
+    try testNumberParser("3c", .char, '3');
+    try testNumberParser("4c", .char, '4');
+    try testNumberParser("5c", .char, '5');
+    try testNumberParser("6c", .char, '6');
+    try testNumberParser("7c", .char, '7');
+    try testNumberParser("8c", .char, '8');
+    try testNumberParser("9c", .char, '9');
+    try testNumberParser("0Nc", .char, null_char);
+    try testNumberParser("0nc", .char, null_char);
 }
 
 test "invalid char inputs" {

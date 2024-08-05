@@ -5,82 +5,82 @@ const null_int = number_parser.null_int;
 const inf_int = number_parser.inf_int;
 
 test "valid time inputs" {
-    try testNumberParser("0nt", .time, @as(i32, null_int));
-    try testNumberParser("0Nt", .time, @as(i32, null_int));
-    try testNumberParser("0wt", .time, @as(i32, inf_int));
-    try testNumberParser("0Wt", .time, @as(i32, inf_int));
-    try testNumberParser("-0wt", .time, @as(i32, -inf_int));
-    try testNumberParser("-0Wt", .time, @as(i32, -inf_int));
+    try testNumberParser("0nt", .time, null_int);
+    try testNumberParser("0Nt", .time, null_int);
+    try testNumberParser("0wt", .time, inf_int);
+    try testNumberParser("0Wt", .time, inf_int);
+    try testNumberParser("-0wt", .time, -inf_int);
+    try testNumberParser("-0Wt", .time, -inf_int);
 
-    try testNumberParser("0t", .time, @as(i32, 0));
-    try testNumberParser("9t", .time, @as(i32, 32400000));
-    try testNumberParser("-9t", .time, @as(i32, -32400000));
+    try testNumberParser("0t", .time, 0);
+    try testNumberParser("9t", .time, 32400000);
+    try testNumberParser("-9t", .time, -32400000);
 
-    try testNumberParser("00t", .time, @as(i32, 0));
-    try testNumberParser("99t", .time, @as(i32, 356400000));
-    try testNumberParser("-99t", .time, @as(i32, -356400000));
+    try testNumberParser("00t", .time, 0);
+    try testNumberParser("99t", .time, 356400000);
+    try testNumberParser("-99t", .time, -356400000);
 
-    try testNumberParser("000t", .time, @as(i32, 0));
-    try testNumberParser("959t", .time, @as(i32, 35940000));
-    try testNumberParser("-959t", .time, @as(i32, -35940000));
+    try testNumberParser("000t", .time, 0);
+    try testNumberParser("959t", .time, 35940000);
+    try testNumberParser("-959t", .time, -35940000);
 
-    try testNumberParser("0000t", .time, @as(i32, 0));
-    try testNumberParser("9959t", .time, @as(i32, 359940000));
-    try testNumberParser("-9959t", .time, @as(i32, -359940000));
+    try testNumberParser("0000t", .time, 0);
+    try testNumberParser("9959t", .time, 359940000);
+    try testNumberParser("-9959t", .time, -359940000);
 
-    try testNumberParser("00000t", .time, @as(i32, 0));
-    try testNumberParser("99959t", .time, @as(i32, -695027296));
-    try testNumberParser("-99959t", .time, @as(i32, 695027296));
+    try testNumberParser("00000t", .time, 0);
+    try testNumberParser("99959t", .time, -695027296);
+    try testNumberParser("-99959t", .time, 695027296);
 
-    try testNumberParser("000000t", .time, @as(i32, 0));
-    try testNumberParser("995959t", .time, @as(i32, 359999000));
-    try testNumberParser("-995959t", .time, @as(i32, -359999000));
+    try testNumberParser("000000t", .time, 0);
+    try testNumberParser("995959t", .time, 359999000);
+    try testNumberParser("-995959t", .time, -359999000);
 
-    try testNumberParser("0000000t", .time, @as(i32, 0));
-    try testNumberParser("9995959t", .time, @as(i32, -694968296));
-    try testNumberParser("-9995959t", .time, @as(i32, 694968296));
+    try testNumberParser("0000000t", .time, 0);
+    try testNumberParser("9995959t", .time, -694968296);
+    try testNumberParser("-9995959t", .time, 694968296);
 
-    try testNumberParser("00000000t", .time, @as(i32, 0));
-    try testNumberParser("99995959t", .time, @as(i32, 1640260632));
-    try testNumberParser("-99995959t", .time, @as(i32, -1640260632));
+    try testNumberParser("00000000t", .time, 0);
+    try testNumberParser("99995959t", .time, 1640260632);
+    try testNumberParser("-99995959t", .time, -1640260632);
 
-    try testNumberParser("000000000t", .time, @as(i32, 0));
-    try testNumberParser("995959999t", .time, @as(i32, 359999999));
-    try testNumberParser("-995959999t", .time, @as(i32, -359999999));
+    try testNumberParser("000000000t", .time, 0);
+    try testNumberParser("995959999t", .time, 359999999);
+    try testNumberParser("-995959999t", .time, -359999999);
 
-    try testNumberParser("00000000000000t", .time, @as(i32, 0));
-    try testNumberParser("21474836475959t", .time, @as(i32, -1000));
-    try testNumberParser("-21474836475959t", .time, @as(i32, 1000));
+    try testNumberParser("00000000000000t", .time, 0);
+    try testNumberParser("21474836475959t", .time, -1000);
+    try testNumberParser("-21474836475959t", .time, 1000);
 
-    try testNumberParser("00:00:00.", .time, @as(i32, 0));
-    try testNumberParser("00:00:00.0", .time, @as(i32, 0));
-    try testNumberParser("00:00:00.00", .time, @as(i32, 0));
-    try testNumberParser("00:00:00.000", .time, @as(i32, 0));
-    try testNumberParser("00:00:00.0000", .time, @as(i32, 0));
-    try testNumberParser("99:59:59.", .time, @as(i32, 359999000));
-    try testNumberParser("99:59:59.9", .time, @as(i32, 359999900));
-    try testNumberParser("99:59:59.99", .time, @as(i32, 359999990));
-    try testNumberParser("99:59:59.999", .time, @as(i32, 359999999));
-    try testNumberParser("99:59:59.9999", .time, @as(i32, 359999999));
-    try testNumberParser("-99:59:59.", .time, @as(i32, -359999000));
-    try testNumberParser("-99:59:59.9", .time, @as(i32, -359999900));
-    try testNumberParser("-99:59:59.99", .time, @as(i32, -359999990));
-    try testNumberParser("-99:59:59.999", .time, @as(i32, -359999999));
-    try testNumberParser("-99:59:59.9999", .time, @as(i32, -359999999));
+    try testNumberParser("00:00:00.", .time, 0);
+    try testNumberParser("00:00:00.0", .time, 0);
+    try testNumberParser("00:00:00.00", .time, 0);
+    try testNumberParser("00:00:00.000", .time, 0);
+    try testNumberParser("00:00:00.0000", .time, 0);
+    try testNumberParser("99:59:59.", .time, 359999000);
+    try testNumberParser("99:59:59.9", .time, 359999900);
+    try testNumberParser("99:59:59.99", .time, 359999990);
+    try testNumberParser("99:59:59.999", .time, 359999999);
+    try testNumberParser("99:59:59.9999", .time, 359999999);
+    try testNumberParser("-99:59:59.", .time, -359999000);
+    try testNumberParser("-99:59:59.9", .time, -359999900);
+    try testNumberParser("-99:59:59.99", .time, -359999990);
+    try testNumberParser("-99:59:59.999", .time, -359999999);
+    try testNumberParser("-99:59:59.9999", .time, -359999999);
 
-    try testNumberParser("000:00:00.", .time, @as(i32, 0));
-    try testNumberParser("000:00:00.0", .time, @as(i32, 0));
-    try testNumberParser("000:00:00.00", .time, @as(i32, 0));
-    try testNumberParser("000:00:00.000", .time, @as(i32, 0));
-    try testNumberParser("000:00:00.0000", .time, @as(i32, 0));
-    try testNumberParser("999:59:59.", .time, @as(i32, -694968296));
-    try testNumberParser("999:59:59.9", .time, @as(i32, -694967396));
-    try testNumberParser("999:59:59.99", .time, @as(i32, -694967306));
-    try testNumberParser("999:59:59.999", .time, @as(i32, -694967297));
-    try testNumberParser("-999:59:59.", .time, @as(i32, 694968296));
-    try testNumberParser("-999:59:59.9", .time, @as(i32, 694967396));
-    try testNumberParser("-999:59:59.99", .time, @as(i32, 694967306));
-    try testNumberParser("-999:59:59.999", .time, @as(i32, 694967297));
+    try testNumberParser("000:00:00.", .time, 0);
+    try testNumberParser("000:00:00.0", .time, 0);
+    try testNumberParser("000:00:00.00", .time, 0);
+    try testNumberParser("000:00:00.000", .time, 0);
+    try testNumberParser("000:00:00.0000", .time, 0);
+    try testNumberParser("999:59:59.", .time, -694968296);
+    try testNumberParser("999:59:59.9", .time, -694967396);
+    try testNumberParser("999:59:59.99", .time, -694967306);
+    try testNumberParser("999:59:59.999", .time, -694967297);
+    try testNumberParser("-999:59:59.", .time, 694968296);
+    try testNumberParser("-999:59:59.9", .time, 694967396);
+    try testNumberParser("-999:59:59.99", .time, 694967306);
+    try testNumberParser("-999:59:59.999", .time, 694967297);
 }
 
 test "invalid time inputs" {
