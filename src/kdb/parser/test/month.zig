@@ -5,30 +5,30 @@ const null_int = number_parser.null_int;
 const inf_int = number_parser.inf_int;
 
 test "valid month inputs" {
-    try testNumberParser("1999.12m", .month, @as(i32, -1));
-    try testNumberParser("2000.01m", .month, @as(i32, 0));
-    try testNumberParser("2000.02m", .month, @as(i32, 1));
-    try testNumberParser("-1999.12m", .month, @as(i32, 1));
-    try testNumberParser("0001.01m", .month, @as(i32, -23988));
-    try testNumberParser("9999.12m", .month, @as(i32, 95999));
-    try testNumberParser("0Nm", .month, @as(i32, null_int));
-    try testNumberParser("0nm", .month, @as(i32, null_int));
-    try testNumberParser("0Wm", .month, @as(i32, inf_int));
-    try testNumberParser("0wm", .month, @as(i32, inf_int));
-    try testNumberParser("-0Wm", .month, @as(i32, -inf_int));
-    try testNumberParser("-0wm", .month, @as(i32, -inf_int));
+    try testNumberParser("1999.12m", .month, -1);
+    try testNumberParser("2000.01m", .month, 0);
+    try testNumberParser("2000.02m", .month, 1);
+    try testNumberParser("-1999.12m", .month, 1);
+    try testNumberParser("0001.01m", .month, -23988);
+    try testNumberParser("9999.12m", .month, 95999);
+    try testNumberParser("0Nm", .month, null_int);
+    try testNumberParser("0nm", .month, null_int);
+    try testNumberParser("0Wm", .month, inf_int);
+    try testNumberParser("0wm", .month, inf_int);
+    try testNumberParser("-0Wm", .month, -inf_int);
+    try testNumberParser("-0wm", .month, -inf_int);
 
-    try testNumberParser("0001m", .month, @as(i32, 0));
-    try testNumberParser("0012m", .month, @as(i32, 11));
-    try testNumberParser("4912m", .month, @as(i32, 599));
-    try testNumberParser("5001m", .month, @as(i32, -600));
-    try testNumberParser("9901m", .month, @as(i32, -12));
-    try testNumberParser("9912m", .month, @as(i32, -1));
+    try testNumberParser("0001m", .month, 0);
+    try testNumberParser("0012m", .month, 11);
+    try testNumberParser("4912m", .month, 599);
+    try testNumberParser("5001m", .month, -600);
+    try testNumberParser("9901m", .month, -12);
+    try testNumberParser("9912m", .month, -1);
 
-    try testNumberParser("000101m", .month, @as(i32, -23988));
-    try testNumberParser("000112m", .month, @as(i32, -23977));
-    try testNumberParser("999901m", .month, @as(i32, 95988));
-    try testNumberParser("999912m", .month, @as(i32, 95999));
+    try testNumberParser("000101m", .month, -23988);
+    try testNumberParser("000112m", .month, -23977);
+    try testNumberParser("999901m", .month, 95988);
+    try testNumberParser("999912m", .month, 95999);
 }
 
 test "invalid month inputs" {

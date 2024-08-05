@@ -5,19 +5,19 @@ const null_int = number_parser.null_int;
 const inf_int = number_parser.inf_int;
 
 test "valid int inputs" {
-    try testNumberParser("0i", .int, @as(i32, 0));
-    try testNumberParser("1i", .int, @as(i32, 1));
-    try testNumberParser("-1i", .int, @as(i32, -1));
-    try testNumberParser("2147483646i", .int, @as(i32, 2147483646));
-    try testNumberParser("-2147483646i", .int, @as(i32, -2147483646));
-    try testNumberParser("0Ni", .int, @as(i32, null_int));
-    try testNumberParser("0ni", .int, @as(i32, null_int));
-    try testNumberParser("0Wi", .int, @as(i32, inf_int));
-    try testNumberParser("0wi", .int, @as(i32, inf_int));
-    try testNumberParser("2147483647i", .int, @as(i32, inf_int));
-    try testNumberParser("-0Wi", .int, @as(i32, -inf_int));
-    try testNumberParser("-0wi", .int, @as(i32, -inf_int));
-    try testNumberParser("-2147483647i", .int, @as(i32, -inf_int));
+    try testNumberParser("0i", .int, 0);
+    try testNumberParser("1i", .int, 1);
+    try testNumberParser("-1i", .int, -1);
+    try testNumberParser("2147483646i", .int, 2147483646);
+    try testNumberParser("-2147483646i", .int, -2147483646);
+    try testNumberParser("0Ni", .int, null_int);
+    try testNumberParser("0ni", .int, null_int);
+    try testNumberParser("0Wi", .int, inf_int);
+    try testNumberParser("0wi", .int, inf_int);
+    try testNumberParser("2147483647i", .int, inf_int);
+    try testNumberParser("-0Wi", .int, -inf_int);
+    try testNumberParser("-0wi", .int, -inf_int);
+    try testNumberParser("-2147483647i", .int, -inf_int);
 }
 
 test "invalid int inputs" {
