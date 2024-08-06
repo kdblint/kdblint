@@ -1,28 +1,66 @@
 const std = @import("std");
 
 const number_parser = @import("number_parser.zig");
+const Value = number_parser.Value;
+
+pub fn castValue(comptime T: type, value: Value) T {
+    return switch (value) {
+        .guid => |v| cast(T, v),
+        .char => |v| cast(T, v),
+        .short => |v| cast(T, v),
+        .int => |v| cast(T, v),
+        .long => |v| cast(T, v),
+        .real => |v| cast(T, v),
+        .float => |v| cast(T, v),
+        else => |t| std.debug.panic("Unsupported type: {s}", .{@tagName(t)}),
+    };
+}
 
 pub fn cast(comptime T: type, value: anytype) T {
     const FromT = @TypeOf(value);
     if (T == FromT) return value;
-    if (T == [16]u8) return std.mem.zeroes([16]u8);
+    if (T == [16]u8 or FromT == [16]u8) return Null(T);
 
-    if (isNull(value)) return Null(T);
-    if (isPositiveInf(value)) return Inf(T);
-    if (isNegativeInf(value)) return -Inf(T);
+    if (T == u8) {
+        if (isNullOrInf(value)) return Null(T);
+    } else {
+        if (isNull(value)) return Null(T);
+        if (isPositiveInf(value)) return Inf(T);
+        if (isNegativeInf(value)) return -Inf(T);
+    }
 
     return switch (FromT) {
-        i64 => switch (T) {
-            i16, i32 => @intCast(value),
+        u8, i16, i32, i64 => switch (T) {
+            u8 => switch (value) {
+                0 => '0',
+                1 => '1',
+                2 => '2',
+                3 => '3',
+                4 => '4',
+                5 => '5',
+                6 => '6',
+                7 => '7',
+                8 => '8',
+                9 => '9',
+                else => Null(T),
+            },
+            i16, i32, i64 => @intCast(value),
             f32, f64 => @floatFromInt(value),
             else => @compileError("Unsupported type: " ++ @typeName(T)),
         },
-        f64 => switch (T) {
+        f32, f64 => switch (T) {
+            u8 => Null(T),
             i16, i32, i64 => @intFromFloat(value),
-            f32 => @floatCast(value),
+            f32, f64 => @floatCast(value),
             else => @compileError("Unsupported type: " ++ @typeName(T)),
         },
-        else => @compileError("Unsupported type: " ++ @typeName(T)),
+        else => @compileError("Unsupported type: " ++ @typeName(FromT)),
+    };
+}
+
+pub fn isNullValue(value: Value) bool {
+    return switch (value) {
+        inline else => |v| isNull(v),
     };
 }
 
@@ -33,6 +71,7 @@ pub fn isNull(value: anytype) bool {
         return true;
     }
     return switch (T) {
+        bool => false,
         [16]u8 => blk: {
             for (value) |v| if (v != 0) break :blk false;
             break :blk true;
@@ -49,6 +88,7 @@ pub fn isPositiveInf(value: anytype) bool {
         return true;
     }
     return switch (T) {
+        u8 => false,
         f32, f64 => std.math.isPositiveInf(value),
         else => value == Inf(T),
     };
@@ -61,6 +101,7 @@ pub fn isNegativeInf(value: anytype) bool {
         return true;
     }
     return switch (T) {
+        u8 => false,
         f32, f64 => std.math.isNegativeInf(value),
         else => value == -Inf(T),
     };
@@ -77,6 +118,8 @@ pub fn isNullOrInf(value: anytype) bool {
 
 fn Null(comptime T: type) T {
     return switch (T) {
+        [16]u8 => std.mem.zeroes([16]u8),
+        u8 => number_parser.null_char,
         i16 => number_parser.null_short,
         i32 => number_parser.null_int,
         i64 => number_parser.null_long,

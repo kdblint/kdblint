@@ -2486,6 +2486,8 @@ fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
         .real_list_literal,
         .float_literal,
         .float_list_literal,
+        .char_number_literal,
+        .char_number_list_literal,
         .char_literal,
         .char_list_literal,
         .symbol_literal,

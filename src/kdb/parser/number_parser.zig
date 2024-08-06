@@ -28,65 +28,261 @@ pub fn parse(p: *Parse) Parse.Error!Ast.Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    var number_parser = NumberParser.init(p.gpa);
-    defer number_parser.deinit();
-
+    var value_type: ?ValueType = null;
     while (true) {
         if (p.eob) break;
         if (p.eatToken(.number_literal)) |number_literal| {
-            {
-                const loc = p.token_locs[number_literal];
-                const source = p.source[loc.start..loc.end];
-                number_parser.parseNumber(source) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.ShouldBacktrack => {
-                        p.tok_i -= 1;
-                        p.eob = false;
-                        break;
-                    },
-                    else => return p.failMsg(.{ .tag = .parse_error, .token = number_literal }),
-                };
-            }
             try p.scratch.append(p.gpa, number_literal);
-            switch (number_parser.result.?.value) {
-                .boolean, .boolean_list, .byte, .byte_list => break,
-                else => if (number_parser.result.?.has_suffix) {
-                    if (p.peekTag() == .number_literal) {
-                        const loc = p.token_locs[p.tok_i];
-                        const source = p.source[loc.start..loc.end];
-                        if (source[source.len - 1] == 'b') break;
-                        if (source.len > 1 and source[1] == 'x') break;
-                        return p.fail(.parse_error);
-                    }
-                } else continue,
+
+            const loc = p.token_locs[number_literal];
+            const source = p.source[loc.start..loc.end];
+            switch (source[source.len - 1]) {
+                'b' => {
+                    value_type = .boolean;
+                    break;
+                },
+                'c' => {
+                    value_type = .char;
+                    break;
+                },
+                'd' => {
+                    value_type = .date;
+                    break;
+                },
+                'e' => {
+                    value_type = .real;
+                    break;
+                },
+                'f' => {
+                    value_type = .float;
+                    break;
+                },
+                'g' => {
+                    value_type = .guid;
+                    break;
+                },
+                'h' => {
+                    value_type = .short;
+                    break;
+                },
+                'i' => {
+                    value_type = .int;
+                    break;
+                },
+                'j' => {
+                    value_type = .long;
+                    break;
+                },
+                'm' => {
+                    value_type = .month;
+                    break;
+                },
+                'n' => if (source.len != 2 or source[0] != '0') {
+                    value_type = .timespan;
+                    break;
+                },
+                'p' => {
+                    value_type = .timestamp;
+                    break;
+                },
+                't' => {
+                    value_type = .time;
+                    break;
+                },
+                'u' => {
+                    value_type = .minute;
+                    break;
+                },
+                'v' => {
+                    value_type = .second;
+                    break;
+                },
+                'z' => {
+                    value_type = .datetime;
+                    break;
+                },
+                else => if (source.len > 1 and source[1] == 'x') {
+                    value_type = .byte;
+                    break;
+                },
             }
+            continue;
         }
         break;
     }
 
-    if (number_parser.toOwnedResult()) |result| {
-        const numbers = p.scratch.items[scratch_top..];
-        return switch (numbers.len) {
-            1 => p.addNode(.{
-                .tag = result.tag(),
-                .main_token = numbers[0],
-                .data = .{
-                    .lhs = try p.addValue(result.value),
-                    .rhs = undefined,
-                },
-            }),
-            else => p.addNode(.{
-                .tag = result.tag(),
-                .main_token = numbers[0],
-                .data = .{
-                    .lhs = try p.addValue(result.value),
-                    .rhs = numbers[numbers.len - 1],
-                },
-            }),
-        };
-    }
+    if (value_type) |vt| switch (vt) {
+        .boolean, .byte => {},
+        else => if (p.peekTag() == .number_literal) {
+            const loc = p.token_locs[p.tok_i];
+            const source = p.source[loc.start..loc.end];
+            if ((source[source.len - 1] != 'b') and (source.len <= 1 or source[1] != 'x')) return p.fail(.parse_error);
+        },
+    };
 
-    unreachable;
+    var tokens = p.scratch.items[scratch_top..];
+    const value = parseTokens(p, tokens, value_type) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ShouldBacktrack => blk: {
+            p.tok_i -= 1;
+            p.eob = false;
+
+            tokens = tokens[0 .. tokens.len - 1];
+            break :blk parseTokens(p, tokens, null) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ShouldBacktrack => unreachable,
+                else => return p.failMsg(.{ .tag = .parse_error, .token = tokens[0] }),
+            };
+        },
+        else => return p.failMsg(.{ .tag = .parse_error, .token = tokens[0] }),
+    };
+    errdefer value.deinit(p.gpa);
+
+    return switch (tokens.len) {
+        1 => p.addNode(.{
+            .tag = value.tag(),
+            .main_token = tokens[0],
+            .data = .{
+                .lhs = try p.addValue(value),
+                .rhs = undefined,
+            },
+        }),
+        else => p.addNode(.{
+            .tag = value.tag(),
+            .main_token = tokens[0],
+            .data = .{
+                .lhs = try p.addValue(value),
+                .rhs = tokens[tokens.len - 1],
+            },
+        }),
+    };
+}
+
+fn parseTokens(p: *Parse, tokens: []const Ast.Node.Index, value_type: ?ValueType) NumberParser.ParseNumberError!Value {
+    return switch (tokens.len) {
+        1 => parseAtom(p, tokens[0]),
+        else => |l| if (value_type) |vt| switch (vt) {
+            .boolean, .byte => error.ShouldBacktrack,
+            inline .guid,
+            .char,
+            .short,
+            .int,
+            .month,
+            .date,
+            .minute,
+            .second,
+            .time,
+            .long,
+            .timestamp,
+            .timespan,
+            .real,
+            .float,
+            .datetime,
+            => |t| parseList(t, p, tokens),
+            else => std.debug.panic("Unsupported type: {s} ({d})", .{ @tagName(vt), l }),
+        } else parseList(null, p, tokens),
+    };
+}
+
+fn parseAtom(p: *Parse, token: Ast.Node.Index) NumberParser.ParseNumberError!Value {
+    var number_parser = NumberParser.init(p.gpa);
+
+    const loc = p.token_locs[token];
+    const source = p.source[loc.start..loc.end];
+    return number_parser.parseNumber(source);
+}
+
+fn parseList(comptime value_type: ?ValueType, p: *Parse, tokens: []const Ast.Node.Index) NumberParser.ParseNumberError!Value {
+    if (value_type) |vt| {
+        const T = switch (vt) {
+            .guid => [16]u8,
+            .char => u8,
+            .short => i16,
+            .int, .month, .date, .minute, .second, .time => i32,
+            .long, .timestamp, .timespan => i64,
+            .real => f32,
+            .float, .datetime => f64,
+            else => @compileError("Unsupported type: " ++ @tagName(vt)),
+        };
+        const list = try p.gpa.alloc(T, tokens.len);
+        errdefer p.gpa.free(list);
+
+        for (tokens, 0..) |token, i| {
+            var number_parser = NumberParser.init(p.gpa);
+
+            const loc = p.token_locs[token];
+            const source = p.source[loc.start..loc.end];
+            const value = try number_parser.parseNumber(source);
+            switch (vt) {
+                .guid => if (!utils.isNullValue(value)) return error.ParseError,
+                .short, .int, .long => if (value == .float and !utils.isNullOrInf(value.float)) return error.ParseError,
+                else => {},
+            }
+            list[i] = utils.castValue(T, value);
+        }
+
+        return @unionInit(Value, @tagName(vt) ++ "_list", list);
+    } else {
+        const value_list = try p.gpa.alloc(Value, tokens.len);
+        defer p.gpa.free(value_list);
+
+        var list_type: ValueType = .long;
+        var index: usize = 0;
+        for (tokens) |token| {
+            defer index += 1;
+            var number_parser = NumberParser.init(p.gpa);
+
+            const loc = p.token_locs[token];
+            const source = p.source[loc.start..loc.end];
+            const value = try number_parser.parseNumber(source);
+
+            value_list[index] = value;
+            if (value == .float) {
+                list_type = .float;
+                break;
+            }
+        }
+
+        if (list_type == .long) {
+            const list = try p.gpa.alloc(i64, tokens.len);
+            errdefer p.gpa.free(list);
+
+            for (value_list[0..index], 0..) |value, i| {
+                list[i] = utils.castValue(i64, value);
+            }
+
+            for (tokens[index..], index..) |token, i| {
+                var number_parser = NumberParser.init(p.gpa);
+
+                const loc = p.token_locs[token];
+                const source = p.source[loc.start..loc.end];
+                const value = try number_parser.parseNumber(source);
+
+                list[i] = utils.castValue(i64, value);
+            }
+
+            return .{ .long_list = list };
+        } else {
+            const list = try p.gpa.alloc(f64, tokens.len);
+            errdefer p.gpa.free(list);
+
+            for (value_list[0..index], 0..) |value, i| {
+                list[i] = utils.castValue(f64, value);
+            }
+
+            for (tokens[index..], index..) |token, i| {
+                var number_parser = NumberParser.init(p.gpa);
+
+                const loc = p.token_locs[token];
+                const source = p.source[loc.start..loc.end];
+                const value = try number_parser.parseNumber(source);
+
+                list[i] = utils.castValue(f64, value);
+            }
+
+            return .{ .float_list = list };
+        }
+    }
 }
 
 const ValueType = enum {
@@ -191,8 +387,8 @@ pub const Value = union(ValueType) {
             .guid_list => .guid_list_literal,
             .byte => .byte_literal,
             .byte_list => .byte_list_literal,
-            .char => .char_literal,
-            .char_list => .char_list_literal,
+            .char => .char_number_literal,
+            .char_list => .char_number_list_literal,
             .short => .short_literal,
             .short_list => .short_list_literal,
             .int => .int_literal,
@@ -222,48 +418,6 @@ pub const Value = union(ValueType) {
         };
     }
 
-    pub fn isNull(self: Value) bool {
-        return switch (self) {
-            .guid => |value| std.mem.eql(u8, &value, &std.mem.zeroes([16]u8)),
-            .guid_list => |value| {
-                for (value) |v| if (!std.mem.eql(u8, &v, &std.mem.zeroes([16]u8))) return false;
-                return true;
-            },
-            .char => |value| value == null_char,
-            .char_list => |value| {
-                for (value) |v| if (v != null_char) return false;
-                return true;
-            },
-            .short => |value| value == null_short,
-            .short_list => |value| {
-                for (value) |v| if (v != null_short) return false;
-                return true;
-            },
-            .int, .month, .date, .minute, .second, .time => |value| value == null_int,
-            .int_list, .month_list, .date_list, .minute_list, .second_list, .time_list => |value| {
-                for (value) |v| if (v != null_int) return false;
-                return true;
-            },
-            .long, .timestamp, .timespan => |value| value == null_long,
-            .long_list, .timestamp_list, .timespan_list => |value| {
-                for (value) |v| if (v != null_long) return false;
-                return true;
-            },
-            .real => |value| std.math.isNan(value),
-            .real_list => |value| {
-                for (value) |v| if (!std.math.isNan(v)) return false;
-                return true;
-            },
-            .float, .datetime => |value| std.math.isNan(value),
-            .float_list, .datetime_list => |value| {
-                for (value) |v| if (!std.math.isNan(v)) return false;
-                return true;
-            },
-            else => false,
-        };
-    }
-
-    // TODO: Test cases for all types.
     pub fn format(self: Value, comptime _: anytype, _: anytype, writer: std.io.AnyWriter) !void {
         switch (self) {
             .boolean => |value| try writer.writeAll(if (value) "1b" else "0b"),
@@ -297,8 +451,14 @@ pub const Value = union(ValueType) {
                     for (value) |v| try writer.print("{x:0>2}", .{v});
                 }
             },
-            .char => unreachable,
-            .char_list => unreachable,
+            .char => |value| {
+                try writer.print("\"{c}\"", .{value});
+            },
+            .char_list => |value| {
+                try writer.writeByte('"');
+                for (value) |v| try writer.print("{c}", .{v});
+                try writer.writeByte('"');
+            },
             .short => |value| {
                 if (utils.isNull(value)) {
                     try writer.writeAll("0Nh");
@@ -534,26 +694,13 @@ const ParseResult = struct {
 };
 
 const NumberParser = struct {
-    allocator: std.mem.Allocator,
-    result: ?ParseResult = null,
+    allocator: Allocator,
     str: []const u8 = undefined,
 
-    pub fn init(allocator: std.mem.Allocator) NumberParser {
+    pub fn init(allocator: Allocator) NumberParser {
         return .{
             .allocator = allocator,
         };
-    }
-
-    pub fn deinit(self: NumberParser) void {
-        if (self.result) |result| result.deinit(self.allocator);
-    }
-
-    pub fn toOwnedResult(self: *NumberParser) ?ParseResult {
-        if (self.result) |result| {
-            self.result = null;
-            return result;
-        }
-        return null;
     }
 
     const ParseNumberError = error{
@@ -564,10 +711,25 @@ const NumberParser = struct {
         ShouldBacktrack,
     };
 
-    pub fn parseNumber(self: *NumberParser, str: []const u8) ParseNumberError!void {
+    pub fn parseNumber(self: *NumberParser, str: []const u8) ParseNumberError!Value {
         self.str = str;
 
-        const value = switch (str[0]) {
+        return if (self.str[self.str.len - 1] == 'c') switch (str.len) {
+            2 => switch (str[0]) {
+                '0' => Value{ .char = '0' },
+                '1' => Value{ .char = '1' },
+                '2' => Value{ .char = '2' },
+                '3' => Value{ .char = '3' },
+                '4' => Value{ .char = '4' },
+                '5' => Value{ .char = '5' },
+                '6' => Value{ .char = '6' },
+                '7' => Value{ .char = '7' },
+                '8' => Value{ .char = '8' },
+                '9' => Value{ .char = '9' },
+                else => Value{ .char = null_char },
+            },
+            else => Value{ .char = null_char },
+        } else switch (str[0]) {
             '0' => switch (str.len) {
                 1 => Value{ .long = 0 },
                 2 => switch (str[1]) {
@@ -613,308 +775,6 @@ const NumberParser = struct {
                 else => try self.number(1),
             },
             else => try self.number(0),
-        };
-        errdefer value.deinit(self.allocator);
-
-        if (self.result) |prev_result| {
-            switch (value) {
-                .boolean, .boolean_list, .byte, .byte_list => return error.ShouldBacktrack,
-                else => {},
-            }
-
-            self.result = try self.join(prev_result.value, value);
-        } else {
-            self.result = .{
-                .value = value,
-                .has_suffix = switch (value) {
-                    .boolean, .boolean_list, .guid, .char, .short, .int, .month => true,
-                    .byte, .byte_list => false,
-                    .date => self.str[self.str.len - 1] == 'd',
-                    .minute => self.str[self.str.len - 1] == 'u',
-                    .second => self.str[self.str.len - 1] == 'v',
-                    .time => self.str[self.str.len - 1] == 't',
-                    .long => self.str[self.str.len - 1] == 'j',
-                    .timestamp => self.str[self.str.len - 1] == 'p',
-                    .timespan => self.str[self.str.len - 1] == 'n',
-                    .real => self.str[self.str.len - 1] == 'e',
-                    .float => self.str[self.str.len - 1] == 'f',
-                    .datetime => self.str[self.str.len - 1] == 'z',
-                    else => unreachable,
-                },
-            };
-        }
-    }
-
-    fn join(self: *NumberParser, prev_value: Value, value: Value) !ParseResult {
-        return switch (prev_value) {
-            .long => |prev_v| self.joinLong(prev_v, value),
-            .long_list => |prev_v| self.joinLongList(prev_v, value),
-            .float => |prev_v| self.joinFloat(prev_v, value),
-            .float_list => |prev_v| self.joinFloatList(prev_v, value),
-            .boolean, .boolean_list, .guid, .guid_list, .byte, .byte_list => unreachable,
-            else => |t| std.debug.panic("join: {s} ({s})", .{ @tagName(t), self.str }),
-        };
-    }
-
-    fn joinLong(self: *NumberParser, prev_value: i64, value: Value) !ParseResult {
-        return switch (value) {
-            .guid => |v| self.joinLongGuid(prev_value, v),
-            .short => |v| self.joinLongSuffix(prev_value, v),
-            .int => |v| self.joinLongSuffix(prev_value, v),
-            .long => |v| self.joinLongLong(prev_value, v),
-            .real => |v| self.joinLongSuffix(prev_value, v),
-            .float => |v| self.joinLongFloat(prev_value, v),
-            else => |t| std.debug.panic("joinLong: {s} ({s})", .{ @tagName(t), self.str }),
-        };
-    }
-
-    fn joinLongGuid(self: *NumberParser, prev_value: i64, value: [16]u8) !ParseResult {
-        if (!utils.isNull(prev_value)) return error.ParseError;
-        return self.joinLongSuffix(prev_value, value);
-    }
-
-    fn joinLongSuffix(self: *NumberParser, prev_value: i64, value: anytype) !ParseResult {
-        const T = @TypeOf(value);
-        const list = try self.allocator.alloc(T, 2);
-        list[0] = utils.cast(T, prev_value);
-        list[1] = value;
-        return .{
-            .value = switch (T) {
-                [16]u8 => .{ .guid_list = list },
-                i16 => .{ .short_list = list },
-                i32 => .{ .int_list = list },
-                f32 => .{ .real_list = list },
-                else => @compileError("Unsupported type: " ++ @typeName(T)),
-            },
-            .has_suffix = true,
-        };
-    }
-
-    fn joinLongLong(self: *NumberParser, prev_value: i64, value: i64) !ParseResult {
-        const list = try self.allocator.alloc(i64, 2);
-        list[0] = prev_value;
-        list[1] = value;
-        return .{
-            .value = .{ .long_list = list },
-            .has_suffix = self.str[self.str.len - 1] == 'j',
-        };
-    }
-
-    fn joinLongFloat(self: *NumberParser, prev_value: i64, value: f64) !ParseResult {
-        const list = try self.allocator.alloc(f64, 2);
-        list[0] = utils.cast(f64, prev_value);
-        list[1] = value;
-        return .{
-            .value = .{ .float_list = list },
-            .has_suffix = self.str[self.str.len - 1] == 'f',
-        };
-    }
-
-    fn joinLongList(self: *NumberParser, prev_value: []const i64, value: Value) !ParseResult {
-        return switch (value) {
-            .guid => |v| self.joinLongListGuid(prev_value, v),
-            .short => |v| self.joinLongListSuffix(prev_value, v),
-            .int => |v| self.joinLongListSuffix(prev_value, v),
-            .long => |v| self.joinLongListLong(prev_value, v),
-            .real => |v| self.joinLongListSuffix(prev_value, v),
-            .float => |v| self.joinLongListFloat(prev_value, v),
-            else => |t| std.debug.panic("joinLongList: {s} ({s})", .{ @tagName(t), self.str }),
-        };
-    }
-
-    fn joinLongListGuid(self: *NumberParser, prev_value: []const i64, value: [16]u8) !ParseResult {
-        if (!utils.isNull(prev_value)) return error.ParseError;
-        return self.joinLongListSuffix(prev_value, value);
-    }
-
-    fn joinLongListSuffix(self: *NumberParser, prev_value: []const i64, value: anytype) !ParseResult {
-        const T = @TypeOf(value);
-        const list = try self.allocator.alloc(T, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        for (prev_value, 0..) |prev_v, i| {
-            list[i] = utils.cast(T, prev_v);
-        }
-        list[prev_value.len] = value;
-        return .{
-            .value = switch (T) {
-                [16]u8 => .{ .guid_list = list },
-                i16 => .{ .short_list = list },
-                i32 => .{ .int_list = list },
-                f32 => .{ .real_list = list },
-                else => @compileError("Unsupported type: " ++ @typeName(T)),
-            },
-            .has_suffix = true,
-        };
-    }
-
-    fn joinLongListLong(self: *NumberParser, prev_value: []const i64, value: i64) !ParseResult {
-        const list = try self.allocator.alloc(i64, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        @memcpy(list[0..prev_value.len], prev_value);
-        list[prev_value.len] = value;
-        return .{
-            .value = .{ .long_list = list },
-            .has_suffix = self.str[self.str.len - 1] == 'j',
-        };
-    }
-
-    fn joinLongListFloat(self: *NumberParser, prev_value: []const i64, value: f64) !ParseResult {
-        const list = try self.allocator.alloc(f64, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        for (prev_value, 0..) |prev_v, i| {
-            list[i] = utils.cast(f64, prev_v);
-        }
-        list[prev_value.len] = value;
-        return .{
-            .value = .{ .float_list = list },
-            .has_suffix = self.str[self.str.len - 1] == 'f',
-        };
-    }
-
-    fn joinFloat(self: *NumberParser, prev_value: f64, value: Value) !ParseResult {
-        return switch (value) {
-            .guid => |v| self.joinFloatGuid(prev_value, v),
-            .short => |v| self.joinFloatShort(prev_value, v),
-            .int => |v| self.joinFloatInt(prev_value, v),
-            .long => |v| self.joinFloatLong(prev_value, v),
-            .real => |v| self.joinFloatSuffix(prev_value, v),
-            .float => |v| self.joinFloatFloat(prev_value, v),
-            else => |t| std.debug.panic("joinFloat: {s} ({s})", .{ @tagName(t), self.str }),
-        };
-    }
-
-    fn joinFloatGuid(self: *NumberParser, prev_value: f64, value: [16]u8) !ParseResult {
-        if (!utils.isNull(prev_value)) return error.ParseError;
-        return self.joinFloatSuffix(prev_value, value);
-    }
-
-    fn joinFloatShort(self: *NumberParser, prev_value: f64, value: i16) !ParseResult {
-        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        return self.joinFloatSuffix(prev_value, value);
-    }
-
-    fn joinFloatInt(self: *NumberParser, prev_value: f64, value: i32) !ParseResult {
-        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        return self.joinFloatSuffix(prev_value, value);
-    }
-
-    fn joinFloatSuffix(self: *NumberParser, prev_value: f64, value: anytype) !ParseResult {
-        const T = @TypeOf(value);
-        const list = try self.allocator.alloc(T, 2);
-        list[0] = utils.cast(T, prev_value);
-        list[1] = value;
-        return .{
-            .value = switch (T) {
-                [16]u8 => .{ .guid_list = list },
-                i16 => .{ .short_list = list },
-                i32 => .{ .int_list = list },
-                i64 => .{ .long_list = list },
-                f32 => .{ .real_list = list },
-                else => @compileError("Unsupported type: " ++ @typeName(T)),
-            },
-            .has_suffix = true,
-        };
-    }
-
-    fn joinFloatLong(self: *NumberParser, prev_value: f64, value: i64) !ParseResult {
-        const has_suffix = self.str[self.str.len - 1] == 'j';
-        if (has_suffix) {
-            if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-            return self.joinFloatSuffix(prev_value, value);
-        } else {
-            const list = try self.allocator.alloc(f64, 2);
-            list[0] = prev_value;
-            list[1] = utils.cast(f64, value);
-            return .{
-                .value = .{ .float_list = list },
-                .has_suffix = has_suffix,
-            };
-        }
-    }
-
-    fn joinFloatFloat(self: *NumberParser, prev_value: f64, value: f64) !ParseResult {
-        const list = try self.allocator.alloc(f64, 2);
-        list[0] = prev_value;
-        list[1] = value;
-        return .{
-            .value = .{ .float_list = list },
-            .has_suffix = self.str[self.str.len - 1] == 'f',
-        };
-    }
-
-    fn joinFloatList(self: *NumberParser, prev_value: []const f64, value: Value) !ParseResult {
-        return switch (value) {
-            .guid => |v| self.joinFloatListGuid(prev_value, v),
-            .short => |v| self.joinFloatListShort(prev_value, v),
-            .int => |v| self.joinFloatListInt(prev_value, v),
-            .long => |v| self.joinFloatListLong(prev_value, v),
-            .real => |v| self.joinFloatListSuffix(prev_value, v),
-            .float => |v| self.joinFloatListFloat(prev_value, v),
-            else => |t| std.debug.panic("joinFloatList: {s} ({s})", .{ @tagName(t), self.str }),
-        };
-    }
-
-    fn joinFloatListGuid(self: *NumberParser, prev_value: []const f64, value: [16]u8) !ParseResult {
-        if (!utils.isNull(prev_value)) return error.ParseError;
-        return self.joinFloatListSuffix(prev_value, value);
-    }
-
-    fn joinFloatListShort(self: *NumberParser, prev_value: []const f64, value: i16) !ParseResult {
-        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        return self.joinFloatListSuffix(prev_value, value);
-    }
-
-    fn joinFloatListInt(self: *NumberParser, prev_value: []const f64, value: i32) !ParseResult {
-        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        return self.joinFloatListSuffix(prev_value, value);
-    }
-
-    fn joinFloatListSuffix(self: *NumberParser, prev_value: []const f64, value: anytype) !ParseResult {
-        const T = @TypeOf(value);
-        const list = try self.allocator.alloc(T, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        for (prev_value, 0..) |prev_v, i| {
-            list[i] = utils.cast(T, prev_v);
-        }
-        list[prev_value.len] = value;
-        return .{
-            .value = switch (T) {
-                [16]u8 => .{ .guid_list = list },
-                i16 => .{ .short_list = list },
-                i32 => .{ .int_list = list },
-                i64 => .{ .long_list = list },
-                f32 => .{ .real_list = list },
-                else => @compileError("Unsupported type: " ++ @typeName(T)),
-            },
-            .has_suffix = true,
-        };
-    }
-
-    fn joinFloatListLong(self: *NumberParser, prev_value: []const f64, value: i64) !ParseResult {
-        const has_suffix = self.str[self.str.len - 1] == 'j';
-        if (has_suffix) {
-            if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-            return self.joinFloatListSuffix(prev_value, value);
-        } else {
-            const list = try self.allocator.alloc(f64, prev_value.len + 1);
-            defer self.allocator.free(prev_value);
-            @memcpy(list[0..prev_value.len], prev_value);
-            list[prev_value.len] = utils.cast(f64, value);
-            return .{
-                .value = .{ .float_list = list },
-                .has_suffix = has_suffix,
-            };
-        }
-    }
-
-    fn joinFloatListFloat(self: *NumberParser, prev_value: []const f64, value: f64) !ParseResult {
-        const list = try self.allocator.alloc(f64, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        @memcpy(list[0..prev_value.len], prev_value);
-        list[prev_value.len] = value;
-        return .{
-            .value = .{ .float_list = list },
-            .has_suffix = self.str[self.str.len - 1] == 'f',
         };
     }
 
@@ -1853,12 +1713,9 @@ const NumberParser = struct {
 
 pub fn testNumberParser(input: []const u8, comptime expected_type: ValueType, comptime expected_value: anytype) !void {
     var number_parser = NumberParser.init(std.testing.allocator);
-    defer number_parser.deinit();
 
-    try number_parser.parseNumber(input);
-
-    try std.testing.expect(number_parser.result != null);
-    const value = number_parser.result.?.value;
+    const value = try number_parser.parseNumber(input);
+    defer value.deinit(std.testing.allocator);
     try std.testing.expectEqual(expected_type, @as(ValueType, value));
 
     const actual_value = @field(value, @tagName(expected_type));
@@ -1903,9 +1760,8 @@ pub fn testNumberParser(input: []const u8, comptime expected_type: ValueType, co
 
 pub fn testNumberParserError(input: []const u8, expected: anyerror) !void {
     var number_parser = NumberParser.init(std.testing.allocator);
-    defer number_parser.deinit();
 
-    number_parser.parseNumber(input) catch |e| {
+    _ = number_parser.parseNumber(input) catch |e| {
         try std.testing.expectEqual(expected, e);
         return;
     };
