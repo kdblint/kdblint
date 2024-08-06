@@ -386,27 +386,41 @@ pub const Value = union(ValueType) {
             .time => unreachable,
             .time_list => unreachable,
             .long => |value| {
-                if (value == null_long) {
+                if (utils.isNull(value)) {
                     try writer.writeAll("0N");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0W");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0W");
                 } else {
                     try writer.print("{d}", .{value});
                 }
             },
             .long_list => |value| {
-                var i: usize = 0;
-                while (i < value.len - 1) : (i += 1) {
-                    const v = value[i];
-                    if (v == null_long) {
-                        try writer.writeAll("0N ");
-                    } else {
-                        try writer.print("{d} ", .{v});
-                    }
-                }
-                const v = value[i];
-                if (v == null_long) {
-                    try writer.writeAll("0N");
+                if (value.len == 0) {
+                    try writer.writeAll("`long$()");
                 } else {
-                    try writer.print("{d}", .{v});
+                    for (value[0 .. value.len - 1]) |v| {
+                        if (utils.isNull(v)) {
+                            try writer.writeAll("0N ");
+                        } else if (utils.isPositiveInf(v)) {
+                            try writer.writeAll("0W ");
+                        } else if (utils.isNegativeInf(v)) {
+                            try writer.writeAll("-0W ");
+                        } else {
+                            try writer.print("{d} ", .{v});
+                        }
+                    }
+                    const v = value[value.len - 1];
+                    if (utils.isNull(v)) {
+                        try writer.writeAll("0N");
+                    } else if (utils.isPositiveInf(v)) {
+                        try writer.writeAll("0W");
+                    } else if (utils.isNegativeInf(v)) {
+                        try writer.writeAll("-0W");
+                    } else {
+                        try writer.print("{d}", .{v});
+                    }
                 }
             },
             .timestamp => unreachable,
@@ -646,48 +660,35 @@ const NumberParser = struct {
 
     fn joinLongList(self: *NumberParser, prev_value: []const i64, value: Value) !ParseResult {
         return switch (value) {
-            .guid => self.joinLongListGuid(prev_value),
-            .short => |v| self.joinLongListShort(prev_value, v),
-            .int => |v| self.joinLongListInt(prev_value, v),
+            .guid => |v| self.joinLongListGuid(prev_value, v),
+            .short => |v| self.joinLongListSuffix(prev_value, v),
+            .int => |v| self.joinLongListSuffix(prev_value, v),
             .long => |v| self.joinLongListLong(prev_value, v),
             .float => |v| self.joinLongListFloat(prev_value, v),
             else => |t| std.debug.panic("joinLongList: {s} ({s})", .{ @tagName(t), self.str }),
         };
     }
 
-    fn joinLongListGuid(self: *NumberParser, prev_value: []const i64) !ParseResult {
+    fn joinLongListGuid(self: *NumberParser, prev_value: []const i64, value: [16]u8) !ParseResult {
         if (!utils.isNull(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc([16]u8, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        for (list) |*l| l.* = null_guid;
-        return .{
-            .value = .{ .guid_list = list },
-            .has_suffix = true,
-        };
+        return self.joinLongListSuffix(prev_value, value);
     }
 
-    fn joinLongListShort(self: *NumberParser, prev_value: []const i64, value: i16) !ParseResult {
-        const list = try self.allocator.alloc(i16, prev_value.len + 1);
+    fn joinLongListSuffix(self: *NumberParser, prev_value: []const i64, value: anytype) !ParseResult {
+        const T = @TypeOf(value);
+        const list = try self.allocator.alloc(T, prev_value.len + 1);
         defer self.allocator.free(prev_value);
         for (prev_value, 0..) |prev_v, i| {
-            list[i] = utils.cast(i16, prev_v);
+            list[i] = utils.cast(T, prev_v);
         }
         list[prev_value.len] = value;
         return .{
-            .value = .{ .short_list = list },
-            .has_suffix = true,
-        };
-    }
-
-    fn joinLongListInt(self: *NumberParser, prev_value: []const i64, value: i32) !ParseResult {
-        const list = try self.allocator.alloc(i32, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        for (prev_value, 0..) |prev_v, i| {
-            list[i] = utils.cast(i32, prev_v);
-        }
-        list[prev_value.len] = value;
-        return .{
-            .value = .{ .int_list = list },
+            .value = switch (T) {
+                [16]u8 => .{ .guid_list = list },
+                i16 => .{ .short_list = list },
+                i32 => .{ .int_list = list },
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
             .has_suffix = true,
         };
     }
@@ -718,7 +719,7 @@ const NumberParser = struct {
 
     fn joinFloat(self: *NumberParser, prev_value: f64, value: Value) !ParseResult {
         return switch (value) {
-            .guid => self.joinFloatGuid(prev_value),
+            .guid => |v| self.joinFloatGuid(prev_value, v),
             .short => |v| self.joinFloatShort(prev_value, v),
             .int => |v| self.joinFloatInt(prev_value, v),
             .long => |v| self.joinFloatLong(prev_value, v),
@@ -727,35 +728,34 @@ const NumberParser = struct {
         };
     }
 
-    fn joinFloatGuid(self: *NumberParser, prev_value: f64) !ParseResult {
+    fn joinFloatGuid(self: *NumberParser, prev_value: f64, value: [16]u8) !ParseResult {
         if (!utils.isNull(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc([16]u8, 2);
-        list[0] = null_guid;
-        list[1] = null_guid;
-        return .{
-            .value = .{ .guid_list = list },
-            .has_suffix = true,
-        };
+        return self.joinFloatSuffix(prev_value, value);
     }
 
     fn joinFloatShort(self: *NumberParser, prev_value: f64, value: i16) !ParseResult {
         if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc(i16, 2);
-        list[0] = utils.cast(i16, prev_value);
-        list[1] = value;
-        return .{
-            .value = .{ .short_list = list },
-            .has_suffix = true,
-        };
+        return self.joinFloatSuffix(prev_value, value);
     }
 
     fn joinFloatInt(self: *NumberParser, prev_value: f64, value: i32) !ParseResult {
         if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc(i32, 2);
-        list[0] = utils.cast(i32, prev_value);
+        return self.joinFloatSuffix(prev_value, value);
+    }
+
+    fn joinFloatSuffix(self: *NumberParser, prev_value: f64, value: anytype) !ParseResult {
+        const T = @TypeOf(value);
+        const list = try self.allocator.alloc(T, 2);
+        list[0] = utils.cast(T, prev_value);
         list[1] = value;
         return .{
-            .value = .{ .int_list = list },
+            .value = switch (T) {
+                [16]u8 => .{ .guid_list = list },
+                i16 => .{ .short_list = list },
+                i32 => .{ .int_list = list },
+                i64 => .{ .long_list = list },
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
             .has_suffix = true,
         };
     }
@@ -763,13 +763,8 @@ const NumberParser = struct {
     fn joinFloatLong(self: *NumberParser, prev_value: f64, value: i64) !ParseResult {
         const has_suffix = self.str[self.str.len - 1] == 'j';
         if (has_suffix) {
-            const list = try self.allocator.alloc(i64, 2);
-            list[0] = utils.cast(i64, prev_value);
-            list[1] = value;
-            return .{
-                .value = .{ .long_list = list },
-                .has_suffix = has_suffix,
-            };
+            if (!utils.isNullOrInf(prev_value)) return error.ParseError;
+            return self.joinFloatSuffix(prev_value, value);
         } else {
             const list = try self.allocator.alloc(f64, 2);
             list[0] = prev_value;
@@ -793,7 +788,7 @@ const NumberParser = struct {
 
     fn joinFloatList(self: *NumberParser, prev_value: []const f64, value: Value) !ParseResult {
         return switch (value) {
-            .guid => self.joinFloatListGuid(prev_value),
+            .guid => |v| self.joinFloatListGuid(prev_value, v),
             .short => |v| self.joinFloatListShort(prev_value, v),
             .int => |v| self.joinFloatListInt(prev_value, v),
             .long => |v| self.joinFloatListLong(prev_value, v),
@@ -802,41 +797,37 @@ const NumberParser = struct {
         };
     }
 
-    fn joinFloatListGuid(self: *NumberParser, prev_value: []const f64) !ParseResult {
+    fn joinFloatListGuid(self: *NumberParser, prev_value: []const f64, value: [16]u8) !ParseResult {
         if (!utils.isNull(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc([16]u8, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        for (list) |*l| l.* = null_guid;
-        return .{
-            .value = .{ .guid_list = list },
-            .has_suffix = true,
-        };
+        return self.joinFloatListSuffix(prev_value, value);
     }
 
     fn joinFloatListShort(self: *NumberParser, prev_value: []const f64, value: i16) !ParseResult {
         if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc(i16, prev_value.len + 1);
-        defer self.allocator.free(prev_value);
-        for (prev_value, 0..) |prev_v, i| {
-            list[i] = utils.cast(i16, prev_v);
-        }
-        list[prev_value.len] = value;
-        return .{
-            .value = .{ .short_list = list },
-            .has_suffix = true,
-        };
+        return self.joinFloatListSuffix(prev_value, value);
     }
 
     fn joinFloatListInt(self: *NumberParser, prev_value: []const f64, value: i32) !ParseResult {
         if (!utils.isNullOrInf(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc(i32, prev_value.len + 1);
+        return self.joinFloatListSuffix(prev_value, value);
+    }
+
+    fn joinFloatListSuffix(self: *NumberParser, prev_value: []const f64, value: anytype) !ParseResult {
+        const T = @TypeOf(value);
+        const list = try self.allocator.alloc(T, prev_value.len + 1);
         defer self.allocator.free(prev_value);
         for (prev_value, 0..) |prev_v, i| {
-            list[i] = utils.cast(i32, prev_v);
+            list[i] = utils.cast(T, prev_v);
         }
         list[prev_value.len] = value;
         return .{
-            .value = .{ .int_list = list },
+            .value = switch (T) {
+                [16]u8 => .{ .guid_list = list },
+                i16 => .{ .short_list = list },
+                i32 => .{ .int_list = list },
+                i64 => .{ .long_list = list },
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
             .has_suffix = true,
         };
     }
@@ -844,16 +835,8 @@ const NumberParser = struct {
     fn joinFloatListLong(self: *NumberParser, prev_value: []const f64, value: i64) !ParseResult {
         const has_suffix = self.str[self.str.len - 1] == 'j';
         if (has_suffix) {
-            const list = try self.allocator.alloc(i64, prev_value.len + 1);
-            defer self.allocator.free(prev_value);
-            for (prev_value, 0..) |prev_v, i| {
-                list[i] = utils.cast(i64, prev_v);
-            }
-            list[prev_value.len] = value;
-            return .{
-                .value = .{ .long_list = list },
-                .has_suffix = has_suffix,
-            };
+            if (!utils.isNullOrInf(prev_value)) return error.ParseError;
+            return self.joinFloatListSuffix(prev_value, value);
         } else {
             const list = try self.allocator.alloc(f64, prev_value.len + 1);
             defer self.allocator.free(prev_value);
