@@ -14,11 +14,12 @@ pub fn cast(comptime T: type, value: anytype) T {
     return switch (FromT) {
         i64 => switch (T) {
             i16, i32 => @intCast(value),
-            f64 => @floatFromInt(value),
+            f32, f64 => @floatFromInt(value),
             else => @compileError("Unsupported type: " ++ @typeName(T)),
         },
         f64 => switch (T) {
             i16, i32, i64 => @intFromFloat(value),
+            f32 => @floatCast(value),
             else => @compileError("Unsupported type: " ++ @typeName(T)),
         },
         else => @compileError("Unsupported type: " ++ @typeName(T)),
@@ -32,13 +33,12 @@ pub fn isNull(value: anytype) bool {
         return true;
     }
     return switch (T) {
-        i16, i32, i64 => value == Null(T),
-        f64 => std.math.isNan(value),
         [16]u8 => blk: {
             for (value) |v| if (v != 0) break :blk false;
             break :blk true;
         },
-        else => @compileError("Unsupported type: " ++ @typeName(T)),
+        f32, f64 => std.math.isNan(value),
+        else => value == Null(T),
     };
 }
 
@@ -49,9 +49,8 @@ pub fn isPositiveInf(value: anytype) bool {
         return true;
     }
     return switch (T) {
-        i16, i32, i64 => value == Inf(T),
-        f64 => std.math.isPositiveInf(value),
-        else => @compileError("Unsupported type: " ++ @typeName(T)),
+        f32, f64 => std.math.isPositiveInf(value),
+        else => value == Inf(T),
     };
 }
 
@@ -62,9 +61,8 @@ pub fn isNegativeInf(value: anytype) bool {
         return true;
     }
     return switch (T) {
-        i16, i32, i64 => value == -Inf(T),
-        f64 => std.math.isNegativeInf(value),
-        else => @compileError("Unsupported type: " ++ @typeName(T)),
+        f32, f64 => std.math.isNegativeInf(value),
+        else => value == -Inf(T),
     };
 }
 
@@ -82,6 +80,7 @@ fn Null(comptime T: type) T {
         i16 => number_parser.null_short,
         i32 => number_parser.null_int,
         i64 => number_parser.null_long,
+        f32 => number_parser.null_real,
         f64 => number_parser.null_float,
         else => @compileError("Unsupported type: " ++ @typeName(T)),
     };
@@ -92,6 +91,7 @@ fn Inf(comptime T: type) T {
         i16 => number_parser.inf_short,
         i32 => number_parser.inf_int,
         i64 => number_parser.inf_long,
+        f32 => number_parser.inf_real,
         f64 => number_parser.inf_float,
         else => @compileError("Unsupported type: " ++ @typeName(T)),
     };
