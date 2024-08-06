@@ -427,8 +427,44 @@ pub const Value = union(ValueType) {
             .timestamp_list => unreachable,
             .timespan => unreachable,
             .timespan_list => unreachable,
-            .real => unreachable,
-            .real_list => unreachable,
+            .real => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Ne");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0We");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0We");
+                } else {
+                    try writer.print("{d}e", .{value});
+                }
+            },
+            .real_list => |value| {
+                if (value.len == 0) {
+                    try writer.writeAll("`real$()");
+                } else {
+                    for (value[0 .. value.len - 1]) |v| {
+                        if (utils.isNull(v)) {
+                            try writer.writeAll("0N ");
+                        } else if (utils.isPositiveInf(v)) {
+                            try writer.writeAll("0W ");
+                        } else if (utils.isNegativeInf(v)) {
+                            try writer.writeAll("-0W ");
+                        } else {
+                            try writer.print("{d} ", .{v});
+                        }
+                    }
+                    const v = value[value.len - 1];
+                    if (utils.isNull(v)) {
+                        try writer.writeAll("0Ne");
+                    } else if (utils.isPositiveInf(v)) {
+                        try writer.writeAll("0We");
+                    } else if (utils.isNegativeInf(v)) {
+                        try writer.writeAll("-0We");
+                    } else {
+                        try writer.print("{d}e", .{v});
+                    }
+                }
+            },
             .float => |value| {
                 if (std.math.isNan(value)) {
                     try writer.writeAll("0n");
@@ -612,6 +648,7 @@ const NumberParser = struct {
             .short => |v| self.joinLongSuffix(prev_value, v),
             .int => |v| self.joinLongSuffix(prev_value, v),
             .long => |v| self.joinLongLong(prev_value, v),
+            .real => |v| self.joinLongSuffix(prev_value, v),
             .float => |v| self.joinLongFloat(prev_value, v),
             else => |t| std.debug.panic("joinLong: {s} ({s})", .{ @tagName(t), self.str }),
         };
@@ -632,6 +669,7 @@ const NumberParser = struct {
                 [16]u8 => .{ .guid_list = list },
                 i16 => .{ .short_list = list },
                 i32 => .{ .int_list = list },
+                f32 => .{ .real_list = list },
                 else => @compileError("Unsupported type: " ++ @typeName(T)),
             },
             .has_suffix = true,
@@ -664,6 +702,7 @@ const NumberParser = struct {
             .short => |v| self.joinLongListSuffix(prev_value, v),
             .int => |v| self.joinLongListSuffix(prev_value, v),
             .long => |v| self.joinLongListLong(prev_value, v),
+            .real => |v| self.joinLongListSuffix(prev_value, v),
             .float => |v| self.joinLongListFloat(prev_value, v),
             else => |t| std.debug.panic("joinLongList: {s} ({s})", .{ @tagName(t), self.str }),
         };
@@ -687,6 +726,7 @@ const NumberParser = struct {
                 [16]u8 => .{ .guid_list = list },
                 i16 => .{ .short_list = list },
                 i32 => .{ .int_list = list },
+                f32 => .{ .real_list = list },
                 else => @compileError("Unsupported type: " ++ @typeName(T)),
             },
             .has_suffix = true,
@@ -723,6 +763,7 @@ const NumberParser = struct {
             .short => |v| self.joinFloatShort(prev_value, v),
             .int => |v| self.joinFloatInt(prev_value, v),
             .long => |v| self.joinFloatLong(prev_value, v),
+            .real => |v| self.joinFloatSuffix(prev_value, v),
             .float => |v| self.joinFloatFloat(prev_value, v),
             else => |t| std.debug.panic("joinFloat: {s} ({s})", .{ @tagName(t), self.str }),
         };
@@ -754,6 +795,7 @@ const NumberParser = struct {
                 i16 => .{ .short_list = list },
                 i32 => .{ .int_list = list },
                 i64 => .{ .long_list = list },
+                f32 => .{ .real_list = list },
                 else => @compileError("Unsupported type: " ++ @typeName(T)),
             },
             .has_suffix = true,
@@ -792,6 +834,7 @@ const NumberParser = struct {
             .short => |v| self.joinFloatListShort(prev_value, v),
             .int => |v| self.joinFloatListInt(prev_value, v),
             .long => |v| self.joinFloatListLong(prev_value, v),
+            .real => |v| self.joinFloatListSuffix(prev_value, v),
             .float => |v| self.joinFloatListFloat(prev_value, v),
             else => |t| std.debug.panic("joinFloatList: {s} ({s})", .{ @tagName(t), self.str }),
         };
@@ -826,6 +869,7 @@ const NumberParser = struct {
                 i16 => .{ .short_list = list },
                 i32 => .{ .int_list = list },
                 i64 => .{ .long_list = list },
+                f32 => .{ .real_list = list },
                 else => @compileError("Unsupported type: " ++ @typeName(T)),
             },
             .has_suffix = true,
