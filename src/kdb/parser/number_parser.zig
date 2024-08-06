@@ -274,17 +274,17 @@ pub const Value = union(ValueType) {
                 try writer.writeByte('b');
             },
             .guid => |value| {
-                if (std.mem.eql(u8, &value, &std.mem.zeroes([16]u8))) {
+                if (utils.isNull(value)) {
                     try writer.writeAll("00000000-0000-0000-0000-000000000000");
                 } else unreachable;
             },
             .guid_list => |value| {
                 for (value[0 .. value.len - 1]) |v| {
-                    if (std.mem.eql(u8, &v, &std.mem.zeroes([16]u8))) {
+                    if (utils.isNull(v)) {
                         try writer.writeAll("00000000-0000-0000-0000-000000000000 ");
                     } else unreachable;
                 }
-                if (std.mem.eql(u8, &value[value.len - 1], &std.mem.zeroes([16]u8))) {
+                if (utils.isNull(value[value.len - 1])) {
                     try writer.writeAll("00000000-0000-0000-0000-000000000000");
                 } else unreachable;
             },
@@ -299,36 +299,82 @@ pub const Value = union(ValueType) {
             },
             .char => unreachable,
             .char_list => unreachable,
-            .short => unreachable,
+            .short => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Nh");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0Wh");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0Wh");
+                } else {
+                    try writer.print("{d}h", .{value});
+                }
+            },
             .short_list => |value| {
                 if (value.len == 0) {
                     try writer.writeAll("`short$()");
                 } else {
                     for (value[0 .. value.len - 1]) |v| {
-                        if (v == null_short) {
+                        if (utils.isNull(v)) {
                             try writer.writeAll("0N ");
-                        } else if (v == inf_short) {
+                        } else if (utils.isPositiveInf(v)) {
                             try writer.writeAll("0W ");
-                        } else if (v == -inf_short) {
+                        } else if (utils.isNegativeInf(v)) {
                             try writer.writeAll("-0W ");
                         } else {
                             try writer.print("{d} ", .{v});
                         }
                     }
                     const v = value[value.len - 1];
-                    if (v == null_short) {
+                    if (utils.isNull(v)) {
                         try writer.writeAll("0Nh");
-                    } else if (v == inf_short) {
+                    } else if (utils.isPositiveInf(v)) {
                         try writer.writeAll("0Wh");
-                    } else if (v == -inf_short) {
+                    } else if (utils.isNegativeInf(v)) {
                         try writer.writeAll("-0Wh");
                     } else {
                         try writer.print("{d}h", .{v});
                     }
                 }
             },
-            .int => unreachable,
-            .int_list => unreachable,
+            .int => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Ni");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0Wi");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0Wi");
+                } else {
+                    try writer.print("{d}i", .{value});
+                }
+            },
+            .int_list => |value| {
+                if (value.len == 0) {
+                    try writer.writeAll("`int$()");
+                } else {
+                    for (value[0 .. value.len - 1]) |v| {
+                        if (utils.isNull(v)) {
+                            try writer.writeAll("0N ");
+                        } else if (utils.isPositiveInf(v)) {
+                            try writer.writeAll("0W ");
+                        } else if (utils.isNegativeInf(v)) {
+                            try writer.writeAll("-0W ");
+                        } else {
+                            try writer.print("{d} ", .{v});
+                        }
+                    }
+                    const v = value[value.len - 1];
+                    if (utils.isNull(v)) {
+                        try writer.writeAll("0Ni");
+                    } else if (utils.isPositiveInf(v)) {
+                        try writer.writeAll("0Wi");
+                    } else if (utils.isNegativeInf(v)) {
+                        try writer.writeAll("-0Wi");
+                    } else {
+                        try writer.print("{d}i", .{v});
+                    }
+                }
+            },
             .month => unreachable,
             .month_list => unreachable,
             .date => unreachable,
@@ -548,31 +594,32 @@ const NumberParser = struct {
 
     fn joinLong(self: *NumberParser, prev_value: i64, value: Value) !ParseResult {
         return switch (value) {
-            .guid => self.joinLongGuid(prev_value),
-            .short => |v| self.joinLongShort(prev_value, v),
+            .guid => |v| self.joinLongGuid(prev_value, v),
+            .short => |v| self.joinLongSuffix(prev_value, v),
+            .int => |v| self.joinLongSuffix(prev_value, v),
             .long => |v| self.joinLongLong(prev_value, v),
             .float => |v| self.joinLongFloat(prev_value, v),
             else => |t| std.debug.panic("joinLong: {s} ({s})", .{ @tagName(t), self.str }),
         };
     }
 
-    fn joinLongGuid(self: *NumberParser, prev_value: i64) !ParseResult {
+    fn joinLongGuid(self: *NumberParser, prev_value: i64, value: [16]u8) !ParseResult {
         if (!utils.isNull(prev_value)) return error.ParseError;
-        const list = try self.allocator.alloc([16]u8, 2);
-        list[0] = null_guid;
-        list[1] = null_guid;
-        return .{
-            .value = .{ .guid_list = list },
-            .has_suffix = true,
-        };
+        return self.joinLongSuffix(prev_value, value);
     }
 
-    fn joinLongShort(self: *NumberParser, prev_value: i64, value: i16) !ParseResult {
-        const list = try self.allocator.alloc(i16, 2);
-        list[0] = utils.cast(i16, prev_value);
+    fn joinLongSuffix(self: *NumberParser, prev_value: i64, value: anytype) !ParseResult {
+        const T = @TypeOf(value);
+        const list = try self.allocator.alloc(T, 2);
+        list[0] = utils.cast(T, prev_value);
         list[1] = value;
         return .{
-            .value = .{ .short_list = list },
+            .value = switch (T) {
+                [16]u8 => .{ .guid_list = list },
+                i16 => .{ .short_list = list },
+                i32 => .{ .int_list = list },
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
             .has_suffix = true,
         };
     }
@@ -601,6 +648,7 @@ const NumberParser = struct {
         return switch (value) {
             .guid => self.joinLongListGuid(prev_value),
             .short => |v| self.joinLongListShort(prev_value, v),
+            .int => |v| self.joinLongListInt(prev_value, v),
             .long => |v| self.joinLongListLong(prev_value, v),
             .float => |v| self.joinLongListFloat(prev_value, v),
             else => |t| std.debug.panic("joinLongList: {s} ({s})", .{ @tagName(t), self.str }),
@@ -627,6 +675,19 @@ const NumberParser = struct {
         list[prev_value.len] = value;
         return .{
             .value = .{ .short_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinLongListInt(self: *NumberParser, prev_value: []const i64, value: i32) !ParseResult {
+        const list = try self.allocator.alloc(i32, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        for (prev_value, 0..) |prev_v, i| {
+            list[i] = utils.cast(i32, prev_v);
+        }
+        list[prev_value.len] = value;
+        return .{
+            .value = .{ .int_list = list },
             .has_suffix = true,
         };
     }
@@ -659,6 +720,7 @@ const NumberParser = struct {
         return switch (value) {
             .guid => self.joinFloatGuid(prev_value),
             .short => |v| self.joinFloatShort(prev_value, v),
+            .int => |v| self.joinFloatInt(prev_value, v),
             .long => |v| self.joinFloatLong(prev_value, v),
             .float => |v| self.joinFloatFloat(prev_value, v),
             else => |t| std.debug.panic("joinFloat: {s} ({s})", .{ @tagName(t), self.str }),
@@ -683,6 +745,17 @@ const NumberParser = struct {
         list[1] = value;
         return .{
             .value = .{ .short_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinFloatInt(self: *NumberParser, prev_value: f64, value: i32) !ParseResult {
+        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc(i32, 2);
+        list[0] = utils.cast(i32, prev_value);
+        list[1] = value;
+        return .{
+            .value = .{ .int_list = list },
             .has_suffix = true,
         };
     }
@@ -722,6 +795,7 @@ const NumberParser = struct {
         return switch (value) {
             .guid => self.joinFloatListGuid(prev_value),
             .short => |v| self.joinFloatListShort(prev_value, v),
+            .int => |v| self.joinFloatListInt(prev_value, v),
             .long => |v| self.joinFloatListLong(prev_value, v),
             .float => |v| self.joinFloatListFloat(prev_value, v),
             else => |t| std.debug.panic("joinFloatList: {s} ({s})", .{ @tagName(t), self.str }),
@@ -749,6 +823,20 @@ const NumberParser = struct {
         list[prev_value.len] = value;
         return .{
             .value = .{ .short_list = list },
+            .has_suffix = true,
+        };
+    }
+
+    fn joinFloatListInt(self: *NumberParser, prev_value: []const f64, value: i32) !ParseResult {
+        if (!utils.isNullOrInf(prev_value)) return error.ParseError;
+        const list = try self.allocator.alloc(i32, prev_value.len + 1);
+        defer self.allocator.free(prev_value);
+        for (prev_value, 0..) |prev_v, i| {
+            list[i] = utils.cast(i32, prev_v);
+        }
+        list[prev_value.len] = value;
+        return .{
+            .value = .{ .int_list = list },
             .has_suffix = true,
         };
     }

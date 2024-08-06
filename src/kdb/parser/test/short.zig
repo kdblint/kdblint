@@ -22,8 +22,16 @@ test "valid short inputs" {
     try testNumberParser("-0wh", .short, -inf_short);
     try testNumberParser("-32767h", .short, -inf_short);
 
+    try testParse("1h", &.{ .implicit_return, .short_literal }, "1h");
     try testParse("1 2h", &.{ .implicit_return, .short_list_literal }, "1 2h");
     try testParse("1 2 3h", &.{ .implicit_return, .short_list_literal }, "1 2 3h");
+
+    try testParse("0Nh", &.{ .implicit_return, .short_literal }, "0Nh");
+    try testParse("0nh", &.{ .implicit_return, .short_literal }, "0Nh");
+    try testParse("0Wh", &.{ .implicit_return, .short_literal }, "0Wh");
+    try testParse("0wh", &.{ .implicit_return, .short_literal }, "0Wh");
+    try testParse("-0Wh", &.{ .implicit_return, .short_literal }, "-0Wh");
+    try testParse("-0wh", &.{ .implicit_return, .short_literal }, "-0Wh");
 
     try testParse("0N 0Nh", &.{ .implicit_return, .short_list_literal }, "0N 0Nh");
     try testParse("0N 0nh", &.{ .implicit_return, .short_list_literal }, "0N 0Nh");
