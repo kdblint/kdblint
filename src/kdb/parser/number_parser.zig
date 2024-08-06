@@ -466,34 +466,48 @@ pub const Value = union(ValueType) {
                 }
             },
             .float => |value| {
-                if (std.math.isNan(value)) {
+                if (utils.isNull(value)) {
                     try writer.writeAll("0n");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0w");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0w");
+                } else if (@floor(value) == value) {
+                    try writer.print("{d}f", .{value});
                 } else {
-                    if (@floor(value) == value) {
-                        try writer.print("{d}f", .{value});
-                    } else {
-                        try writer.print("{d}", .{value});
-                    }
+                    try writer.print("{d}", .{value});
                 }
             },
             .float_list => |value| {
-                var requires_suffix = true;
-                var i: usize = 0;
-                while (i < value.len - 1) : (i += 1) {
-                    const v = value[i];
-                    if (std.math.isNan(v)) {
-                        requires_suffix = false;
-                        try writer.writeAll("0n ");
-                    } else {
-                        requires_suffix = requires_suffix and @floor(v) == v;
-                        try writer.print("{d} ", .{v});
-                    }
-                }
-                const v = value[i];
-                if (std.math.isNan(v)) {
-                    try writer.writeAll("0n");
+                if (value.len == 0) {
+                    try writer.writeAll("`float$()");
                 } else {
-                    if (requires_suffix and @floor(v) == v) {
+                    var requires_suffix = true;
+                    var i: usize = 0;
+                    while (i < value.len - 1) : (i += 1) {
+                        const v = value[i];
+                        if (utils.isNull(v)) {
+                            requires_suffix = false;
+                            try writer.writeAll("0n ");
+                        } else if (utils.isPositiveInf(v)) {
+                            requires_suffix = false;
+                            try writer.writeAll("0w ");
+                        } else if (utils.isNegativeInf(v)) {
+                            requires_suffix = false;
+                            try writer.writeAll("-0w ");
+                        } else {
+                            requires_suffix = requires_suffix and @floor(v) == v;
+                            try writer.print("{d} ", .{v});
+                        }
+                    }
+                    const v = value[i];
+                    if (utils.isNull(v)) {
+                        try writer.writeAll("0n");
+                    } else if (utils.isPositiveInf(v)) {
+                        try writer.writeAll("0w");
+                    } else if (utils.isNegativeInf(v)) {
+                        try writer.writeAll("-0w");
+                    } else if (requires_suffix and @floor(v) == v) {
                         try writer.print("{d}f", .{v});
                     } else {
                         try writer.print("{d}", .{v});
