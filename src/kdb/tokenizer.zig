@@ -1329,7 +1329,7 @@ pub const Tokenizer = struct {
                 },
 
                 .number => switch (c) {
-                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => {},
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.', ':' => {},
                     else => break,
                 },
 
