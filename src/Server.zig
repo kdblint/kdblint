@@ -500,8 +500,8 @@ fn initializeHandler(server: *Server, arena: std.mem.Allocator, request: types.I
 
     return .{
         .serverInfo = .{
-            .name = "zls",
-            .version = build_options.version_string,
+            .name = "kdblint",
+            .version = build_options.version,
         },
         .capabilities = .{
             .positionEncoding = switch (server.offset_encoding) {
