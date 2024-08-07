@@ -303,4 +303,6 @@ test "invalid short inputs" {
 
     try testParseError("1. 2h", &.{.parse_error});
     try testParseError("1. 2. 3h", &.{.parse_error});
+
+    try testParseError("-32768 1h", &.{.parse_error});
 }

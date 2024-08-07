@@ -303,4 +303,6 @@ test "invalid int inputs" {
 
     try testParseError("1. 2i", &.{.parse_error});
     try testParseError("1. 2. 3i", &.{.parse_error});
+
+    try testParseError("-2147483648 1i", &.{.parse_error});
 }

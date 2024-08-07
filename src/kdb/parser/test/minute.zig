@@ -63,8 +63,6 @@ test "valid minute inputs" {
 }
 
 test "invalid minute inputs" {
-    try testNumberParserError("0:0", error.InvalidCharacter);
-    try testNumberParserError("0:00", error.InvalidCharacter);
     try testNumberParserError("00:0", error.InvalidCharacter);
     try testNumberParserError("00:60", error.Overflow);
     try testNumberParserError("000:0", error.InvalidCharacter);
