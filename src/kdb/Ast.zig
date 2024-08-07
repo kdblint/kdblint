@@ -2265,7 +2265,6 @@ const Tokenizer = kdb.Tokenizer;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
-const panic = std.debug.panic;
 const assert = std.debug.assert;
 const diagnostics = @import("../features/diagnostics.zig");
 const private_render = @import("./render.zig");

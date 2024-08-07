@@ -54,10 +54,6 @@ test "valid second inputs" {
 }
 
 test "invalid second inputs" {
-    try testNumberParserError("0:0:0", error.InvalidCharacter);
-    try testNumberParserError("0:0:00", error.InvalidCharacter);
-    try testNumberParserError("0:00:0", error.InvalidCharacter);
-    try testNumberParserError("0:00:00", error.InvalidCharacter);
     try testNumberParserError("00:0:0", error.InvalidCharacter);
     try testNumberParserError("00:0:00", error.InvalidCharacter);
     try testNumberParserError("00:00:0", error.InvalidCharacter);

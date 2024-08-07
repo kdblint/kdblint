@@ -1,7 +1,11 @@
 const std = @import("std");
+const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
-const Ast = @import("../Ast.zig");
+const kdb = @import("../../kdb.zig");
+const Ast = kdb.Ast;
+const Token = kdb.Token;
+const Tokenizer = kdb.Tokenizer;
 const Parse = @import("../Parse.zig");
 const utils = @import("utils.zig");
 
@@ -36,75 +40,20 @@ pub fn parse(p: *Parse) Parse.Error!Ast.Node.Index {
 
             const loc = p.token_locs[number_literal];
             const source = p.source[loc.start..loc.end];
+            if (source.len > 1 and source[0] == '0' and source[1] == 'x') {
+                value_type = .byte;
+                break;
+            }
             switch (source[source.len - 1]) {
-                'b' => {
-                    value_type = .boolean;
-                    break;
-                },
-                'c' => {
-                    value_type = .char;
-                    break;
-                },
-                'd' => {
-                    value_type = .date;
-                    break;
-                },
-                'e' => {
-                    value_type = .real;
-                    break;
-                },
-                'f' => {
-                    value_type = .float;
-                    break;
-                },
-                'g' => {
-                    value_type = .guid;
-                    break;
-                },
-                'h' => {
-                    value_type = .short;
-                    break;
-                },
-                'i' => {
-                    value_type = .int;
-                    break;
-                },
-                'j' => {
-                    value_type = .long;
-                    break;
-                },
-                'm' => {
-                    value_type = .month;
+                inline 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'm', 'p', 't', 'u', 'v', 'z' => |suffix| {
+                    value_type = ValueType.fromSuffix(suffix);
                     break;
                 },
                 'n' => if (source.len != 2 or source[0] != '0') {
                     value_type = .timespan;
                     break;
                 },
-                'p' => {
-                    value_type = .timestamp;
-                    break;
-                },
-                't' => {
-                    value_type = .time;
-                    break;
-                },
-                'u' => {
-                    value_type = .minute;
-                    break;
-                },
-                'v' => {
-                    value_type = .second;
-                    break;
-                },
-                'z' => {
-                    value_type = .datetime;
-                    break;
-                },
-                else => if (source.len > 1 and source[1] == 'x') {
-                    value_type = .byte;
-                    break;
-                },
+                else => {},
             }
             continue;
         }
@@ -159,29 +108,24 @@ pub fn parse(p: *Parse) Parse.Error!Ast.Node.Index {
 }
 
 fn parseTokens(p: *Parse, tokens: []const Ast.Node.Index, value_type: ?ValueType) NumberParser.ParseNumberError!Value {
-    return switch (tokens.len) {
-        1 => parseAtom(p, tokens[0]),
-        else => |l| if (value_type) |vt| switch (vt) {
-            .boolean, .byte => error.ShouldBacktrack,
-            inline .guid,
-            .char,
-            .short,
-            .int,
-            .month,
-            .date,
-            .minute,
-            .second,
-            .time,
-            .long,
-            .timestamp,
-            .timespan,
-            .real,
-            .float,
-            .datetime,
-            => |t| parseList(t, p, tokens),
-            else => std.debug.panic("Unsupported type: {s} ({d})", .{ @tagName(vt), l }),
-        } else parseList(null, p, tokens),
-    };
+    if (value_type) |vt| {
+        return switch (tokens.len) {
+            1 => switch (vt) {
+                inline .boolean, .byte, .guid, .char, .short, .int, .month, .date, .minute, .second, .time, .long, .timestamp, .timespan, .real, .float, .datetime => |v| parseAtomType(p, tokens[0], v),
+                else => panic("Unsupported type: {s}", .{@tagName(vt)}),
+            },
+            else => switch (vt) {
+                .boolean, .byte => error.ShouldBacktrack,
+                inline .guid, .char, .short, .int, .month, .date, .minute, .second, .time, .long, .timestamp, .timespan, .real, .float, .datetime => |v| parseListType(p, tokens, v),
+                else => panic("Unsupported type: {s}", .{@tagName(vt)}),
+            },
+        };
+    } else {
+        return switch (tokens.len) {
+            1 => parseAtom(p, tokens[0]),
+            else => parseList(p, tokens),
+        };
+    }
 }
 
 fn parseAtom(p: *Parse, token: Ast.Node.Index) NumberParser.ParseNumberError!Value {
@@ -192,87 +136,81 @@ fn parseAtom(p: *Parse, token: Ast.Node.Index) NumberParser.ParseNumberError!Val
     return number_parser.parseNumber(source);
 }
 
-fn parseList(comptime value_type: ?ValueType, p: *Parse, tokens: []const Ast.Node.Index) NumberParser.ParseNumberError!Value {
-    if (value_type) |vt| {
-        const T = switch (vt) {
-            .guid => [16]u8,
-            .char => u8,
-            .short => i16,
-            .int, .month, .date, .minute, .second, .time => i32,
-            .long, .timestamp, .timespan => i64,
-            .real => f32,
-            .float, .datetime => f64,
-            else => @compileError("Unsupported type: " ++ @tagName(vt)),
-        };
-        const list = try p.gpa.alloc(T, tokens.len);
-        errdefer p.gpa.free(list);
+fn parseList(p: *Parse, tokens: []const Ast.Node.Index) NumberParser.ParseNumberError!Value {
+    const value_list = try p.gpa.alloc(Value, tokens.len);
+    defer p.gpa.free(value_list);
 
-        for (tokens, 0..) |token, i| {
-            var number_parser = NumberParser.init(p.gpa);
+    var value_type: ValueType = .long;
+    var index: usize = 0;
+    for (tokens) |token| {
+        defer index += 1;
+        var number_parser = NumberParser.init(p.gpa);
 
-            const loc = p.token_locs[token];
-            const source = p.source[loc.start..loc.end];
-            const value = try number_parser.parseNumber(source);
-            switch (vt) {
-                .guid => if (!utils.isNullValue(value)) return error.ParseError,
-                .short, .int, .long => if (value == .float and !utils.isNullOrInf(value.float)) return error.ParseError,
-                else => {},
-            }
-            list[i] = utils.castValue(T, value);
-        }
+        const loc = p.token_locs[token];
+        const source = p.source[loc.start..loc.end];
+        const value = try number_parser.parseNumber(source);
 
-        return @unionInit(Value, @tagName(vt) ++ "_list", list);
-    } else {
-        const value_list = try p.gpa.alloc(Value, tokens.len);
-        defer p.gpa.free(value_list);
-
-        var list_type: ValueType = .long;
-        var index: usize = 0;
-        for (tokens) |token| {
-            defer index += 1;
-            var number_parser = NumberParser.init(p.gpa);
-
-            const loc = p.token_locs[token];
-            const source = p.source[loc.start..loc.end];
-            const value = try number_parser.parseNumber(source);
-
-            value_list[index] = value;
-            if (value == .float) {
-                list_type = .float;
-                break;
-            }
-        }
-
-        if (list_type == .long) {
-            const list = try p.gpa.alloc(i64, tokens.len);
-            errdefer p.gpa.free(list);
-
-            for (value_list[0..index], 0..) |value, i| {
-                list[i] = utils.castValue(i64, value);
-            }
-
-            return .{ .long_list = list };
-        } else {
-            const list = try p.gpa.alloc(f64, tokens.len);
-            errdefer p.gpa.free(list);
-
-            for (value_list[0..index], 0..) |value, i| {
-                list[i] = utils.castValue(f64, value);
-            }
-
-            for (tokens[index..], index..) |token, i| {
-                var number_parser = NumberParser.init(p.gpa);
-
-                const loc = p.token_locs[token];
-                const source = p.source[loc.start..loc.end];
-                const value = try number_parser.parseNumber(source);
-
-                list[i] = utils.castValue(f64, value);
-            }
-
-            return .{ .float_list = list };
+        value_list[index] = value;
+        if (value == .float) {
+            value_type = .float;
+            break;
         }
     }
+
+    if (value_type == .long) {
+        const list = try p.gpa.alloc(i64, tokens.len);
+        errdefer p.gpa.free(list);
+
+        for (value_list[0..index], 0..) |value, i| {
+            list[i] = utils.castValue(i64, value);
+        }
+
+        return .{ .long_list = list };
+    } else {
+        const list = try p.gpa.alloc(f64, tokens.len);
+        errdefer p.gpa.free(list);
+
+        for (value_list[0..index], 0..) |value, i| {
+            list[i] = utils.castValue(f64, value);
+        }
+
+        for (tokens[index..], index..) |token, i| {
+            var number_parser = NumberParser.init(p.gpa);
+
+            const loc = p.token_locs[token];
+            const source = p.source[loc.start..loc.end];
+            const value = try number_parser.parseNumber(source);
+
+            list[i] = utils.castValue(f64, value);
+        }
+
+        return .{ .float_list = list };
+    }
+}
+
+fn parseAtomType(p: *Parse, token: Ast.Node.Index, comptime value_type: ValueType) NumberParser.ParseNumberError!Value {
+    var number_parser = NumberParser.init(p.gpa);
+
+    const loc = p.token_locs[token];
+    const source = p.source[loc.start..loc.end];
+    return number_parser.parseNumberType(value_type, source);
+}
+
+fn parseListType(p: *Parse, tokens: []const Ast.Node.Index, comptime value_type: ValueType) NumberParser.ParseNumberError!Value {
+    const T = value_type.toType();
+    const list = try p.gpa.alloc(T, tokens.len);
+    errdefer p.gpa.free(list);
+
+    for (tokens, 0..) |token, i| {
+        var number_parser = NumberParser.init(p.gpa);
+
+        const loc = p.token_locs[token];
+        const source = p.source[loc.start..loc.end];
+        const value = try number_parser.parseNumberType(value_type, source);
+        list[i] = utils.castValue(T, value);
+    }
+
+    return @unionInit(Value, @tagName(value_type) ++ "_list", list);
 }
 
 const ValueType = enum {
@@ -310,6 +248,62 @@ const ValueType = enum {
     float_list,
     datetime,
     datetime_list,
+
+    pub fn toType(comptime value_type: ValueType) type {
+        return switch (value_type) {
+            .guid => [16]u8,
+            .char => u8,
+            .short => i16,
+            .int, .month, .date, .minute, .second, .time => i32,
+            .long, .timestamp, .timespan => i64,
+            .real => f32,
+            .float, .datetime => f64,
+            else => @compileError("Unsupported type: " ++ @tagName(value_type)),
+        };
+    }
+
+    pub fn toSuffix(comptime value_type: ValueType) u8 {
+        return switch (value_type) {
+            .boolean => 'b',
+            .guid => 'g',
+            .char => 'c',
+            .short => 'h',
+            .int => 'i',
+            .month => 'm',
+            .date => 'd',
+            .minute => 'u',
+            .second => 'v',
+            .time => 't',
+            .long => 'j',
+            .timestamp => 'p',
+            .timespan => 'n',
+            .real => 'e',
+            .float => 'f',
+            .datetime => 'z',
+            else => @compileError("Unsupported type: " ++ @tagName(value_type)),
+        };
+    }
+
+    pub fn fromSuffix(comptime suffix: u8) ValueType {
+        return switch (suffix) {
+            'b' => .boolean,
+            'c' => .char,
+            'd' => .date,
+            'e' => .real,
+            'f' => .float,
+            'g' => .guid,
+            'h' => .short,
+            'i' => .int,
+            'j' => .long,
+            'm' => .month,
+            'p' => .timestamp,
+            't' => .time,
+            'u' => .minute,
+            'v' => .second,
+            'z' => .datetime,
+            else => @compileError("Unsupported suffix: " ++ .{suffix}),
+        };
+    }
 };
 
 pub const Value = union(ValueType) {
@@ -743,6 +737,7 @@ const NumberParser = struct {
         ShouldBacktrack,
     };
 
+    /// TODO: Remove suffix checks once tests have been modified to use parse().
     pub fn parseNumber(self: *NumberParser, str: []const u8) ParseNumberError!Value {
         self.str = str;
 
@@ -791,10 +786,10 @@ const NumberParser = struct {
             '.' => try self.maybeFloat(1),
             '-' => switch (str[1]) {
                 '0' => switch (str.len) {
-                    2 => Value{ .long = 0 },
+                    2 => .{ .long = 0 },
                     3 => switch (str[2]) {
-                        'W' => Value{ .long = -inf_long },
-                        'w' => Value{ .float = -inf_float },
+                        'W' => .{ .long = -inf_long },
+                        'w' => .{ .float = -inf_float },
                         else => try self.number(2),
                     },
                     4 => switch (str[2]) {
@@ -810,6 +805,59 @@ const NumberParser = struct {
         };
     }
 
+    pub fn parseNumberType(self: *NumberParser, comptime value_type: ValueType, str: []const u8) ParseNumberError!Value {
+        if (value_type == .byte) {
+            if (str.len == 2) return .{ .byte_list = &.{} };
+            self.str = str;
+            return self.byte();
+        }
+
+        const suffix = value_type.toSuffix();
+
+        const len = if (str[str.len - 1] == suffix) str.len - 1 else str.len;
+        self.str = str[0..len];
+
+        switch (value_type) {
+            .boolean => return self.boolean(self.str.len),
+            .char => return self.char(self.str.len),
+            else => {},
+        }
+
+        const T = value_type.toType();
+
+        switch (self.str.len) {
+            2 => if (self.str[0] == '0') switch (self.str[1]) {
+                'N', 'n' => return @unionInit(Value, @tagName(value_type), utils.Null(T)),
+                'W', 'w' => if (value_type != .guid) return @unionInit(Value, @tagName(value_type), utils.Inf(T)),
+                else => {},
+            },
+            3 => if (self.str[0] == '-' and self.str[1] == '0') switch (self.str[2]) {
+                'W', 'w' => if (value_type != .guid) return @unionInit(Value, @tagName(value_type), -utils.Inf(T)),
+                else => {},
+            },
+            else => {},
+        }
+
+        // TODO: Remove references to parseNumber.
+        return switch (value_type) {
+            .guid => error.InvalidCharacter,
+            .short => self.short(self.str.len),
+            .int => self.int(self.str.len),
+            .month => self.month(self.str.len),
+            .date => self.parseNumber(str),
+            .minute => self.parseNumber(str),
+            .second => self.parseNumber(str),
+            .time => self.parseNumber(str),
+            .long => self.long(self.str.len),
+            .timestamp => self.parseNumber(str),
+            .timespan => self.parseNumber(str),
+            .real => self.real(self.str.len),
+            .float => self.float(self.str.len),
+            .datetime => self.parseNumber(str),
+            else => |t| @compileError("Unsupported type: " ++ @tagName(t)),
+        };
+    }
+
     fn maybeBoolean(self: NumberParser, index: usize) !Value {
         var i = index;
         while (i < self.str.len and isBooleanDigit(self.str[i])) : (i += 1) {}
@@ -817,15 +865,7 @@ const NumberParser = struct {
         if (i == self.str.len) return .{ .long = try std.fmt.parseInt(i64, self.str, 10) };
 
         if (i == self.str.len - 1 and self.str[i] == 'b') {
-            if (i == 1) {
-                return .{ .boolean = self.str[0] == '1' };
-            } else {
-                const slice = self.allocator.alloc(bool, i) catch std.debug.panic("Failed to allocate memory.", .{});
-                for (self.str[0..i], slice) |c, *v| {
-                    v.* = c == '1';
-                }
-                return .{ .boolean_list = slice };
-            }
+            return self.boolean(i);
         }
 
         return self.number(i);
@@ -984,6 +1024,18 @@ const NumberParser = struct {
         };
     }
 
+    fn boolean(self: NumberParser, index: usize) !Value {
+        if (index == 1) {
+            return .{ .boolean = self.str[0] == '1' };
+        } else {
+            const list = self.allocator.alloc(bool, index) catch panic("Failed to allocate memory.", .{});
+            for (self.str[0..index], 0..) |c, i| {
+                list[i] = c == '1';
+            }
+            return .{ .boolean_list = list };
+        }
+    }
+
     fn byte(self: NumberParser) !Value {
         if (self.str.len < 5) {
             const c1 = try std.fmt.charToDigit(self.str[2], 16);
@@ -1039,8 +1091,7 @@ const NumberParser = struct {
     }
 
     fn char(self: NumberParser, index: usize) !Value {
-        if (index != 1) return error.InvalidCharacter;
-        return .{ .char = self.str[0] };
+        return .{ .char = if (index == 1) self.str[0] else null_char };
     }
 
     fn timestamp(self: NumberParser, index: usize) !Value {
@@ -1743,11 +1794,25 @@ const NumberParser = struct {
 // 0 1 2 3j 0 1 // invalid
 // 0 1 010b // valid - 0 1@010b
 
-pub fn testNumberParser(input: []const u8, comptime expected_type: ValueType, comptime expected_value: anytype) !void {
-    var number_parser = NumberParser.init(std.testing.allocator);
+pub fn testNumberParser(input: [:0]const u8, comptime expected_type: ValueType, comptime expected_value: anytype) !void {
+    const gpa = std.testing.allocator;
 
-    const value = try number_parser.parseNumber(input);
-    defer value.deinit(std.testing.allocator);
+    var tree = try Ast.parse(gpa, input, .{ .version = .@"4.0", .language = .q });
+    defer tree.deinit(gpa);
+
+    const tags = tree.tokens.items(.tag);
+    try std.testing.expectEqualSlices(Token.Tag, &.{.number_literal}, tags[0 .. tags.len - 1]);
+
+    const errors = try gpa.alloc(Ast.Error.Tag, tree.errors.len);
+    defer gpa.free(errors);
+    for (tree.errors, 0..) |err, i| {
+        errors[i] = err.tag;
+    }
+    try std.testing.expectEqualSlices(Ast.Error.Tag, &.{}, errors);
+    try std.testing.expectEqual(2, tree.tokens.len);
+    try std.testing.expectEqual(1, tree.values.len);
+
+    const value = tree.values[0];
     try std.testing.expectEqual(expected_type, @as(ValueType, value));
 
     const actual_value = @field(value, @tagName(expected_type));
@@ -1762,8 +1827,8 @@ pub fn testNumberParser(input: []const u8, comptime expected_type: ValueType, co
         .Struct => |type_info| {
             const fields_info = type_info.fields;
             const T = if (fields_info.len > 0) fields_info[0].type else @typeInfo(@TypeOf(actual)).Pointer.child;
-            const expected = try std.testing.allocator.alloc(T, fields_info.len);
-            defer std.testing.allocator.free(expected);
+            const expected = try gpa.alloc(T, fields_info.len);
+            defer gpa.free(expected);
             inline for (fields_info, 0..) |field, i| {
                 expected[i] = @field(expected_value, field.name);
             }
@@ -1790,10 +1855,19 @@ pub fn testNumberParser(input: []const u8, comptime expected_type: ValueType, co
     }
 }
 
-pub fn testNumberParserError(input: []const u8, expected: anyerror) !void {
-    var number_parser = NumberParser.init(std.testing.allocator);
+pub fn testNumberParserError(input: [:0]const u8, expected: anyerror) !void {
+    const gpa = std.testing.allocator;
 
-    _ = number_parser.parseNumber(input) catch |e| {
+    var tokenizer = Tokenizer.init(input, .q);
+    const token = tokenizer.next();
+
+    try std.testing.expectEqual(.eof, tokenizer.next().tag);
+
+    const loc = token.loc;
+    const str = input[loc.start..loc.end];
+
+    var number_parser = NumberParser.init(gpa);
+    _ = number_parser.parseNumber(str) catch |e| {
         try std.testing.expectEqual(expected, e);
         return;
     };

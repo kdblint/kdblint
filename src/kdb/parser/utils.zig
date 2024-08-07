@@ -1,4 +1,5 @@
 const std = @import("std");
+const panic = std.debug.panic;
 
 const number_parser = @import("number_parser.zig");
 const Value = number_parser.Value;
@@ -12,11 +13,11 @@ pub fn castValue(comptime T: type, value: Value) T {
         .long, .timestamp, .timespan => |v| cast(T, v),
         .real => |v| cast(T, v),
         .float, .datetime => |v| cast(T, v),
-        else => |t| std.debug.panic("Unsupported type: {s}", .{@tagName(t)}),
+        else => |t| panic("Unsupported type: {s}", .{@tagName(t)}),
     };
 }
 
-pub fn cast(comptime T: type, value: anytype) T {
+fn cast(comptime T: type, value: anytype) T {
     const FromT = @TypeOf(value);
     if (T == FromT) return value;
     if (T == [16]u8 or FromT == [16]u8) return Null(T);
@@ -55,12 +56,6 @@ pub fn cast(comptime T: type, value: anytype) T {
             else => @compileError("Unsupported type: " ++ @typeName(T)),
         },
         else => @compileError("Unsupported type: " ++ @typeName(FromT)),
-    };
-}
-
-pub fn isNullValue(value: Value) bool {
-    return switch (value) {
-        inline else => |v| isNull(v),
     };
 }
 
@@ -116,7 +111,7 @@ pub fn isNullOrInf(value: anytype) bool {
     return isNull(value) or isPositiveInf(value) or isNegativeInf(value);
 }
 
-fn Null(comptime T: type) T {
+pub fn Null(comptime T: type) T {
     return switch (T) {
         [16]u8 => std.mem.zeroes([16]u8),
         u8 => number_parser.null_char,
@@ -129,7 +124,7 @@ fn Null(comptime T: type) T {
     };
 }
 
-fn Inf(comptime T: type) T {
+pub fn Inf(comptime T: type) T {
     return switch (T) {
         i16 => number_parser.inf_short,
         i32 => number_parser.inf_int,

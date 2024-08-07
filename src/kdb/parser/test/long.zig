@@ -360,4 +360,7 @@ test "invalid long inputs" {
 
     try testParseError("1. 2j", &.{.parse_error});
     try testParseError("1. 2. 3j", &.{.parse_error});
+
+    try testParseError("-9223372036854775808 1", &.{.parse_error});
+    try testParseError("-9223372036854775808 1j", &.{.parse_error});
 }

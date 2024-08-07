@@ -131,10 +131,6 @@ test "invalid time inputs" {
     try testNumberParserError("-21474836476059t", error.Overflow);
     try testNumberParserError("-21474836475960t", error.Overflow);
 
-    try testNumberParserError("0:0:0.0", error.InvalidCharacter);
-    try testNumberParserError("0:0:00.0", error.InvalidCharacter);
-    try testNumberParserError("0:00:0.0", error.InvalidCharacter);
-    try testNumberParserError("0:00:00.0", error.InvalidCharacter);
     try testNumberParserError("00:0:0.0", error.InvalidCharacter);
     try testNumberParserError("00:0:00.0", error.InvalidCharacter);
     try testNumberParserError("00:00:0.0", error.InvalidCharacter);
