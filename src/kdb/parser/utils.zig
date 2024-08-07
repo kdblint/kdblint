@@ -8,10 +8,10 @@ pub fn castValue(comptime T: type, value: Value) T {
         .guid => |v| cast(T, v),
         .char => |v| cast(T, v),
         .short => |v| cast(T, v),
-        .int => |v| cast(T, v),
-        .long => |v| cast(T, v),
+        .int, .month, .date, .minute, .second, .time => |v| cast(T, v),
+        .long, .timestamp, .timespan => |v| cast(T, v),
         .real => |v| cast(T, v),
-        .float => |v| cast(T, v),
+        .float, .datetime => |v| cast(T, v),
         else => |t| std.debug.panic("Unsupported type: {s}", .{@tagName(t)}),
     };
 }
