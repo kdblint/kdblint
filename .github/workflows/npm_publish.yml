@@ -7,31 +7,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://npm.pkg.github.com
       - uses: goto-bus-stop/setup-zig@v2
-        with:
-          cache: false
-      - name: Build
-        run: zig build -Dfull -Doptimize=ReleaseSmall
-      - name: Get package versions
+      - name: Run tests
+        run: zig build test --summary new
+      - name: Build x86_64-linux
+        run: zig build --summary new -Doptimize=ReleaseSmall -Dtarget=x86_64-linux
+      - name: Build aarch64-linux
+        run: zig build --summary new -Doptimize=ReleaseSmall -Dtarget=aarch64-linux
+      - name: Build x86_64-macos
+        run: zig build --summary new -Doptimize=ReleaseSmall -Dtarget=x86_64-macos
+      - name: Build aarch64-macos
+        run: zig build --summary new -Doptimize=ReleaseSmall -Dtarget=aarch64-macos
+      - name: Build x86_64-windows
+        run: zig build --summary new -Doptimize=ReleaseSmall -Dtarget=x86_64-windows
+      - name: Build aarch64-windows
+        run: zig build --summary new -Doptimize=ReleaseSmall -Dtarget=aarch64-windows
+      - name: Get version
         id: version
-        run: |
-          echo "current=$(cat package.json | jq -r .version)" >> "$GITHUB_OUTPUT"
-          echo "latest=$(npm view @kdblint/kdblint dist-tags.latest)" >> "$GITHUB_OUTPUT"
-          echo "dev=$(npm view @kdblint/kdblint dist-tags.dev)" >> "$GITHUB_OUTPUT"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "version=$(./zig-out/bin/kdblint version)" >> "$GITHUB_OUTPUT"
+      - name: Set npm version
+        run: npm version --allow-same-version --no-git-tag-version ${{ steps.version.outputs.version }}
       - name: Publish latest
-        if: ${{ steps.version.outputs.current != steps.version.outputs.latest }}
+        if: ${{ !contains(steps.version.outputs.version, 'dev') }}
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Bump version
-        run: npm version --no-git-tag-version $(npx semver $(npx semver -i prerelease ${{ steps.version.outputs.dev }}) ${{ steps.version.outputs.current }}-dev.0 | tail -n 1)
       - name: Publish dev
+        if: ${{ contains(steps.version.outputs.version, 'dev') }}
         run: npm publish --tag dev
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

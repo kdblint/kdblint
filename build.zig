@@ -1,148 +1,147 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const kdblint_version: std.SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0 };
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const zls = b.dependency("zls", .{});
-    const zls_module = zls.module("zls");
+    const test_step = b.step("test", "Run all the tests");
+    const no_bin = b.option(bool, "no-bin", "skip emitting binary") orelse false;
 
-    const known_folders = zls.builder.dependency("known_folders", .{});
-    const known_folders_module = known_folders.module("known-folders");
+    const exe = addCompilerStep(b, .{
+        .optimize = optimize,
+        .target = target,
+    });
 
-    const tracy_module = zls.module("tracy");
-
-    const version = try Version.init(b);
-    defer version.deinit(b.allocator);
-
-    const build_options = b.addOptions();
-    build_options.step.name = "kdblint build options";
-    const build_options_module = build_options.createModule();
-    build_options.addOption(std.SemanticVersion, "version", try std.SemanticVersion.parse(version.version));
-    build_options.addOption([]const u8, "version_string", version.version);
-
-    const full_build = b.option(bool, "full", "Full Build") orelse false;
-    if (full_build) {
-        inline for (&.{
-            .{ .tag = .linux, .arch = .aarch64 },
-            .{ .tag = .linux, .arch = .x86_64 },
-            .{ .tag = .macos, .arch = .aarch64 },
-            .{ .tag = .macos, .arch = .x86_64 },
-            .{ .tag = .windows, .arch = .aarch64 },
-            .{ .tag = .windows, .arch = .x86_64 },
-        }) |resolved_target| {
-            install(
-                b,
-                resolved_target.tag,
-                resolved_target.arch,
-                optimize,
-                build_options_module,
-                zls_module,
-                known_folders_module,
-                tracy_module,
-            );
-        }
+    if (no_bin) {
+        b.getInstallStep().dependOn(&exe.step);
     } else {
-        install(
-            b,
-            builtin.os.tag,
-            builtin.cpu.arch,
-            optimize,
-            build_options_module,
-            zls_module,
-            known_folders_module,
-            tracy_module,
-        );
+        const install_exe = b.addInstallArtifact(exe, .{
+            .dest_dir = .{
+                .override = .{
+                    .custom = b.fmt("../dist/{s}/{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
+                },
+            },
+        });
+        b.getInstallStep().dependOn(&install_exe.step);
+
+        if (target.result.os.tag == builtin.target.os.tag and target.result.cpu.arch == builtin.target.cpu.arch) {
+            const install_native_exe = b.addInstallArtifact(exe, .{});
+            b.getInstallStep().dependOn(&install_native_exe.step);
+        }
     }
 
-    const exe_check = b.addExecutable(.{
-        .name = "kdblint",
-        .root_source_file = b.path("src/main.zig"),
-        .target = b.resolveTargetQuery(.{
-            .cpu_arch = builtin.cpu.arch,
-            .os_tag = builtin.os.tag,
-        }),
-        .optimize = optimize,
-    });
-    exe_check.root_module.addImport("build_options", build_options_module);
-    exe_check.root_module.addImport("zls", zls_module);
-    exe_check.root_module.addImport("known_folders", known_folders_module);
-    exe_check.root_module.addImport("tracy", tracy_module);
+    test_step.dependOn(&exe.step);
 
-    const check = b.step("check", "Check");
-    check.dependOn(&exe_check.step);
+    const exe_options = b.addOptions();
+    exe.root_module.addOptions("build_options", exe_options);
 
-    const exe_unit_tests = b.addTest(.{
+    const version_slice = v: {
+        if (!std.process.can_spawn) {
+            std.debug.print("error: version info cannot be retrieved from git.", .{});
+            std.process.exit(1);
+        }
+        const version_string = b.fmt("{d}.{d}.{d}", .{ kdblint_version.major, kdblint_version.minor, kdblint_version.patch });
+
+        var code: u8 = undefined;
+        const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
+            "git",
+            "-C",
+            b.build_root.path orelse ".",
+            "describe",
+            "--match",
+            "*.*.*",
+            "--tags",
+            "--abbrev=9",
+        }, &code, .Ignore) catch {
+            break :v version_string;
+        };
+        const git_describe = std.mem.trim(u8, git_describe_untrimmed, " \n\r");
+
+        switch (std.mem.count(u8, git_describe, "-")) {
+            0 => {
+                // Tagged release version (e.g. 0.10.0).
+                if (!std.mem.eql(u8, git_describe, version_string)) {
+                    std.debug.print("kdbLint version '{s}' does not match git tag '{s}'\n", .{ version_string, git_describe });
+                    std.process.exit(1);
+                }
+                break :v version_string;
+            },
+            2 => {
+                // Untagged development build (e.g. 0.10.0-dev.2025+ecf0050a9).
+                var it = std.mem.splitScalar(u8, git_describe, '-');
+                const tagged_ancestor = it.first();
+                const commit_height = it.next().?;
+                const commit_id = it.next().?;
+
+                const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
+                if (kdblint_version.order(ancestor_ver) != .gt) {
+                    std.debug.print("kdbLint version '{}' must be greater than tagged ancestor '{}'\n", .{ kdblint_version, ancestor_ver });
+                    std.process.exit(1);
+                }
+
+                // Check that the commit hash is prefixed with a 'g' (a Git convention).
+                if (commit_id.len < 1 or commit_id[0] != 'g') {
+                    std.debug.print("Unexpected `git describe` output: {s}\n", .{git_describe});
+                    break :v version_string;
+                }
+
+                // The version is reformatted in accordance with the https://semver.org specification.
+                break :v b.fmt("{s}-dev.{s}+{s}", .{ version_string, commit_height, commit_id[1..] });
+            },
+            else => {
+                std.debug.print("Unexpected `git describe` output: {s}\n", .{git_describe});
+                break :v version_string;
+            },
+        }
+
+        break :v "";
+    };
+    const version = try b.allocator.dupeZ(u8, version_slice);
+    exe_options.addOption([:0]const u8, "version", version);
+
+    const semver = try std.SemanticVersion.parse(version);
+    exe_options.addOption(std.SemanticVersion, "semver", semver);
+
+    const unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe_unit_tests.root_module.addImport("build_options", build_options_module);
-    exe_unit_tests.root_module.addImport("zls", zls_module);
-    exe_unit_tests.root_module.addImport("known_folders", known_folders_module);
-    exe_unit_tests.root_module.addImport("tracy", tracy_module);
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+    addImports(b, unit_tests);
+    unit_tests.root_module.addOptions("build_options", exe_options);
 
-    const test_step = b.step("test", "Run unit tests");
+    const run_exe_unit_tests = b.addRunArtifact(unit_tests);
     test_step.dependOn(&run_exe_unit_tests.step);
 }
 
-fn install(
-    b: *std.Build,
-    comptime tag: std.Target.Os.Tag,
-    comptime arch: std.Target.Cpu.Arch,
+const AddCompilerStepOptions = struct {
     optimize: std.builtin.OptimizeMode,
-    build_options: *std.Build.Module,
-    zls: *std.Build.Module,
-    known_folders: *std.Build.Module,
-    tracy: *std.Build.Module,
-) void {
-    const exe = b.addExecutable(.{
-        .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
-        .root_source_file = b.path("src/main.zig"),
-        .target = b.resolveTargetQuery(.{
-            .cpu_arch = arch,
-            .os_tag = tag,
-        }),
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("build_options", build_options);
-    exe.root_module.addImport("zls", zls);
-    exe.root_module.addImport("known_folders", known_folders);
-    exe.root_module.addImport("tracy", tracy);
+    target: std.Build.ResolvedTarget,
+};
 
-    b.getInstallStep().dependOn(&b.addInstallArtifact(exe, .{
-        .dest_dir = .{
-            .override = .{
-                .custom = "../dist/" ++ @tagName(tag) ++ "/" ++ @tagName(arch),
-            },
-        },
-    }).step);
+fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{
+        .name = if (options.optimize == .Debug) "kdblint.Debug" else "kdblint",
+        .root_source_file = b.path("src/main.zig"),
+        .target = options.target,
+        .optimize = options.optimize,
+    });
+    addImports(b, exe);
+    return exe;
 }
 
-const Version = struct {
-    version: []const u8,
+fn addImports(b: *std.Build, step: *std.Build.Step.Compile) void {
+    const zls = b.dependency("zls", .{});
+    const zls_module = zls.module("zls");
+    const tracy_module = zls.module("tracy");
 
-    pub fn init(b: *std.Build) !Version {
-        const package_json_file = try std.fs.openFileAbsolute(b.path("package.json").getPath(b), .{});
-        defer package_json_file.close();
+    const known_folders = zls.builder.dependency("known_folders", .{});
+    const known_folders_module = known_folders.module("known-folders");
 
-        const package_json_slice = try package_json_file.readToEndAlloc(b.allocator, 1_000_000);
-        defer b.allocator.free(package_json_slice);
-
-        const parsed_version = try std.json.parseFromSlice(Version, b.allocator, package_json_slice, .{ .ignore_unknown_fields = true });
-        defer parsed_version.deinit();
-
-        const version = try b.allocator.dupe(u8, parsed_version.value.version);
-        errdefer b.allocator.free(version);
-
-        return .{
-            .version = version,
-        };
-    }
-
-    pub fn deinit(self: Version, allocator: std.mem.Allocator) void {
-        allocator.free(self.version);
-    }
-};
+    step.root_module.addImport("zls", zls_module);
+    step.root_module.addImport("tracy", tracy_module);
+    step.root_module.addImport("known_folders", known_folders_module);
+}
