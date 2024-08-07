@@ -1,6 +1,7 @@
 const Server = @This();
 
 const std = @import("std");
+const assert = std.debug.assert;
 const zig_builtin = @import("builtin");
 const build_options = @import("build_options");
 const Config = @import("Config.zig");
@@ -1280,7 +1281,7 @@ pub fn waitAndWork(server: *Server) void {
 }
 
 pub fn loop(server: *Server) !void {
-    std.debug.assert(server.transport != null);
+    assert(server.transport != null);
     while (server.keepRunning()) {
         const json_message = try server.transport.?.readJsonMessage(server.allocator);
         defer server.allocator.free(json_message);
@@ -1336,7 +1337,7 @@ pub fn sendJsonMessageSync(server: *Server, json_message: []const u8) Error!?[]u
 }
 
 pub fn sendRequestSync(server: *Server, arena: std.mem.Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!lsp.ResultType(method) {
-    comptime std.debug.assert(lsp.isRequestMethod(method));
+    comptime assert(lsp.isRequestMethod(method));
     const tracy_zone = tracy.trace(@src());
     defer tracy_zone.end();
     tracy_zone.setName(method);
@@ -1368,7 +1369,7 @@ pub fn sendRequestSync(server: *Server, arena: std.mem.Allocator, comptime metho
 }
 
 pub fn sendNotificationSync(server: *Server, arena: std.mem.Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!void {
-    comptime std.debug.assert(lsp.isNotificationMethod(method));
+    comptime assert(lsp.isNotificationMethod(method));
     const tracy_zone = tracy.trace(@src());
     defer tracy_zone.end();
     tracy_zone.setName(method);
@@ -1389,7 +1390,7 @@ pub fn sendNotificationSync(server: *Server, arena: std.mem.Allocator, comptime 
 }
 
 pub fn sendMessageSync(server: *Server, arena: std.mem.Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!lsp.ResultType(method) {
-    comptime std.debug.assert(lsp.isRequestMethod(method) or lsp.isNotificationMethod(method));
+    comptime assert(lsp.isRequestMethod(method) or lsp.isNotificationMethod(method));
 
     if (comptime lsp.isRequestMethod(method)) {
         return try server.sendRequestSync(arena, method, params);

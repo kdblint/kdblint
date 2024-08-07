@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const zls = @import("zls");
 const tracy = @import("tracy");
@@ -146,7 +147,7 @@ pub fn main() !u8 {
     var allocator_state = std.heap.GeneralPurposeAllocator(.{
         .stack_trace_frames = stack_frames,
     }){};
-    defer std.debug.assert(allocator_state.deinit() == .ok);
+    defer assert(allocator_state.deinit() == .ok);
 
     var tracy_state = if (tracy.enable_allocation) tracy.tracyAllocator(allocator_state.allocator()) else void{};
     const inner_allocator = if (tracy.enable_allocation) tracy_state.allocator() else allocator_state.allocator();
