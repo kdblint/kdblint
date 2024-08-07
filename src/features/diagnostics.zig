@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const zls = @import("zls");
 const types = zls.types;
@@ -24,7 +25,7 @@ pub fn now() std.time.Instant {
 }
 
 pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *DocumentStore.Handle) !types.PublishDiagnosticsParams {
-    std.debug.assert(server.client_capabilities.supports_publish_diagnostics);
+    assert(server.client_capabilities.supports_publish_diagnostics);
 
     const tree = handle.tree;
 

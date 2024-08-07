@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const zls = @import("zls");
 const types = zls.types;
 
@@ -63,7 +64,7 @@ pub fn tokenToRange(tree: Ast, token_index: Ast.TokenIndex, encoding: Encoding) 
 }
 
 pub fn locToRange(text: []const u8, loc: Loc, encoding: Encoding) types.Range {
-    std.debug.assert(loc.start <= loc.end and loc.end <= text.len);
+    assert(loc.start <= loc.end and loc.end <= text.len);
     const start = indexToPosition(text, loc.start, encoding);
     return .{
         .start = start,

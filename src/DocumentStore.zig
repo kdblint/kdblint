@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const tracy = @import("tracy");
 const zls = @import("zls");
@@ -356,7 +357,7 @@ fn uriInImports(
     if (gop.found_existing) return false;
 
     const handle = self.getOrLoadHandle(source_uri) orelse {
-        errdefer std.debug.assert(checked_uris.remove(source_uri));
+        errdefer assert(checked_uris.remove(source_uri));
         gop.key_ptr.* = try self.allocator.dupe(u8, source_uri);
         return false;
     };
