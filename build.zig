@@ -8,32 +8,27 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const test_step = b.step("test", "Run all the tests");
-    const no_bin = b.option(bool, "no-bin", "skip emitting binary") orelse false;
+    const check_step = b.step("check", "TODO");
 
     const exe = addCompilerStep(b, .{
         .optimize = optimize,
         .target = target,
     });
 
-    if (no_bin) {
-        b.getInstallStep().dependOn(&exe.step);
-    } else {
-        const install_exe = b.addInstallArtifact(exe, .{
-            .dest_dir = .{
-                .override = .{
-                    .custom = b.fmt("../dist/{s}/{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
-                },
+    const install_exe = b.addInstallArtifact(exe, .{
+        .dest_dir = .{
+            .override = .{
+                .custom = b.fmt("../dist/{s}/{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
             },
-        });
-        b.getInstallStep().dependOn(&install_exe.step);
-
-        if (target.result.os.tag == builtin.target.os.tag and target.result.cpu.arch == builtin.target.cpu.arch) {
-            const install_native_exe = b.addInstallArtifact(exe, .{});
-            b.getInstallStep().dependOn(&install_native_exe.step);
-        }
+        },
+    });
+    b.getInstallStep().dependOn(&install_exe.step);
+    if (target.result.os.tag == builtin.target.os.tag and target.result.cpu.arch == builtin.target.cpu.arch) {
+        const install_native_exe = b.addInstallArtifact(exe, .{});
+        b.getInstallStep().dependOn(&install_native_exe.step);
     }
 
-    test_step.dependOn(&exe.step);
+    check_step.dependOn(&exe.step);
 
     const exe_options = b.addOptions();
     exe.root_module.addOptions("build_options", exe_options);

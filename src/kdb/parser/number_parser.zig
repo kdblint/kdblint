@@ -251,16 +251,6 @@ fn parseList(comptime value_type: ?ValueType, p: *Parse, tokens: []const Ast.Nod
                 list[i] = utils.castValue(i64, value);
             }
 
-            for (tokens[index..], index..) |token, i| {
-                var number_parser = NumberParser.init(p.gpa);
-
-                const loc = p.token_locs[token];
-                const source = p.source[loc.start..loc.end];
-                const value = try number_parser.parseNumber(source);
-
-                list[i] = utils.castValue(i64, value);
-            }
-
             return .{ .long_list = list };
         } else {
             const list = try p.gpa.alloc(f64, tokens.len);
@@ -535,8 +525,50 @@ pub const Value = union(ValueType) {
                     }
                 }
             },
-            .month => unreachable,
-            .month_list => unreachable,
+            .month => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Nm");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0Wm");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0Wm");
+                } else {
+                    const year: u32 = @intCast(2000 + @divFloor(value, 12));
+                    const month: u32 = @intCast(1 + @mod(value, 12));
+                    try writer.print("{d}.{d:0>2}m", .{ year, month });
+                }
+            },
+            .month_list => |value| {
+                if (value.len == 0) {
+                    try writer.writeAll("`month$()");
+                } else {
+                    for (value[0 .. value.len - 1]) |v| {
+                        if (utils.isNull(v)) {
+                            try writer.writeAll("0N ");
+                        } else if (utils.isPositiveInf(v)) {
+                            try writer.writeAll("0W ");
+                        } else if (utils.isNegativeInf(v)) {
+                            try writer.writeAll("-0W ");
+                        } else {
+                            const year: u32 = @intCast(2000 + @divFloor(v, 12));
+                            const month: u32 = @intCast(1 + @mod(v, 12));
+                            try writer.print("{d}.{d:0>2} ", .{ year, month });
+                        }
+                    }
+                    const v = value[value.len - 1];
+                    if (utils.isNull(v)) {
+                        try writer.writeAll("0Nm");
+                    } else if (utils.isPositiveInf(v)) {
+                        try writer.writeAll("0Wm");
+                    } else if (utils.isNegativeInf(v)) {
+                        try writer.writeAll("-0Wm");
+                    } else {
+                        const year: u32 = @intCast(2000 + @divFloor(v, 12));
+                        const month: u32 = @intCast(1 + @mod(v, 12));
+                        try writer.print("{d}.{d:0>2}m", .{ year, month });
+                    }
+                }
+            },
             .date => unreachable,
             .date_list => unreachable,
             .minute => unreachable,
@@ -1780,6 +1812,7 @@ test {
     _ = @import("test/int.zig");
     _ = @import("test/long.zig");
     _ = @import("test/minute.zig");
+    _ = @import("test/month.zig");
     _ = @import("test/real.zig");
     _ = @import("test/second.zig");
     _ = @import("test/short.zig");
