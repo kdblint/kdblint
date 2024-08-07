@@ -34,8 +34,22 @@ test "valid month inputs" {
     try testNumberParser("999912m", .month, 95999);
 
     try testParse("2000.01m", &.{ .implicit_return, .month_literal }, "2000.01m");
-    try testParse("2000.01 2000.02m", &.{ .implicit_return, .month_list_literal }, "2000.01 2000.02m");
-    try testParse("2000.01 2000.02 2000.03m", &.{ .implicit_return, .month_list_literal }, "2000.01 2000.02 2000.03m");
+    try testParse("1999.12m", &.{ .implicit_return, .month_literal }, "1999.12m");
+    try testParse("5001m", &.{ .implicit_return, .month_literal }, "1950.01m");
+
+    try testParse("2000.01 2001.02m", &.{ .implicit_return, .month_list_literal }, "2000.01 2001.02m");
+    try testParse("2000.01 4912m", &.{ .implicit_return, .month_list_literal }, "2000.01 2049.12m");
+    try testParse("4912 2001.02m", &.{ .implicit_return, .month_list_literal }, "2049.12 2001.02m");
+    try testParse("4912 4912m", &.{ .implicit_return, .month_list_literal }, "2049.12 2049.12m");
+
+    try testParse("2000.01 2001.02 2002.03m", &.{ .implicit_return, .month_list_literal }, "2000.01 2001.02 2002.03m");
+    try testParse("2000.01 2001.02 4912m", &.{ .implicit_return, .month_list_literal }, "2000.01 2001.02 2049.12m");
+    try testParse("2000.01 4912 2002.03m", &.{ .implicit_return, .month_list_literal }, "2000.01 2049.12 2002.03m");
+    try testParse("2000.01 4912 4912m", &.{ .implicit_return, .month_list_literal }, "2000.01 2049.12 2049.12m");
+    try testParse("4912 2001.02 2002.03m", &.{ .implicit_return, .month_list_literal }, "2049.12 2001.02 2002.03m");
+    try testParse("4912 2001.02 4912m", &.{ .implicit_return, .month_list_literal }, "2049.12 2001.02 2049.12m");
+    try testParse("4912 4912 2002.03m", &.{ .implicit_return, .month_list_literal }, "2049.12 2049.12 2002.03m");
+    try testParse("4912 4912 4912m", &.{ .implicit_return, .month_list_literal }, "2049.12 2049.12 2049.12m");
 
     try testParse("0Nm", &.{ .implicit_return, .month_literal }, "0Nm");
     try testParse("0nm", &.{ .implicit_return, .month_literal }, "0Nm");
