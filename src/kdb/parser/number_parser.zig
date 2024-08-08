@@ -529,7 +529,7 @@ pub const Value = union(ValueType) {
                 } else {
                     const year: u32 = @intCast(2000 + @divFloor(value, 12));
                     const month: u32 = @intCast(1 + @mod(value, 12));
-                    try writer.print("{d}.{d:0>2}m", .{ year, month });
+                    try writer.print("{d:0>4}.{d:0>2}m", .{ year, month });
                 }
             },
             .month_list => |value| {
@@ -546,7 +546,7 @@ pub const Value = union(ValueType) {
                         } else {
                             const year: u32 = @intCast(2000 + @divFloor(v, 12));
                             const month: u32 = @intCast(1 + @mod(v, 12));
-                            try writer.print("{d}.{d:0>2} ", .{ year, month });
+                            try writer.print("{d:0>4}.{d:0>2} ", .{ year, month });
                         }
                     }
                     const v = value[value.len - 1];
@@ -559,7 +559,7 @@ pub const Value = union(ValueType) {
                     } else {
                         const year: u32 = @intCast(2000 + @divFloor(v, 12));
                         const month: u32 = @intCast(1 + @mod(v, 12));
-                        try writer.print("{d}.{d:0>2}m", .{ year, month });
+                        try writer.print("{d:0>4}.{d:0>2}m", .{ year, month });
                     }
                 }
             },

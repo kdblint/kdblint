@@ -51,6 +51,10 @@ test "valid month inputs" {
     try testParse("4912 4912 2002.03m", &.{ .implicit_return, .month_list_literal }, "2049.12 2049.12 2002.03m");
     try testParse("4912 4912 4912m", &.{ .implicit_return, .month_list_literal }, "2049.12 2049.12 2049.12m");
 
+    try testParse("2000.01 2010.03 2020.06 2030.09 2040.12m", &.{ .implicit_return, .month_list_literal }, "2000.01 2010.03 2020.06 2030.09 2040.12m");
+    try testParse("0001 0012 4912 5001 9901 9912m", &.{ .implicit_return, .month_list_literal }, "2000.01 2000.12 2049.12 1950.01 1999.01 1999.12m");
+    try testParse("000101 000112 999901 999912m", &.{ .implicit_return, .month_list_literal }, "0001.01 0001.12 9999.01 9999.12m");
+
     try testParse("0Nm", &.{ .implicit_return, .month_literal }, "0Nm");
     try testParse("0nm", &.{ .implicit_return, .month_literal }, "0Nm");
     try testParse("0Wm", &.{ .implicit_return, .month_literal }, "0Wm");
