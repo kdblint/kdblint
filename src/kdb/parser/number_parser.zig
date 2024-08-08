@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 
@@ -43,6 +44,9 @@ pub fn parse(p: *Parse) Parse.Error!Ast.Node.Index {
             if (source.len > 1 and source[0] == '0' and source[1] == 'x') {
                 value_type = .byte;
                 break;
+            }
+            if (source.len == 10 and source[4] == '.' and source[7] == '.') {
+                value_type = .date;
             }
             switch (source[source.len - 1]) {
                 inline 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'm', 'p', 't', 'u', 'v', 'z' => |suffix| {
@@ -563,8 +567,47 @@ pub const Value = union(ValueType) {
                     }
                 }
             },
-            .date => unreachable,
-            .date_list => unreachable,
+            .date => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Nd");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0Wd");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0Wd");
+                } else {
+                    const ymd = utils.daysToDateTriple(value);
+                    try writer.print("{d:0>4}.{d:0>2}.{d:0>2}", .{ ymd[0], ymd[1], ymd[2] });
+                }
+            },
+            .date_list => |value| {
+                if (value.len == 0) {
+                    try writer.writeAll("`date$()");
+                } else {
+                    for (value[0 .. value.len - 1]) |v| {
+                        if (utils.isNull(v)) {
+                            try writer.writeAll("0N ");
+                        } else if (utils.isPositiveInf(v)) {
+                            try writer.writeAll("0W ");
+                        } else if (utils.isNegativeInf(v)) {
+                            try writer.writeAll("-0W ");
+                        } else {
+                            const ymd = utils.daysToDateTriple(v);
+                            try writer.print("{d:0>4}.{d:0>2}.{d:0>2} ", .{ ymd[0], ymd[1], ymd[2] });
+                        }
+                    }
+                    const v = value[value.len - 1];
+                    if (utils.isNull(v)) {
+                        try writer.writeAll("0Nd");
+                    } else if (utils.isPositiveInf(v)) {
+                        try writer.writeAll("0Wd");
+                    } else if (utils.isNegativeInf(v)) {
+                        try writer.writeAll("-0Wd");
+                    } else {
+                        const ymd = utils.daysToDateTriple(v);
+                        try writer.print("{d:0>4}.{d:0>2}.{d:0>2}", .{ ymd[0], ymd[1], ymd[2] });
+                    }
+                }
+            },
             .minute => unreachable,
             .minute_list => unreachable,
             .second => unreachable,
@@ -844,7 +887,7 @@ const NumberParser = struct {
             .short => self.short(self.str.len),
             .int => self.int(self.str.len),
             .month => self.month(self.str.len),
-            .date => self.parseNumber(str),
+            .date => self.date(self.str.len),
             .minute => self.parseNumber(str),
             .second => self.parseNumber(str),
             .time => self.parseNumber(str),
@@ -1011,7 +1054,7 @@ const NumberParser = struct {
             'c' => self.char(i),
             'p' => self.shortTimestamp(i),
             'm' => self.month(i),
-            'd' => self.shortDate(i),
+            'd' => self.date(i),
             'z' => self.shortDatetime(i),
             'D' => self.maybeTimespan(i),
             'n' => self.shortTimespan(i),
@@ -1247,6 +1290,20 @@ const NumberParser = struct {
 
     fn date(self: NumberParser, index: usize) !Value {
         return switch (index) {
+            6 => blk: {
+                const year_value = try std.fmt.parseInt(u32, self.str[0..2], 10);
+                const month_value = try std.fmt.parseInt(u32, self.str[2..4], 10);
+                const day_value = try std.fmt.parseInt(u32, self.str[4..6], 10);
+                const days = try calculateDays(if (year_value < 50) year_value + 2000 else year_value + 1900, month_value, day_value);
+                break :blk .{ .date = days };
+            },
+            8 => blk: {
+                const year_value = try std.fmt.parseInt(u32, self.str[0..4], 10);
+                const month_value = try std.fmt.parseInt(u32, self.str[4..6], 10);
+                const day_value = try std.fmt.parseInt(u32, self.str[6..8], 10);
+                const days = try calculateDays(year_value, month_value, day_value);
+                break :blk .{ .date = days };
+            },
             10 => .{ .date = try parseDate(self.str) },
             else => error.InvalidCharacter,
         };
@@ -1255,83 +1312,46 @@ const NumberParser = struct {
     fn parseDate(str: []const u8) !i32 {
         if (str[4] != '.' or str[7] != '.') return error.InvalidCharacter;
 
-        const year_value = try std.fmt.parseInt(i32, str[0..4], 10);
-        if (year_value == 0) return error.Overflow;
-
-        const month_value = try std.fmt.parseInt(i32, str[5..7], 10);
-        if (month_value == 0 or month_value > 12) return error.Overflow;
-
-        const day_value = try std.fmt.parseInt(i32, str[8..10], 10);
-        if (day_value == 0) return error.Overflow;
-
-        return try calculateDays(year_value, month_value, day_value);
+        const year_value = try std.fmt.parseInt(u32, str[0..4], 10);
+        const month_value = try std.fmt.parseInt(u32, str[5..7], 10);
+        const day_value = try std.fmt.parseInt(u32, str[8..10], 10);
+        return calculateDays(year_value, month_value, day_value);
     }
 
-    fn calculateDays(year_value: i32, month_value: i32, day_value: i32) !i32 {
-        const is_century_year = @mod(year_value, 100) == 0;
-        const leap_year_denominator: i32 = if (is_century_year) 400 else 4;
-        const has_leap_day = @mod(year_value, leap_year_denominator) == 0;
-        switch (month_value) {
-            1, 3, 5, 7, 8, 10, 12 => if (day_value > 31) return error.Overflow,
-            2 => switch (has_leap_day) {
-                true => if (day_value > 29) return error.Overflow,
-                false => if (day_value > 28) return error.Overflow,
-            },
-            4, 6, 9, 11 => if (day_value > 30) return error.Overflow,
-            else => unreachable,
-        }
+    /// https://howardhinnant.github.io/date_algorithms.html#days_from_civil
+    fn calculateDays(y: u32, m: u32, d: u32) !i32 {
+        if (y < 1) return error.Overflow;
+        if (m < 1 or m > 12) return error.Overflow;
+        if (d < 1 or d > lastDayOfMonth(y, m)) return error.Overflow;
 
-        const completed_years = year_value - 2000;
-        var days: i32 = completed_years * 365 + @divFloor(completed_years, 4) - @divFloor(completed_years, 100) + @divFloor(completed_years, 400);
-        const feb_days: i32 = if (has_leap_day) 29 else 28;
-        days += switch (month_value) {
-            1 => 0,
-            2 => 31,
-            3 => feb_days + 31,
-            4 => 31 + feb_days + 31,
-            5 => 30 + 31 + feb_days + 31,
-            6 => 31 + 30 + 31 + feb_days + 31,
-            7 => 30 + 31 + 30 + 31 + feb_days + 31,
-            8 => 31 + 30 + 31 + 30 + 31 + feb_days + 31,
-            9 => 31 + 31 + 30 + 31 + 30 + 31 + feb_days + 31,
-            10 => 30 + 31 + 31 + 30 + 31 + 30 + 31 + feb_days + 31,
-            11 => 31 + 30 + 31 + 31 + 30 + 31 + 30 + 31 + feb_days + 31,
-            12 => 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30 + 31 + feb_days + 31,
-            else => unreachable,
-        };
-        days += day_value;
-        if (has_leap_day) days -= 1;
-
-        return days;
+        const year = if (m <= 2) y - 1 else y;
+        const era = @divFloor(if (year >= 0) year else year - 399, 400);
+        const yoe = year - era * 400;
+        const doy = @divFloor(153 * (if (m > 2) m - 3 else m + 9) + 2, 5) + d - 1;
+        const doe = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+        return @as(i32, @intCast(era)) * 146097 + @as(i32, @intCast(doe)) - 730425;
     }
 
-    fn shortDate(self: NumberParser, index: usize) !Value {
-        return switch (index) {
-            6 => blk: {
-                const month_value = try std.fmt.parseInt(i32, self.str[2..4], 10);
-                if (month_value == 0 or month_value > 12) return error.Overflow;
+    fn isLeap(y: u32) bool {
+        return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0);
+    }
 
-                const day_value = try std.fmt.parseInt(i32, self.str[4..6], 10);
-                if (day_value == 0) return error.Overflow;
-
-                const year_value = try std.fmt.parseInt(i32, self.str[0..2], 10);
-                const days = try calculateDays(if (year_value < 50) year_value + 2000 else year_value + 1900, month_value, day_value);
-                break :blk .{ .date = days };
-            },
-            8 => blk: {
-                const year_value = try std.fmt.parseInt(i32, self.str[0..4], 10);
-                if (year_value == 0) return error.Overflow;
-
-                const month_value = try std.fmt.parseInt(i32, self.str[4..6], 10);
-                if (month_value == 0 or month_value > 12) return error.Overflow;
-
-                const day_value = try std.fmt.parseInt(i32, self.str[6..8], 10);
-                if (day_value == 0) return error.Overflow;
-
-                const days = try calculateDays(year_value, month_value, day_value);
-                break :blk .{ .date = days };
-            },
-            else => error.InvalidCharacter,
+    fn lastDayOfMonth(y: u32, m: u32) u32 {
+        assert(m >= 1 and m <= 12);
+        return switch (m) {
+            1 => 31,
+            2 => if (isLeap(y)) 29 else 28,
+            3 => 31,
+            4 => 30,
+            5 => 31,
+            6 => 30,
+            7 => 31,
+            8 => 31,
+            9 => 30,
+            10 => 31,
+            11 => 30,
+            12 => 31,
+            else => unreachable,
         };
     }
 
@@ -1347,27 +1367,17 @@ const NumberParser = struct {
         return switch (index - start_index) {
             1, 2, 3, 4, 5 => error.InvalidCharacter,
             6 => blk: {
-                const month_value = try std.fmt.parseInt(i32, self.str[start_index + 2 .. start_index + 4], 10);
-                if (month_value == 0 or month_value > 12) return error.Overflow;
-
-                const day_value = try std.fmt.parseInt(i32, self.str[start_index + 4 .. start_index + 6], 10);
-                if (day_value == 0) return error.Overflow;
-
-                const year_value = try std.fmt.parseInt(i32, self.str[start_index .. start_index + 2], 10);
+                const year_value = try std.fmt.parseInt(u32, self.str[start_index .. start_index + 2], 10);
+                const month_value = try std.fmt.parseInt(u32, self.str[start_index + 2 .. start_index + 4], 10);
+                const day_value = try std.fmt.parseInt(u32, self.str[start_index + 4 .. start_index + 6], 10);
                 const days = try calculateDays(if (year_value < 50) year_value + 2000 else year_value + 1900, month_value, day_value);
                 break :blk .{ .datetime = @floatFromInt(if (is_negative) -days else days) };
             },
             7 => error.InvalidCharacter,
             8 => blk: {
-                const year_value = try std.fmt.parseInt(i32, self.str[start_index .. start_index + 4], 10);
-                if (year_value == 0) return error.Overflow;
-
-                const month_value = try std.fmt.parseInt(i32, self.str[start_index + 4 .. start_index + 6], 10);
-                if (month_value == 0 or month_value > 12) return error.Overflow;
-
-                const day_value = try std.fmt.parseInt(i32, self.str[start_index + 6 .. start_index + 8], 10);
-                if (day_value == 0) return error.Overflow;
-
+                const year_value = try std.fmt.parseInt(u32, self.str[start_index .. start_index + 4], 10);
+                const month_value = try std.fmt.parseInt(u32, self.str[start_index + 4 .. start_index + 6], 10);
+                const day_value = try std.fmt.parseInt(u32, self.str[start_index + 6 .. start_index + 8], 10);
                 const days = try calculateDays(year_value, month_value, day_value);
                 break :blk .{ .datetime = @floatFromInt(if (is_negative) -days else days) };
             },
