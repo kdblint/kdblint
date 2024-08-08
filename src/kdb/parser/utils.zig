@@ -134,3 +134,20 @@ pub fn Inf(comptime T: type) T {
         else => @compileError("Unsupported type: " ++ @typeName(T)),
     };
 }
+
+/// https://howardhinnant.github.io/date_algorithms.html#civil_from_days
+pub fn daysToDateTriple(days: i32) struct { u32, u32, u32 } {
+    const z = days + 730425;
+    const era = @divFloor(if (z >= 0) z else z - 146096, 146097);
+    const doe: u32 = @intCast(z - era * 146097);
+    const yoe = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    const y: u32 = @intCast(@as(i32, @intCast(yoe)) + era * 400);
+    const doy = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp = @divFloor(5 * doy + 2, 153);
+    const d = doy - @divFloor(153 * mp + 2, 5) + 1;
+    const m = if (mp < 10) mp + 3 else mp - 9;
+    const year = if (m <= 2) y + 1 else y;
+    const month = m;
+    const day = d;
+    return .{ year, month, day };
+}
