@@ -56,6 +56,11 @@ pub fn parse(p: *Parse) Parse.Error!Ast.Node.Index {
                 if (value_type orelse .minute != .minute) return p.failMsg(.{ .tag = .parse_error, .token = number_literal });
                 value_type = .minute;
             }
+            // 12:34:45, -12:34:45 or 123:45:67
+            if ((source.len == 8 or source.len == 9) and source[source.len - 6] == ':' and source[source.len - 3] == ':') {
+                if (value_type orelse .second != .second) return p.failMsg(.{ .tag = .parse_error, .token = number_literal });
+                value_type = .second;
+            }
             switch (source[source.len - 1]) {
                 inline 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'm', 'p', 't', 'u', 'v', 'z' => |suffix| {
                     value_type = ValueType.fromSuffix(suffix);
@@ -701,8 +706,94 @@ pub const Value = union(ValueType) {
                     }
                 }
             },
-            .second => unreachable,
-            .second_list => unreachable,
+            .second => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Nv");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0Wv");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0Wv");
+                } else {
+                    const hour = @abs(value) / 3600;
+                    const minute = (@abs(value) % 3600) / 60;
+                    const second = @abs(value) % 60;
+                    if (hour > 99) {
+                        if (value < 0) {
+                            try writer.print("-**:{d:0>2}:{d:0>2}", .{ minute, second });
+                        } else {
+                            try writer.print("**:{d:0>2}:{d:0>2}", .{ minute, second });
+                        }
+                    } else {
+                        if (value < 0) {
+                            try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+                        } else {
+                            try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+                        }
+                    }
+                }
+            },
+            .second_list => |value| {
+                if (value.len == 0) {
+                    try writer.writeAll("`second$()");
+                } else {
+                    var requires_suffix = true;
+                    for (value[0 .. value.len - 1]) |v| {
+                        if (utils.isNull(v)) {
+                            try writer.writeAll("0N ");
+                        } else if (utils.isPositiveInf(v)) {
+                            try writer.writeAll("0W ");
+                        } else if (utils.isNegativeInf(v)) {
+                            try writer.writeAll("-0W ");
+                        } else {
+                            requires_suffix = false;
+                            const hour = @abs(v) / 3600;
+                            const minute = (@abs(v) % 3600) / 60;
+                            const second = @abs(v) % 60;
+                            if (hour > 99) {
+                                if (v < 0) {
+                                    try writer.print("-**:{d:0>2}:{d:0>2} ", .{ minute, second });
+                                } else {
+                                    try writer.print("**:{d:0>2}:{d:0>2} ", .{ minute, second });
+                                }
+                            } else {
+                                if (v < 0) {
+                                    try writer.print("-{d:0>2}:{d:0>2}:{d:0>2} ", .{ hour, minute, second });
+                                } else {
+                                    try writer.print("{d:0>2}:{d:0>2}:{d:0>2} ", .{ hour, minute, second });
+                                }
+                            }
+                        }
+                    }
+                    const v = value[value.len - 1];
+                    if (utils.isNull(v)) {
+                        try writer.writeAll("0N");
+                        if (requires_suffix) try writer.writeByte('v');
+                    } else if (utils.isPositiveInf(v)) {
+                        try writer.writeAll("0W");
+                        if (requires_suffix) try writer.writeByte('v');
+                    } else if (utils.isNegativeInf(v)) {
+                        try writer.writeAll("-0W");
+                        if (requires_suffix) try writer.writeByte('v');
+                    } else {
+                        const hour = @abs(v) / 3600;
+                        const minute = (@abs(v) % 3600) / 60;
+                        const second = @abs(v) % 60;
+                        if (hour > 99) {
+                            if (v < 0) {
+                                try writer.print("-**:{d:0>2}:{d:0>2}", .{ minute, second });
+                            } else {
+                                try writer.print("**:{d:0>2}:{d:0>2}", .{ minute, second });
+                            }
+                        } else {
+                            if (v < 0) {
+                                try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+                            } else {
+                                try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+                            }
+                        }
+                    }
+                }
+            },
             .time => unreachable,
             .time_list => unreachable,
             .long => |value| {
@@ -978,7 +1069,7 @@ const NumberParser = struct {
             .month => self.month(self.str.len),
             .date => self.date(self.str.len),
             .minute => self.minute(self.str.len),
-            .second => self.parseNumber(str),
+            .second => self.second(self.str.len),
             .time => self.parseNumber(str),
             .long => self.long(self.str.len),
             .timestamp => self.parseNumber(str),
@@ -1149,7 +1240,7 @@ const NumberParser = struct {
             'n' => self.shortTimespan(i),
             't' => self.shortTime(i),
             'u' => self.minute(i),
-            'v' => self.shortSecond(i),
+            'v' => self.second(i),
             '.' => self.maybeFloat(i + 1),
             ':' => self.maybeMinute(i + 1),
             else => error.InvalidCharacter,
@@ -1698,33 +1789,8 @@ const NumberParser = struct {
         const is_negative = str[0] == '-';
         const start_index: usize = if (is_negative) 1 else 0;
         return switch (str.len - start_index) {
-            8, 9 => blk: {
-                if (str[str.len - 6] != ':' or str[str.len - 3] != ':') return error.InvalidCharacter;
-
-                const minutes_value = try std.fmt.parseInt(i32, str[str.len - 5 .. str.len - 3], 10);
-                if (minutes_value > 59) return error.Overflow;
-
-                const seconds_value = try std.fmt.parseInt(i32, str[str.len - 2 .. str.len], 10);
-                if (seconds_value > 59) return error.Overflow;
-
-                const hours_value = try std.fmt.parseInt(i32, str[start_index .. str.len - 6], 10);
-                const seconds = hours_value * 3600 + minutes_value * 60 + seconds_value;
-                break :blk if (is_negative) -seconds else seconds;
-            },
-            else => error.InvalidCharacter,
-        };
-    }
-
-    fn shortSecond(self: NumberParser, index: usize) !Value {
-        return .{ .second = try parseShortSecond(self.str[0..index]) };
-    }
-
-    fn parseShortSecond(str: []const u8) !i32 {
-        const is_negative = str[0] == '-';
-        const start_index: usize = if (is_negative) 1 else 0;
-        return switch (str.len - start_index) {
             1, 2 => blk: {
-                const hours_value = try std.fmt.parseInt(i32, str[start_index..str.len], 10);
+                const hours_value = try std.fmt.parseInt(i32, str[start_index..], 10);
                 const seconds = hours_value * 3600;
                 break :blk if (is_negative) -seconds else seconds;
             },
@@ -1735,6 +1801,29 @@ const NumberParser = struct {
                 const hours_value = try std.fmt.parseInt(i32, str[start_index .. str.len - 2], 10);
                 const seconds = hours_value * 3600 + minutes_value * 60;
                 break :blk if (is_negative) -seconds else seconds;
+            },
+            inline 8, 9 => |len| switch (str[str.len - 6] == ':' and str[str.len - 3] == ':') {
+                true => blk: {
+                    if (comptime len == 9 and is_negative) return error.InvalidCharacter;
+                    const seconds_value = try std.fmt.parseInt(i32, str[str.len - 2 ..], 10);
+                    if (seconds_value > 59) return error.Overflow;
+                    const minutes_value = try std.fmt.parseInt(i32, str[str.len - 5 .. str.len - 3], 10);
+                    if (minutes_value > 59) return error.Overflow;
+
+                    const hours_value = try std.fmt.parseInt(i32, str[start_index .. str.len - 6], 10);
+                    const seconds = hours_value * 3600 + minutes_value * 60 + seconds_value;
+                    break :blk if (is_negative) -seconds else seconds;
+                },
+                false => blk: {
+                    const seconds_value = try std.fmt.parseInt(i32, str[str.len - 2 ..], 10);
+                    if (seconds_value > 59) return error.Overflow;
+                    const minutes_value = try std.fmt.parseInt(i32, str[str.len - 4 .. str.len - 2], 10);
+                    if (minutes_value > 59) return error.Overflow;
+
+                    const hours_value = try std.fmt.parseInt(i32, str[start_index .. str.len - 4], 10);
+                    const seconds = hours_value *% 3600 + minutes_value * 60 + seconds_value;
+                    break :blk if (is_negative) -seconds else seconds;
+                },
             },
             else => blk: {
                 const seconds_value = try std.fmt.parseInt(i32, str[str.len - 2 ..], 10);
