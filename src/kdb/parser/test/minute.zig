@@ -35,6 +35,30 @@ test "valid minute inputs" {
     try testNumberParser("99959u", .minute, 59999);
     try testNumberParser("-99959u", .minute, -59999);
 
+    try testNumberParser("000000u", .minute, 0);
+    try testNumberParser("999959u", .minute, 599999);
+    try testNumberParser("-999959u", .minute, -599999);
+
+    try testNumberParser("0000000u", .minute, 0);
+    try testNumberParser("9999959u", .minute, 5999999);
+    try testNumberParser("-9999959u", .minute, -5999999);
+
+    try testNumberParser("00000000u", .minute, 0);
+    try testNumberParser("99999959u", .minute, 59999999);
+    try testNumberParser("-99999959u", .minute, -59999999);
+
+    try testNumberParser("000000000u", .minute, 0);
+    try testNumberParser("999999959u", .minute, 599999999);
+    try testNumberParser("-999999959u", .minute, -599999999);
+
+    try testNumberParser("0000000000u", .minute, 0);
+    try testNumberParser("9999999959u", .minute, 1705032703);
+    try testNumberParser("-9999999959u", .minute, -1705032703);
+
+    try testNumberParser("00000000000u", .minute, 0);
+    try testNumberParser("99999999959u", .minute, -129542145);
+    try testNumberParser("-99999999959u", .minute, 129542145);
+
     try testNumberParser("000000000000u", .minute, 0);
     try testNumberParser("214748364759u", .minute, -1);
     try testNumberParser("-214748364759u", .minute, 1);
