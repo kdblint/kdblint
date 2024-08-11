@@ -395,4 +395,8 @@ test "invalid second inputs" {
     try testNumberParserError("-21474836485959v", error.Overflow);
     try testNumberParserError("-21474836476059v", error.Overflow);
     try testNumberParserError("-21474836475960v", error.Overflow);
+
+    try testParseError("00:00:60", &.{.parse_error});
+
+    try testParseError("00:00:00 00:10:00 01:00:30 060v", &.{.parse_error});
 }
