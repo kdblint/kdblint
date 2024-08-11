@@ -370,4 +370,15 @@ test "invalid minute inputs" {
     try testNumberParserError("214748364760u", error.Overflow);
     try testNumberParserError("-214748364859u", error.Overflow);
     try testNumberParserError("-214748364760u", error.Overflow);
+
+    try testParseError("-9:00", &.{.parse_error});
+    try testParseError("00:60", &.{.parse_error});
+    try testParseError("000:60", &.{.parse_error});
+    try testParseError("-999:00", &.{.parse_error});
+
+    try testParseError("00:00 10:00 -20:00 00:60", &.{.parse_error});
+    try testParseError("00:00 10:00 -20:00 000:60", &.{.parse_error});
+    try testParseError("00:00 10:00 -20:00 -999:00", &.{.parse_error});
+
+    try testParseError("00:00 10:00 -20:00 000000000060u", &.{.parse_error});
 }
