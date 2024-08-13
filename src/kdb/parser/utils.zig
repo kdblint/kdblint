@@ -135,8 +135,14 @@ pub fn Inf(comptime T: type) T {
     };
 }
 
+pub fn monthsToYearMonth(months: i32) struct { u32, u32 } {
+    const year: u32 = @intCast(2000 + @divFloor(months, 12));
+    const month: u32 = @intCast(1 + @mod(months, 12));
+    return .{ year, month };
+}
+
 /// https://howardhinnant.github.io/date_algorithms.html#civil_from_days
-pub fn daysToDateTriple(days: i32) struct { u32, u32, u32 } {
+pub fn daysToYearMonthDay(days: i32) struct { u32, u32, u32 } {
     const z = days + 730425;
     const era = @divFloor(if (z >= 0) z else z - 146096, 146097);
     const doe: u32 = @intCast(z - era * 146097);
@@ -150,4 +156,31 @@ pub fn daysToDateTriple(days: i32) struct { u32, u32, u32 } {
     const month = m;
     const day = d;
     return .{ year, month, day };
+}
+
+pub fn minutesToHourMinute(minutes: i32) struct { u32, u32 } {
+    const m = @abs(minutes);
+    const hour = m / number_parser.minutes_per_hour;
+    const minute = m % number_parser.minutes_per_hour;
+    return .{ hour, minute };
+}
+
+pub fn secondsToHourMinuteSecond(seconds: i32) struct { u32, u32, u32 } {
+    var s = @abs(seconds);
+    const hour = s / number_parser.seconds_per_hour;
+    s %= number_parser.seconds_per_hour;
+    const minute = s / number_parser.seconds_per_minute;
+    const second = s % number_parser.seconds_per_minute;
+    return .{ hour, minute, second };
+}
+
+pub fn millisecondsToHourMinuteSecondMillisecond(milliseconds: i32) struct { u32, u32, u32, u32 } {
+    var ms = @abs(milliseconds);
+    const hour = ms / number_parser.milliseconds_per_hour;
+    ms %= number_parser.milliseconds_per_hour;
+    const minute = ms / number_parser.milliseconds_per_minute;
+    ms %= number_parser.milliseconds_per_minute;
+    const second = ms / number_parser.milliseconds_per_second;
+    const millisecond = ms % number_parser.milliseconds_per_second;
+    return .{ hour, minute, second, millisecond };
 }
