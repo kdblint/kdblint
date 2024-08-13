@@ -78,6 +78,8 @@ test "valid second inputs" {
     try testNumberParser("000:00:00", .second, 0);
     try testNumberParser("999:59:59", .second, 3599999);
 
+    try testParse("00:00:00", &.{ .implicit_return, .second_literal }, "00:00:00");
+
     try testParse("0 9 -9v", &.{ .implicit_return, .second_list_literal }, "00:00:00 09:00:00 -09:00:00");
     try testParse("00 99 -99v", &.{ .implicit_return, .second_list_literal }, "00:00:00 99:00:00 -99:00:00");
     try testParse("000 959 -959v", &.{ .implicit_return, .second_list_literal }, "00:00:00 09:59:00 -09:59:00");

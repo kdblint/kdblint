@@ -21,6 +21,8 @@ test "valid byte inputs" {
 
     try testNumberParser("0x", .byte_list, .{});
 
+    try testParse("0x00", &.{ .implicit_return, .byte_literal }, "0x00");
+
     try testParse("0 0x00", &.{ .implicit_return, .implicit_apply, .byte_literal, .long_literal }, "(0;0x00)");
     try testParse("0 0x", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .long_literal }, "(0;`byte$())");
     try testParse("0 0x0001", &.{ .implicit_return, .implicit_apply, .byte_list_literal, .long_literal }, "(0;0x0001)");
