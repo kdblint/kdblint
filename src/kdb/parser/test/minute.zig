@@ -70,6 +70,8 @@ test "valid minute inputs" {
     try testNumberParser("000:00", .minute, 0);
     try testNumberParser("999:59", .minute, 59999);
 
+    try testParse("00:00", &.{ .implicit_return, .minute_literal }, "00:00");
+
     try testParse("0 9 -9u", &.{ .implicit_return, .minute_list_literal }, "00:00 09:00 -09:00");
     try testParse("00 99 -99u", &.{ .implicit_return, .minute_list_literal }, "00:00 99:00 -99:00");
     try testParse("000 959 -959u", &.{ .implicit_return, .minute_list_literal }, "00:00 09:59 -09:59");

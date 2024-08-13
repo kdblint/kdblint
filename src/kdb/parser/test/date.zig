@@ -61,6 +61,8 @@ test "valid date inputs" {
     try testNumberParser("99990101d", .date, 2921575);
     try testNumberParser("99991231d", .date, 2921939);
 
+    try testParse("2000.01.01", &.{ .implicit_return, .date_literal }, "2000.01.01");
+
     try testParse("000101 000229 491231 500101d", &.{ .implicit_return, .date_list_literal }, "2000.01.01 2000.02.29 2049.12.31 1950.01.01");
     try testParse("00010101 00011231 99990101 99991231d", &.{ .implicit_return, .date_list_literal }, "0001.01.01 0001.12.31 9999.01.01 9999.12.31");
     try testParse("1999.12.31 2000.01.01 2000.01.02 2000.12.01 2001.01.01 2001.03.01 2002.03.01 2005.01.01", &.{ .implicit_return, .date_list_literal }, "1999.12.31 2000.01.01 2000.01.02 2000.12.01 2001.01.01 2001.03.01 2002.03.01 2005.01.01");

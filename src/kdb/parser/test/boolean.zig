@@ -22,20 +22,10 @@ test "valid boolean inputs" {
     try testNumberParser("110b", .boolean_list, .{ true, true, false });
     try testNumberParser("111b", .boolean_list, .{ true, true, true });
 
-    try testParse("01b 0", &.{
-        .implicit_return,
-        .implicit_apply,
-        .long_literal,
-        .boolean_list_literal,
-    }, "(01b;0)");
-    try testParse("0 1 01b 1", &.{
-        .implicit_return,
-        .implicit_apply,
-        .implicit_apply,
-        .long_literal,
-        .boolean_list_literal,
-        .long_list_literal,
-    }, "(0 1;(01b;1))");
+    try testParse("01b 0", &.{ .implicit_return, .implicit_apply, .long_literal, .boolean_list_literal }, "(01b;0)");
+    try testParse("0 1 01b 1", &.{ .implicit_return, .implicit_apply, .implicit_apply, .long_literal, .boolean_list_literal, .long_list_literal }, "(0 1;(01b;1))");
+
+    try testParse("0b", &.{ .implicit_return, .boolean_literal }, "0b");
 
     try testParse("0 0b", &.{ .implicit_return, .implicit_apply, .boolean_literal, .long_literal }, "(0;0b)");
     try testParse("0 01b", &.{ .implicit_return, .implicit_apply, .boolean_list_literal, .long_literal }, "(0;01b)");
