@@ -100,10 +100,13 @@ pub fn build(b: *std.Build) !void {
     const semver = try std.SemanticVersion.parse(version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
 
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
+
     const unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .filters = test_filters,
     });
     addImports(b, unit_tests);
     unit_tests.root_module.addOptions("build_options", exe_options);
