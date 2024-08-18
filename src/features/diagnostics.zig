@@ -6,6 +6,8 @@ const types = zls.types;
 
 const kdb = @import("../kdb.zig");
 const Token = kdb.Token;
+const Node = kdb.Ast.Node;
+const LambdaVisitor = kdb.Ast.AnyVisitor.LambdaVisitor;
 const Server = @import("../Server.zig");
 const DocumentStore = @import("../DocumentStore.zig");
 const offsets = @import("../offsets.zig");
@@ -46,6 +48,10 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
             .message = try buffer.toOwnedSlice(arena),
         });
     }
+
+    const visitor = try LambdaVisitor.create(server.allocator);
+    defer visitor.destroy(server.allocator);
+    tree.visit(visitor.any());
 
     const tokenize_ms: f64 = @as(f64, @floatFromInt(tree.tokenize_duration)) / std.time.ns_per_ms;
     const parse_ms: f64 = @as(f64, @floatFromInt(tree.parse_duration)) / std.time.ns_per_ms;

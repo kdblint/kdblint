@@ -2246,6 +2246,567 @@ fn printList(tree: Ast, list: []Node.Index, stream: anytype, gpa: Allocator) All
     }
 }
 
+pub fn visit(tree: Ast, visitor: AnyVisitor) void {
+    const data = tree.nodes.items(.data)[0];
+    for (data.lhs..data.rhs) |extra_data_i| {
+        tree.accept(visitor, tree.extra_data[extra_data_i]) catch break;
+    }
+}
+
+fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
+    assert(i > 0);
+    const tags: []Node.Tag = tree.nodes.items(.tag);
+    const datas: []Node.Data = tree.nodes.items(.data);
+    const extra_datas = tree.extra_data;
+
+    switch (tags[i]) {
+        .root => unreachable,
+        .grouped_expression, .implicit_return => |t| {
+            try visitor.visit(t);
+            try tree.accept(visitor, datas[i].lhs);
+        },
+        .empty_list => |t| try visitor.visit(t),
+        .list => |t| {
+            try visitor.visit(t);
+            const sub_range = tree.extraData(datas[i].lhs, Node.SubRange);
+            for (sub_range.start..sub_range.end) |extra_data_i| {
+                const node_i = extra_datas[extra_data_i];
+                if (node_i > 0) try tree.accept(visitor, node_i);
+            }
+        },
+        .table_literal => |t| {
+            try visitor.visit(t);
+            const table = tree.extraData(datas[i].lhs, Node.Table);
+
+            const exprs = extra_datas[table.expr_start + table.key_len ..][0..table.len];
+            for (exprs) |expr| try tree.accept(visitor, expr);
+
+            const key_exprs = extra_datas[table.expr_start..][0..table.key_len];
+            for (key_exprs) |expr| try tree.accept(visitor, expr);
+        },
+        .boolean_literal,
+        .boolean_list_literal,
+        .guid_literal,
+        .guid_list_literal,
+        .byte_literal,
+        .byte_list_literal,
+        .short_literal,
+        .short_list_literal,
+        .int_literal,
+        .int_list_literal,
+        .long_literal,
+        .long_list_literal,
+        .real_literal,
+        .real_list_literal,
+        .float_literal,
+        .float_list_literal,
+        .char_literal,
+        .char_number_literal,
+        .char_list_literal,
+        .char_number_list_literal,
+        .symbol_literal,
+        .symbol_list_literal,
+        .timestamp_literal,
+        .timestamp_list_literal,
+        .month_literal,
+        .month_list_literal,
+        .date_literal,
+        .date_list_literal,
+        .datetime_literal,
+        .datetime_list_literal,
+        .timespan_literal,
+        .timespan_list_literal,
+        .minute_literal,
+        .minute_list_literal,
+        .second_literal,
+        .second_list_literal,
+        .time_literal,
+        .time_list_literal,
+        .identifier,
+        => |t| try visitor.visit(t),
+        .assign,
+        .global_assign,
+        .add,
+        .plus_assign,
+        .subtract,
+        .minus_assign,
+        .multiply,
+        .asterisk_assign,
+        .divide,
+        .percent_assign,
+        .dict,
+        .bang_assign,
+        .lesser,
+        .ampersand_assign,
+        .greater,
+        .pipe_assign,
+        .less_than,
+        .angle_bracket_left_assign,
+        .less_than_equal,
+        .not_equal,
+        .greater_than,
+        .angle_bracket_right_assign,
+        .greater_than_equal,
+        .equals,
+        .equal_assign,
+        .match,
+        .tilde_assign,
+        .join,
+        .comma_assign,
+        .fill,
+        .caret_assign,
+        .take,
+        .hash_assign,
+        .drop,
+        .underscore_assign,
+        .cast,
+        .dollar_assign,
+        .find,
+        .question_mark_assign,
+        .apply,
+        .at_assign,
+        .apply_n,
+        .dot_assign,
+        .file_text,
+        .zero_colon_assign,
+        .file_binary,
+        .one_colon_assign,
+        .dynamic_load,
+        .and_infix,
+        .asof_infix,
+        .bin_infix,
+        .binr_infix,
+        .cor_infix,
+        .cov_infix,
+        .cross_infix,
+        .cut_infix,
+        .div_infix,
+        .dsave_infix,
+        .each_infix,
+        .ema_infix,
+        .except_infix,
+        .fby_infix,
+        .ij_infix,
+        .ijf_infix,
+        .in_infix,
+        .insert_infix,
+        .inter_infix,
+        .like_infix,
+        .lj_infix,
+        .ljf_infix,
+        .lsq_infix,
+        .mavg_infix,
+        .mcount_infix,
+        .mdev_infix,
+        .mmax_infix,
+        .mmin_infix,
+        .mmu_infix,
+        .mod_infix,
+        .msum_infix,
+        .or_infix,
+        .over_infix,
+        .peach_infix,
+        .pj_infix,
+        .prior_infix,
+        .rotate_infix,
+        .scan_infix,
+        .scov_infix,
+        .set_infix,
+        .setenv_infix,
+        .ss_infix,
+        .sublist_infix,
+        .sv_infix,
+        .uj_infix,
+        .ujf_infix,
+        .upsert_infix,
+        .vs_infix,
+        .wavg_infix,
+        .within_infix,
+        .wsum_infix,
+        .xasc_infix,
+        .xbar_infix,
+        .xcol_infix,
+        .xcols_infix,
+        .xdesc_infix,
+        .xexp_infix,
+        .xgroup_infix,
+        .xkey_infix,
+        .xlog_infix,
+        .xprev_infix,
+        .xrank_infix,
+        => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            if (data.rhs > 0) {
+                try tree.accept(visitor, data.rhs);
+                try tree.accept(visitor, data.lhs);
+            } else if (data.lhs > 0) {
+                try tree.accept(visitor, data.lhs);
+            }
+        },
+        .colon,
+        .colon_colon,
+        .plus,
+        .plus_colon,
+        .minus,
+        .minus_colon,
+        .asterisk,
+        .asterisk_colon,
+        .percent,
+        .percent_colon,
+        .bang,
+        .bang_colon,
+        .ampersand,
+        .ampersand_colon,
+        .pipe,
+        .pipe_colon,
+        .angle_bracket_left,
+        .angle_bracket_left_colon,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_colon,
+        .angle_bracket_right_equal,
+        .equal,
+        .equal_colon,
+        .tilde,
+        .tilde_colon,
+        .comma,
+        .comma_colon,
+        .caret,
+        .caret_colon,
+        .hash,
+        .hash_colon,
+        .underscore,
+        .underscore_colon,
+        .dollar,
+        .dollar_colon,
+        .question_mark,
+        .question_mark_colon,
+        .at,
+        .at_colon,
+        .dot,
+        .dot_colon,
+        .zero_colon,
+        .zero_colon_colon,
+        .one_colon,
+        .one_colon_colon,
+        .two_colon,
+        => |t| try visitor.visit(t),
+        .implicit_apply => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            try tree.accept(visitor, data.rhs);
+            try tree.accept(visitor, data.lhs);
+        },
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            if (data.lhs > 0) {
+                try tree.accept(visitor, data.lhs);
+            }
+        },
+        .apostrophe_infix,
+        .apostrophe_colon_infix,
+        .slash_infix,
+        .slash_colon_infix,
+        .backslash_infix,
+        .backslash_colon_infix,
+        => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
+            try tree.accept(visitor, data.lhs);
+            try tree.accept(visitor, iterator.lhs);
+            try tree.accept(visitor, iterator.rhs);
+        },
+        .lambda,
+        .lambda_semicolon,
+        => |t| {
+            try visitor.visit(t);
+            log.debug("Unsupported tag: {s}", .{@tagName(t)});
+        },
+        .block => |t| {
+            try visitor.visit(t);
+            const sub_range = tree.extraData(datas[i].lhs, Node.SubRange);
+            const exprs = extra_datas[sub_range.start..sub_range.end];
+            for (exprs) |expr| if (expr > 0) try tree.accept(visitor, expr);
+        },
+        .call_one => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            if (data.rhs > 0) try tree.accept(visitor, data.rhs);
+            try tree.accept(visitor, data.lhs);
+        },
+        .call => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            for (sub_range.start..sub_range.end) |extra_data_i| {
+                const node_i = extra_datas[extra_data_i];
+                if (node_i > 0) try tree.accept(visitor, node_i);
+            }
+            try tree.accept(visitor, data.lhs);
+        },
+        .@"return" => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            try tree.accept(visitor, data.lhs);
+        },
+        .abs,
+        .acos,
+        .aj,
+        .aj0,
+        .ajf,
+        .ajf0,
+        .all,
+        .any,
+        .asc,
+        .asin,
+        .atan,
+        .attr,
+        .avg,
+        .avgs,
+        .ceiling,
+        .cols,
+        .cos,
+        .count,
+        .csv,
+        .deltas,
+        .desc,
+        .dev,
+        .differ,
+        .distinct,
+        .ej,
+        .enlist,
+        .eval,
+        .exit,
+        .exp,
+        .fills,
+        .first,
+        .fkeys,
+        .flip,
+        .floor,
+        .get,
+        .getenv,
+        .group,
+        .gtime,
+        .hclose,
+        .hcount,
+        .hdel,
+        .hopen,
+        .hsym,
+        .iasc,
+        .idesc,
+        .inv,
+        .key,
+        .keys,
+        .last,
+        .load,
+        .log,
+        .lower,
+        .ltime,
+        .ltrim,
+        .max,
+        .maxs,
+        .md5,
+        .med,
+        .meta,
+        .min,
+        .mins,
+        .neg,
+        .next,
+        .not,
+        .null,
+        .parse,
+        .prd,
+        .prds,
+        .prev,
+        .rand,
+        .rank,
+        .ratios,
+        .raze,
+        .read0,
+        .read1,
+        .reciprocal,
+        .reval,
+        .reverse,
+        .rload,
+        .rsave,
+        .rtrim,
+        .save,
+        .sdev,
+        .show,
+        .signum,
+        .sin,
+        .sqrt,
+        .ssr,
+        .string,
+        .sum,
+        .sums,
+        .svar,
+        .system,
+        .tables,
+        .tan,
+        .til,
+        .trim,
+        .type,
+        .ungroup,
+        .@"union",
+        .upper,
+        .value,
+        .@"var",
+        .view,
+        .views,
+        .where,
+        .wj,
+        .wj1,
+        .ww,
+        .@"and",
+        .asof,
+        .bin,
+        .binr,
+        .cor,
+        .cov,
+        .cross,
+        .cut,
+        .div,
+        .dsave,
+        .each,
+        .ema,
+        .except,
+        .fby,
+        .ij,
+        .ijf,
+        .in,
+        .insert,
+        .inter,
+        .like,
+        .lj,
+        .ljf,
+        .lsq,
+        .mavg,
+        .mcount,
+        .mdev,
+        .mmax,
+        .mmin,
+        .mmu,
+        .mod,
+        .msum,
+        .@"or",
+        .over,
+        .peach,
+        .pj,
+        .prior,
+        .rotate,
+        .scan,
+        .scov,
+        .set,
+        .setenv,
+        .ss,
+        .sublist,
+        .sv,
+        .uj,
+        .ujf,
+        .upsert,
+        .vs,
+        .wavg,
+        .within,
+        .wsum,
+        .xasc,
+        .xbar,
+        .xcol,
+        .xcols,
+        .xdesc,
+        .xexp,
+        .xgroup,
+        .xkey,
+        .xlog,
+        .xprev,
+        .xrank,
+        => |t| try visitor.visit(t),
+        .do_one,
+        .if_one,
+        .while_one,
+        => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            try tree.accept(visitor, data.lhs);
+            if (data.rhs > 0) try tree.accept(visitor, data.rhs);
+        },
+        .do,
+        .@"if",
+        .@"while",
+        => |t| {
+            try visitor.visit(t);
+            const data = datas[i];
+            try tree.accept(visitor, data.lhs);
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
+            for (sub_range.start..sub_range.end) |extra_data_i| {
+                const node_i = extra_datas[extra_data_i];
+                if (node_i > 0) try tree.accept(visitor, node_i);
+            }
+        },
+        .select => |t| {
+            try visitor.visit(t);
+            const select_node = tree.extraData(datas[i].lhs, Node.Select);
+            try tree.accept(visitor, select_node.from);
+            const where_slice = extra_datas[select_node.where..select_node.by];
+            for (where_slice) |where| try tree.accept(visitor, where);
+            const by_slice = extra_datas[select_node.by..select_node.select];
+            for (by_slice) |by| try tree.accept(visitor, by);
+            const select_slice = extra_datas[select_node.select..select_node.select_end];
+            for (select_slice) |select| try tree.accept(visitor, select);
+            if (select_node.limit > 0) try tree.accept(visitor, select_node.limit);
+        },
+        .exec => |t| {
+            try visitor.visit(t);
+            const exec_node = tree.extraData(datas[i].lhs, Node.Exec);
+            try tree.accept(visitor, exec_node.from);
+            const where_slice = extra_datas[exec_node.where..exec_node.by];
+            for (where_slice) |where| try tree.accept(visitor, where);
+            const by_slice = extra_datas[exec_node.by..exec_node.select];
+            for (by_slice) |by| try tree.accept(visitor, by);
+            const select_slice = extra_datas[exec_node.select..exec_node.select_end];
+            for (select_slice) |select| try tree.accept(visitor, select);
+        },
+        .update => |t| {
+            try visitor.visit(t);
+            const update_node = tree.extraData(datas[i].lhs, Node.Update);
+            try tree.accept(visitor, update_node.from);
+            const where_slice = extra_datas[update_node.where..update_node.by];
+            for (where_slice) |where| try tree.accept(visitor, where);
+            const by_slice = extra_datas[update_node.by..update_node.select];
+            for (by_slice) |by| try tree.accept(visitor, by);
+            const select_slice = extra_datas[update_node.select..update_node.select_end];
+            for (select_slice) |select| try tree.accept(visitor, select);
+        },
+        .delete_rows => |t| {
+            try visitor.visit(t);
+            const delete_node = tree.extraData(datas[i].lhs, Node.DeleteRows);
+            try tree.accept(visitor, delete_node.from);
+            const where_slice = extra_datas[delete_node.where..delete_node.where_end];
+            for (where_slice) |where| try tree.accept(visitor, where);
+        },
+        .delete_cols => |t| {
+            try visitor.visit(t);
+            const delete_node = tree.extraData(datas[i].lhs, Node.DeleteColumns);
+            try tree.accept(visitor, delete_node.from);
+        },
+        .os,
+        .current_directory,
+        .change_directory,
+        .load_file_or_directory,
+        => |t| try visitor.visit(t),
+    }
+}
+
 pub fn debug(tree: Ast, gpa: Allocator) !void {
     const data = tree.nodes.items(.data)[0];
     for (data.lhs..data.rhs) |extra_data_i| {
@@ -2257,6 +2818,7 @@ pub fn debug(tree: Ast, gpa: Allocator) !void {
 }
 
 pub const Node = @import("ast/Node.zig");
+pub const AnyVisitor = @import("ast/AnyVisitor.zig");
 
 const std = @import("std");
 const kdb = @import("../kdb.zig");
