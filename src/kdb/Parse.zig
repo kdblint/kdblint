@@ -360,6 +360,7 @@ fn QPrefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
 fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index {
     return struct {
         fn impl(p: *Parse, lhs: Node.Index) Error!Node.Index {
+            assert(lhs > 0);
             switch (tag) {
                 .assign => {
                     const prev_tag = p.nodes.items(.tag)[lhs];

@@ -210,6 +210,9 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !voi
             const tag = token_tags[parse_error.token];
             return writer.print("{s} should not span multiple lines.", .{tag.symbol()});
         },
+        .undeclared_identifier => {
+            return writer.print("use of undeclared identifier '{s}'", .{tree.tokenSlice(parse_error.token)});
+        },
     }
 }
 
@@ -245,6 +248,8 @@ pub const Error = struct {
 
         // os command errors
         os_expects_all_tokens_on_same_line,
+
+        undeclared_identifier,
     };
 };
 
@@ -2432,13 +2437,9 @@ pub fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .xrank_infix,
         => |t| {
             const data = datas[i];
-            if (data.rhs > 0) {
-                try tree.accept(visitor, data.rhs);
-                try tree.accept(visitor, data.lhs);
-            } else if (data.lhs > 0) {
-                try tree.accept(visitor, data.lhs);
-            }
+            if (data.rhs > 0) try tree.accept(visitor, data.rhs);
             try visitor.visit(t, tree, i);
+            try tree.accept(visitor, data.lhs);
         },
         .colon,
         .colon_colon,
@@ -2492,8 +2493,8 @@ pub fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .implicit_apply => |t| {
             const data = datas[i];
             try tree.accept(visitor, data.rhs);
-            try tree.accept(visitor, data.lhs);
             try visitor.visit(t, tree, i);
+            try tree.accept(visitor, data.lhs);
         },
         .apostrophe,
         .apostrophe_colon,
@@ -2503,10 +2504,8 @@ pub fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .backslash_colon,
         => |t| {
             const data = datas[i];
-            if (data.lhs > 0) {
-                try tree.accept(visitor, data.lhs);
-            }
             try visitor.visit(t, tree, i);
+            if (data.lhs > 0) try tree.accept(visitor, data.lhs);
         },
         .apostrophe_infix,
         .apostrophe_colon_infix,
@@ -2551,13 +2550,13 @@ pub fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
                 const node_i = extra_datas[extra_data_i];
                 if (node_i > 0) try tree.accept(visitor, node_i);
             }
-            try tree.accept(visitor, data.lhs);
             try visitor.visit(t, tree, i);
+            try tree.accept(visitor, data.lhs);
         },
         .@"return" => |t| {
             const data = datas[i];
-            try tree.accept(visitor, data.lhs);
             try visitor.visit(t, tree, i);
+            try tree.accept(visitor, data.lhs);
         },
         .abs,
         .acos,

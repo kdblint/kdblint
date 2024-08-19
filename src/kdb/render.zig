@@ -1190,6 +1190,7 @@ fn renderExpression(r: *Render, node: Node.Index, space: Space) Error!void {
 
 fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Node.Tag, node: Node.Index, space: Space) !void {
     const tree = r.tree;
+    const ais = r.ais;
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const datas: []Node.Data = tree.nodes.items(.data);
 
@@ -1198,21 +1199,13 @@ fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Node.Tag, n
     const data = datas[node];
     const lambda = tree.extraData(data.lhs, Node.Lambda);
     const params = tree.extra_data[lambda.params_start..lambda.params_end];
-    switch (params.len) {
-        0 => {},
-        1 => unreachable,
-        2 => {
-            try renderToken(r, params[0], .none);
-            try renderToken(r, params[1], .none);
-        },
-        else => {
-            try renderToken(r, params[0], .none); // l_bracket
-            for (params[1 .. params.len - 2]) |param| {
-                try renderToken(r, param, .semicolon);
-            }
-            try renderToken(r, params[params.len - 2], .none);
-            try renderToken(r, params[params.len - 1], .none); // r_bracket
-        },
+    if (params[0] > 0) {
+        try ais.writer().writeByte('[');
+        for (params[0 .. params.len - 1]) |param| {
+            try renderToken(r, param, .semicolon);
+        }
+        try renderToken(r, params[params.len - 1], if (multi_line) .newline else .none);
+        try ais.writer().writeByte(']');
     }
 
     const body = tree.extra_data[lambda.body_start..lambda.body_end];
