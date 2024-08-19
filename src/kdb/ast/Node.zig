@@ -195,101 +195,101 @@ pub const Tag = enum {
     /// Both lhs and rhs unused.
     two_colon,
 
-    /// `lhs : rhs`. lhs and rhs can be omitted. main_token is `:`.
+    /// `lhs : rhs`. rhs can be omitted. main_token is `:`.
     assign,
-    /// `lhs :: rhs`. lhs and rhs can be omitted. main_token is `::`.
+    /// `lhs :: rhs`. rhs can be omitted. main_token is `::`.
     global_assign,
-    /// `lhs + rhs`. lhs and rhs can be omitted. main_token is `+`.
+    /// `lhs + rhs`. rhs can be omitted. main_token is `+`.
     add,
-    /// `lhs +: rhs`. lhs and rhs can be omitted. main_token is `+:`.
+    /// `lhs +: rhs`. rhs can be omitted. main_token is `+:`.
     plus_assign,
-    /// `lhs - rhs`. lhs and rhs can be omitted. main_token is `-`.
+    /// `lhs - rhs`. rhs can be omitted. main_token is `-`.
     subtract,
-    /// `lhs -: rhs`. lhs and rhs can be omitted. main_token is `-:`.
+    /// `lhs -: rhs`. rhs can be omitted. main_token is `-:`.
     minus_assign,
-    /// `lhs * rhs`. lhs and rhs can be omitted. main_token is `*`.
+    /// `lhs * rhs`. rhs can be omitted. main_token is `*`.
     multiply,
-    /// `lhs *: rhs`. lhs and rhs can be omitted. main_token is `*:`.
+    /// `lhs *: rhs`. rhs can be omitted. main_token is `*:`.
     asterisk_assign,
-    /// `lhs % rhs`. lhs and rhs can be omitted. main_token is `%`.
+    /// `lhs % rhs`. rhs can be omitted. main_token is `%`.
     divide,
-    /// `lhs %: rhs`. lhs and rhs can be omitted. main_token is `%:`.
+    /// `lhs %: rhs`. rhs can be omitted. main_token is `%:`.
     percent_assign,
-    /// `lhs ! rhs`. lhs and rhs can be omitted. main_token is `!`.
+    /// `lhs ! rhs`. rhs can be omitted. main_token is `!`.
     dict,
-    /// `lhs !: rhs`. lhs and rhs can be omitted. main_token is `!:`.
+    /// `lhs !: rhs`. rhs can be omitted. main_token is `!:`.
     bang_assign,
-    /// `lhs & rhs`. lhs and rhs can be omitted. main_token is `&`.
+    /// `lhs & rhs`. rhs can be omitted. main_token is `&`.
     lesser,
-    /// `lhs &: rhs`. lhs and rhs can be omitted. main_token is `&:`.
+    /// `lhs &: rhs`. rhs can be omitted. main_token is `&:`.
     ampersand_assign,
-    /// `lhs | rhs`. lhs and rhs can be omitted. main_token is `|`.
+    /// `lhs | rhs`. rhs can be omitted. main_token is `|`.
     greater,
-    /// `lhs |: rhs`. lhs and rhs can be omitted. main_token is `|:`.
+    /// `lhs |: rhs`. rhs can be omitted. main_token is `|:`.
     pipe_assign,
-    /// `lhs < rhs`. lhs and rhs can be omitted. main_token is `<`.
+    /// `lhs < rhs`. rhs can be omitted. main_token is `<`.
     less_than,
-    /// `lhs <: rhs`. lhs and rhs can be omitted. main_token is `<:`.
+    /// `lhs <: rhs`. rhs can be omitted. main_token is `<:`.
     angle_bracket_left_assign,
-    /// `lhs <= rhs`. lhs and rhs can be omitted. main_token is `<=`.
+    /// `lhs <= rhs`. rhs can be omitted. main_token is `<=`.
     less_than_equal,
-    /// `lhs <> rhs`. lhs and rhs can be omitted. main_token is `<>`.
+    /// `lhs <> rhs`. rhs can be omitted. main_token is `<>`.
     not_equal,
-    /// `lhs > rhs`. lhs and rhs can be omitted. main_token is `>`.
+    /// `lhs > rhs`. rhs can be omitted. main_token is `>`.
     greater_than,
-    /// `lhs >: rhs`. lhs and rhs can be omitted. main_token is `>:`.
+    /// `lhs >: rhs`. rhs can be omitted. main_token is `>:`.
     angle_bracket_right_assign,
-    /// `lhs >= rhs`. lhs and rhs can be omitted. main_token is `>=`.
+    /// `lhs >= rhs`. rhs can be omitted. main_token is `>=`.
     greater_than_equal,
-    /// `lhs = rhs`. lhs and rhs can be omitted. main_token is `=`.
+    /// `lhs = rhs`. rhs can be omitted. main_token is `=`.
     equals,
-    /// `lhs =: rhs`. lhs and rhs can be omitted. main_token is `=:`.
+    /// `lhs =: rhs`. rhs can be omitted. main_token is `=:`.
     equal_assign,
-    /// `lhs ~ rhs`. lhs and rhs can be omitted. main_token is `~`.
+    /// `lhs ~ rhs`. rhs can be omitted. main_token is `~`.
     match,
-    /// `lhs ~: rhs`. lhs and rhs can be omitted. main_token is `~:`.
+    /// `lhs ~: rhs`. rhs can be omitted. main_token is `~:`.
     tilde_assign,
-    /// `lhs , rhs`. lhs and rhs can be omitted. main_token is `,`.
+    /// `lhs , rhs`. rhs can be omitted. main_token is `,`.
     join,
-    /// `lhs ,: rhs`. lhs and rhs can be omitted. main_token is `,:`.
+    /// `lhs ,: rhs`. rhs can be omitted. main_token is `,:`.
     comma_assign,
-    /// `lhs ^ rhs`. lhs and rhs can be omitted. main_token is `^`.
+    /// `lhs ^ rhs`. rhs can be omitted. main_token is `^`.
     fill,
-    /// `lhs ^: rhs`. lhs and rhs can be omitted. main_token is `^:`.
+    /// `lhs ^: rhs`. rhs can be omitted. main_token is `^:`.
     caret_assign,
-    /// `lhs # rhs`. lhs and rhs can be omitted. main_token is `#`.
+    /// `lhs # rhs`. rhs can be omitted. main_token is `#`.
     take,
-    /// `lhs #: rhs`. lhs and rhs can be omitted. main_token is `#:`.
+    /// `lhs #: rhs`. rhs can be omitted. main_token is `#:`.
     hash_assign,
-    /// `lhs _ rhs`. lhs and rhs can be omitted. main_token is `_`.
+    /// `lhs _ rhs`. rhs can be omitted. main_token is `_`.
     drop,
-    /// `lhs _: rhs`. lhs and rhs can be omitted. main_token is `_:`.
+    /// `lhs _: rhs`. rhs can be omitted. main_token is `_:`.
     underscore_assign,
-    /// `lhs $ rhs`. lhs and rhs can be omitted. main_token is `$`.
+    /// `lhs $ rhs`. rhs can be omitted. main_token is `$`.
     cast,
-    /// `lhs $: rhs`. lhs and rhs can be omitted. main_token is `$:`.
+    /// `lhs $: rhs`. rhs can be omitted. main_token is `$:`.
     dollar_assign,
-    /// `lhs ? rhs`. lhs and rhs can be omitted. main_token is `?`.
+    /// `lhs ? rhs`. rhs can be omitted. main_token is `?`.
     find,
-    /// `lhs ?: rhs`. lhs and rhs can be omitted. main_token is `?:`.
+    /// `lhs ?: rhs`. rhs can be omitted. main_token is `?:`.
     question_mark_assign,
-    /// `lhs @ rhs`. lhs and rhs can be omitted. main_token is `@`.
+    /// `lhs @ rhs`. rhs can be omitted. main_token is `@`.
     apply,
-    /// `lhs @: rhs`. lhs and rhs can be omitted. main_token is `@:`.
+    /// `lhs @: rhs`. rhs can be omitted. main_token is `@:`.
     at_assign,
-    /// `lhs . rhs`. lhs and rhs can be omitted. main_token is `.`.
+    /// `lhs . rhs`. rhs can be omitted. main_token is `.`.
     apply_n,
-    /// `lhs .: rhs`. lhs and rhs can be omitted. main_token is `.:`.
+    /// `lhs .: rhs`. rhs can be omitted. main_token is `.:`.
     dot_assign,
-    /// `lhs 0: rhs`. lhs and rhs can be omitted. main_token is `0:`.
+    /// `lhs 0: rhs`. rhs can be omitted. main_token is `0:`.
     file_text,
-    /// `lhs 0:: rhs`. lhs and rhs can be omitted. main_token is `0::`.
+    /// `lhs 0:: rhs`. rhs can be omitted. main_token is `0::`.
     zero_colon_assign,
-    /// `lhs 1: rhs`. lhs and rhs can be omitted. main_token is `1:`.
+    /// `lhs 1: rhs`. rhs can be omitted. main_token is `1:`.
     file_binary,
-    /// `lhs 1:: rhs`. lhs and rhs can be omitted. main_token is `1::`.
+    /// `lhs 1:: rhs`. rhs can be omitted. main_token is `1::`.
     one_colon_assign,
-    /// `lhs 2: rhs`. lhs and rhs can be omitted. main_token is `2:`.
+    /// `lhs 2: rhs`. rhs can be omitted. main_token is `2:`.
     dynamic_load,
 
     /// `lhs rhs`. main_token is unused.

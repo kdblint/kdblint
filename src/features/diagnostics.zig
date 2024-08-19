@@ -5,8 +5,7 @@ const zls = @import("zls");
 const types = zls.types;
 
 const kdb = @import("../kdb.zig");
-const Token = kdb.Token;
-const Node = kdb.Ast.Node;
+const Ast = kdb.Ast;
 const LambdaVisitor = kdb.Ast.AnyVisitor.LambdaVisitor;
 const Server = @import("../Server.zig");
 const DocumentStore = @import("../DocumentStore.zig");
@@ -49,9 +48,25 @@ pub fn generateDiagnostics(server: *Server, arena: std.mem.Allocator, handle: *D
         });
     }
 
-    const visitor = try LambdaVisitor.create(server.allocator);
+    var errors = std.ArrayList(Ast.Error).init(arena);
+    defer errors.deinit();
+    const visitor = try LambdaVisitor.create(server.allocator, &errors);
     defer visitor.destroy(server.allocator);
     tree.visit(visitor.any());
+
+    try diagnostics.ensureUnusedCapacity(arena, errors.items.len);
+    for (errors.items) |err| {
+        var buffer = std.ArrayListUnmanaged(u8){};
+        try tree.renderError(err, buffer.writer(arena).any());
+
+        diagnostics.appendAssumeCapacity(.{
+            .range = offsets.tokenToRange(tree, err.token, server.offset_encoding),
+            .severity = .Error,
+            .code = .{ .string = @tagName(err.tag) },
+            .source = "kdblint",
+            .message = try buffer.toOwnedSlice(arena),
+        });
+    }
 
     const tokenize_ms: f64 = @as(f64, @floatFromInt(tree.tokenize_duration)) / std.time.ns_per_ms;
     const parse_ms: f64 = @as(f64, @floatFromInt(tree.parse_duration)) / std.time.ns_per_ms;
