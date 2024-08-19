@@ -1,7 +1,7 @@
-const TokenIndex = @import("../Ast.zig").TokenIndex;
+const Token = @import("Token.zig");
 
 tag: Tag,
-main_token: TokenIndex,
+main_token: Token.Index,
 data: Data,
 
 pub const Index = u32;
@@ -862,6 +862,14 @@ pub const Lambda = struct {
     body_start: Index,
     /// Index into extra_data.
     body_end: Index,
+    /// Index into extra_data.
+    locals_start: Index,
+    /// Index into extra_data.
+    locals_end: Index,
+    /// Index into extra_data.
+    globals_start: Index,
+    /// Index into extra_data.
+    globals_end: Index,
 };
 
 pub const Iterator = struct {
@@ -870,7 +878,7 @@ pub const Iterator = struct {
 };
 
 pub const Table = struct {
-    /// Index into table_columns.
+    /// Index into strings.
     column_start: Index,
     /// Index into extra_data.
     expr_start: Index,
@@ -891,16 +899,16 @@ pub const Select = struct {
     where: Index,
     /// Index into extra_data.
     by: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     by_columns: Index,
     /// Index into extra_data.
     select: Index,
     /// Index into extra_data.
     select_end: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     select_columns: Index,
     limit: Index,
-    order: TokenIndex,
+    order: Token.Index,
     data: SelectData,
 };
 
@@ -916,13 +924,13 @@ pub const Exec = struct {
     where: Index,
     /// Index into extra_data.
     by: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     by_columns: Index,
     /// Index into extra_data.
     select: Index,
     /// Index into extra_data.
     select_end: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     select_columns: Index,
     data: ExecData,
 };
@@ -933,13 +941,13 @@ pub const Update = struct {
     where: Index,
     /// Index into extra_data.
     by: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     by_columns: Index,
     /// Index into extra_data.
     select: Index,
     /// Index into extra_data.
     select_end: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     select_columns: Index,
 };
 
@@ -953,8 +961,8 @@ pub const DeleteRows = struct {
 
 pub const DeleteColumns = struct {
     from: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     select_columns: Index,
-    /// Index into table_columns.
+    /// Index into strings.
     select_columns_end: Index,
 };

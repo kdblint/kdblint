@@ -3,12 +3,12 @@
 /// Reference to externally-owned data.
 source: [:0]const u8,
 
-tokens: TokenList.Slice,
+tokens: std.MultiArrayList(Token).Slice,
 /// The root AST node is assumed to be index 0. Since there can be no
 /// references to the root node, this means 0 is available to indicate null.
-nodes: NodeList.Slice,
+nodes: std.MultiArrayList(Node).Slice,
 extra_data: []Node.Index,
-table_columns: [][]const u8,
+strings: [][]const u8,
 values: []Value,
 
 errors: []const Error,
@@ -16,11 +16,7 @@ errors: []const Error,
 tokenize_duration: u64,
 parse_duration: u64,
 
-pub const TokenIndex = u32;
 pub const ByteOffset = u32;
-
-pub const TokenList = std.MultiArrayList(Token);
-pub const NodeList = std.MultiArrayList(Node);
 
 pub const Location = struct {
     line: usize,
@@ -33,8 +29,8 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.tokens.deinit(gpa);
     tree.nodes.deinit(gpa);
     gpa.free(tree.extra_data);
-    for (tree.table_columns) |slice| gpa.free(slice);
-    gpa.free(tree.table_columns);
+    for (tree.strings) |slice| gpa.free(slice);
+    gpa.free(tree.strings);
     for (tree.values) |value| value.deinit(gpa);
     gpa.free(tree.values);
     gpa.free(tree.errors);
@@ -65,7 +61,7 @@ pub const ParseSettings = struct {
 /// no more references to any of the tokens or nodes.
 pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allocator.Error!Ast {
     const tokenize_start = diagnostics.now();
-    var tokens = Ast.TokenList{};
+    var tokens = std.MultiArrayList(Token){};
     defer tokens.deinit(gpa);
 
     // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
@@ -106,7 +102,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allo
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
-        .table_columns = try parser.table_columns.toOwnedSlice(gpa),
+        .strings = try parser.strings.toOwnedSlice(gpa),
         .values = try parser.values.toOwnedSlice(gpa),
         .errors = try parser.errors.toOwnedSlice(gpa),
         .tokenize_duration = tokenize_duration,
@@ -130,7 +126,7 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), settings: Render
     return private_render.renderTree(buffer, tree, settings);
 }
 
-pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
+pub fn tokenSlice(tree: Ast, token_index: Token.Index) []const u8 {
     const tags: []Token.Tag = tree.tokens.items(.tag);
     const locs: []Token.Loc = tree.tokens.items(.loc);
 
@@ -219,7 +215,7 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !voi
 
 pub const Error = struct {
     tag: Tag,
-    token: TokenIndex,
+    token: Token.Index,
     extra: union {
         none: void,
         expected_tag: Token.Tag,
@@ -252,9 +248,9 @@ pub const Error = struct {
     };
 };
 
-pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
+pub fn firstToken(tree: Ast, i: Node.Index) Token.Index {
     const tags: []Node.Tag = tree.nodes.items(.tag);
-    const main_tokens: []TokenIndex = tree.nodes.items(.main_token);
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const datas: []Node.Data = tree.nodes.items(.data);
 
     switch (tags[i]) {
@@ -694,9 +690,9 @@ pub fn firstToken(tree: Ast, i: Node.Index) TokenIndex {
     }
 }
 
-pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
+pub fn lastToken(tree: Ast, i: Node.Index) Token.Index {
     const tags: []Node.Tag = tree.nodes.items(.tag);
-    const main_tokens: []TokenIndex = tree.nodes.items(.main_token);
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const datas: []Node.Data = tree.nodes.items(.data);
     const extra_datas = tree.extra_data;
 
@@ -1248,7 +1244,7 @@ pub fn lastToken(tree: Ast, i: Node.Index) TokenIndex {
 pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocator.Error!void {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const tags: []Node.Tag = tree.nodes.items(.tag);
-    const main_tokens: []TokenIndex = tree.nodes.items(.main_token);
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const datas: []Node.Data = tree.nodes.items(.data);
     const extra_datas = tree.extra_data;
     const values = tree.values;
@@ -1278,7 +1274,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
         .table_literal => {
             const table = tree.extraData(datas[i].lhs, Node.Table);
 
-            const columns = tree.table_columns[table.column_start + table.key_len .. table.column_start + table.key_len + table.len];
+            const columns = tree.strings[table.column_start + table.key_len .. table.column_start + table.key_len + table.len];
             const exprs = tree.extra_data[table.expr_start + table.key_len .. table.expr_start + table.key_len + table.len];
 
             if (table.key_len > 0) {
@@ -1290,7 +1286,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
                 var key_flip = std.ArrayList(u8).init(gpa);
                 defer key_flip.deinit();
 
-                const key_columns = tree.table_columns[table.column_start .. table.column_start + table.key_len];
+                const key_columns = tree.strings[table.column_start .. table.column_start + table.key_len];
                 const key_exprs = tree.extra_data[table.expr_start .. table.expr_start + table.key_len];
                 try printTable(tree, key_columns, key_exprs, key_flip.writer(), gpa);
 
@@ -2123,7 +2119,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
 
             var select = std.ArrayList(u8).init(gpa);
             defer select.deinit();
-            const select_slice = tree.table_columns[delete_node.select_columns..delete_node.select_columns_end];
+            const select_slice = tree.strings[delete_node.select_columns..delete_node.select_columns_end];
             if (select_slice.len == 0) {
                 try select.appendSlice("()");
             } else {
@@ -2188,7 +2184,7 @@ fn printTable(tree: Ast, columns: [][]const u8, exprs: []Node.Index, stream: any
 }
 
 fn printColumns(tree: Ast, start: Node.Index, len: usize, stream: anytype) Allocator.Error!void {
-    const columns = tree.table_columns[start .. start + len];
+    const columns = tree.strings[start .. start + len];
     assert(columns.len > 0);
     if (columns.len == 1) {
         try stream.print("(,`{s})", .{columns[0]});
@@ -2253,7 +2249,7 @@ pub fn visit(tree: Ast, visitor: AnyVisitor) void {
     }
 }
 
-fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
+pub fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
     assert(i > 0);
     const tags: []Node.Tag = tree.nodes.items(.tag);
     const datas: []Node.Data = tree.nodes.items(.data);
@@ -2262,20 +2258,19 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
     switch (tags[i]) {
         .root => unreachable,
         .grouped_expression, .implicit_return => |t| {
-            try visitor.visit(t);
             try tree.accept(visitor, datas[i].lhs);
+            try visitor.visit(t, tree, i);
         },
-        .empty_list => |t| try visitor.visit(t),
+        .empty_list => |t| try visitor.visit(t, tree, i),
         .list => |t| {
-            try visitor.visit(t);
             const sub_range = tree.extraData(datas[i].lhs, Node.SubRange);
             for (sub_range.start..sub_range.end) |extra_data_i| {
                 const node_i = extra_datas[extra_data_i];
                 if (node_i > 0) try tree.accept(visitor, node_i);
             }
+            try visitor.visit(t, tree, i);
         },
         .table_literal => |t| {
-            try visitor.visit(t);
             const table = tree.extraData(datas[i].lhs, Node.Table);
 
             const exprs = extra_datas[table.expr_start + table.key_len ..][0..table.len];
@@ -2283,6 +2278,7 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
 
             const key_exprs = extra_datas[table.expr_start..][0..table.key_len];
             for (key_exprs) |expr| try tree.accept(visitor, expr);
+            try visitor.visit(t, tree, i);
         },
         .boolean_literal,
         .boolean_list_literal,
@@ -2323,7 +2319,7 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .time_literal,
         .time_list_literal,
         .identifier,
-        => |t| try visitor.visit(t),
+        => |t| try visitor.visit(t, tree, i),
         .assign,
         .global_assign,
         .add,
@@ -2435,7 +2431,6 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .xprev_infix,
         .xrank_infix,
         => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             if (data.rhs > 0) {
                 try tree.accept(visitor, data.rhs);
@@ -2443,6 +2438,7 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
             } else if (data.lhs > 0) {
                 try tree.accept(visitor, data.lhs);
             }
+            try visitor.visit(t, tree, i);
         },
         .colon,
         .colon_colon,
@@ -2492,12 +2488,12 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        => |t| try visitor.visit(t),
+        => |t| try visitor.visit(t, tree, i),
         .implicit_apply => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             try tree.accept(visitor, data.rhs);
             try tree.accept(visitor, data.lhs);
+            try visitor.visit(t, tree, i);
         },
         .apostrophe,
         .apostrophe_colon,
@@ -2506,11 +2502,11 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .backslash,
         .backslash_colon,
         => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             if (data.lhs > 0) {
                 try tree.accept(visitor, data.lhs);
             }
+            try visitor.visit(t, tree, i);
         },
         .apostrophe_infix,
         .apostrophe_colon_infix,
@@ -2519,33 +2515,36 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .backslash_infix,
         .backslash_colon_infix,
         => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             const iterator = tree.extraData(data.rhs, Node.Iterator);
             try tree.accept(visitor, data.lhs);
             try tree.accept(visitor, iterator.lhs);
             try tree.accept(visitor, iterator.rhs);
+            try visitor.visit(t, tree, i);
         },
         .lambda,
         .lambda_semicolon,
         => |t| {
-            try visitor.visit(t);
-            log.debug("Unsupported tag: {s}", .{@tagName(t)});
+            const data = datas[i];
+            const lambda = tree.extraData(data.lhs, Node.Lambda);
+            for (lambda.body_start..lambda.body_end) |extra_data_i| {
+                try tree.accept(visitor, extra_datas[extra_data_i]);
+            }
+            try visitor.visit(t, tree, i);
         },
         .block => |t| {
-            try visitor.visit(t);
             const sub_range = tree.extraData(datas[i].lhs, Node.SubRange);
             const exprs = extra_datas[sub_range.start..sub_range.end];
             for (exprs) |expr| if (expr > 0) try tree.accept(visitor, expr);
+            try visitor.visit(t, tree, i);
         },
         .call_one => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             if (data.rhs > 0) try tree.accept(visitor, data.rhs);
             try tree.accept(visitor, data.lhs);
+            try visitor.visit(t, tree, i);
         },
         .call => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
             for (sub_range.start..sub_range.end) |extra_data_i| {
@@ -2553,11 +2552,12 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
                 if (node_i > 0) try tree.accept(visitor, node_i);
             }
             try tree.accept(visitor, data.lhs);
+            try visitor.visit(t, tree, i);
         },
         .@"return" => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             try tree.accept(visitor, data.lhs);
+            try visitor.visit(t, tree, i);
         },
         .abs,
         .acos,
@@ -2730,21 +2730,20 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
         .xlog,
         .xprev,
         .xrank,
-        => |t| try visitor.visit(t),
+        => |t| try visitor.visit(t, tree, i),
         .do_one,
         .if_one,
         .while_one,
         => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             try tree.accept(visitor, data.lhs);
             if (data.rhs > 0) try tree.accept(visitor, data.rhs);
+            try visitor.visit(t, tree, i);
         },
         .do,
         .@"if",
         .@"while",
         => |t| {
-            try visitor.visit(t);
             const data = datas[i];
             try tree.accept(visitor, data.lhs);
             const sub_range = tree.extraData(data.rhs, Node.SubRange);
@@ -2752,9 +2751,9 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
                 const node_i = extra_datas[extra_data_i];
                 if (node_i > 0) try tree.accept(visitor, node_i);
             }
+            try visitor.visit(t, tree, i);
         },
         .select => |t| {
-            try visitor.visit(t);
             const select_node = tree.extraData(datas[i].lhs, Node.Select);
             try tree.accept(visitor, select_node.from);
             const where_slice = extra_datas[select_node.where..select_node.by];
@@ -2764,9 +2763,9 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
             const select_slice = extra_datas[select_node.select..select_node.select_end];
             for (select_slice) |select| try tree.accept(visitor, select);
             if (select_node.limit > 0) try tree.accept(visitor, select_node.limit);
+            try visitor.visit(t, tree, i);
         },
         .exec => |t| {
-            try visitor.visit(t);
             const exec_node = tree.extraData(datas[i].lhs, Node.Exec);
             try tree.accept(visitor, exec_node.from);
             const where_slice = extra_datas[exec_node.where..exec_node.by];
@@ -2775,9 +2774,9 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
             for (by_slice) |by| try tree.accept(visitor, by);
             const select_slice = extra_datas[exec_node.select..exec_node.select_end];
             for (select_slice) |select| try tree.accept(visitor, select);
+            try visitor.visit(t, tree, i);
         },
         .update => |t| {
-            try visitor.visit(t);
             const update_node = tree.extraData(datas[i].lhs, Node.Update);
             try tree.accept(visitor, update_node.from);
             const where_slice = extra_datas[update_node.where..update_node.by];
@@ -2786,24 +2785,25 @@ fn accept(tree: Ast, visitor: AnyVisitor, i: Node.Index) !void {
             for (by_slice) |by| try tree.accept(visitor, by);
             const select_slice = extra_datas[update_node.select..update_node.select_end];
             for (select_slice) |select| try tree.accept(visitor, select);
+            try visitor.visit(t, tree, i);
         },
         .delete_rows => |t| {
-            try visitor.visit(t);
             const delete_node = tree.extraData(datas[i].lhs, Node.DeleteRows);
             try tree.accept(visitor, delete_node.from);
             const where_slice = extra_datas[delete_node.where..delete_node.where_end];
             for (where_slice) |where| try tree.accept(visitor, where);
+            try visitor.visit(t, tree, i);
         },
         .delete_cols => |t| {
-            try visitor.visit(t);
             const delete_node = tree.extraData(datas[i].lhs, Node.DeleteColumns);
             try tree.accept(visitor, delete_node.from);
+            try visitor.visit(t, tree, i);
         },
         .os,
         .current_directory,
         .change_directory,
         .load_file_or_directory,
-        => |t| try visitor.visit(t),
+        => |t| try visitor.visit(t, tree, i),
     }
 }
 
@@ -2818,11 +2818,11 @@ pub fn debug(tree: Ast, gpa: Allocator) !void {
 }
 
 pub const Node = @import("ast/Node.zig");
+pub const Token = @import("ast/Token.zig");
 pub const AnyVisitor = @import("ast/AnyVisitor.zig");
 
 const std = @import("std");
 const kdb = @import("../kdb.zig");
-const Token = kdb.Token;
 const Tokenizer = kdb.Tokenizer;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
