@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 
 const kdb = @import("../../kdb.zig");
 const Ast = kdb.Ast;
-const Token = kdb.Token;
+const Token = Ast.Token;
 const Tokenizer = kdb.Tokenizer;
 const Parse = @import("../Parse.zig");
 const utils = @import("utils.zig");

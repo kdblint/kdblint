@@ -5,7 +5,8 @@ const Allocator = std.mem.Allocator;
 const meta = std.meta;
 const kdb = @import("../kdb.zig");
 const Ast = kdb.Ast;
-const Token = kdb.Token;
+const Token = Ast.Token;
+const Node = Ast.Node;
 const primitives = kdb.primitives;
 const panic = std.debug.panic;
 const Value = @import("parser/number_parser.zig").Value;
@@ -23,7 +24,7 @@ const Render = struct {
     gpa: Allocator,
     ais: *Ais,
     tree: Ast,
-    prev_token: Ast.TokenIndex,
+    prev_token: Token.Index,
     settings: RenderSettings,
 };
 
@@ -56,7 +57,7 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSetting
     }
 }
 
-fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
+fn renderBlocks(r: *Render, blocks: []const Node.Index) Error!void {
     const tree = r.tree;
     const locs: []Token.Loc = tree.tokens.items(.loc);
 
@@ -72,11 +73,11 @@ fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
     }
 }
 
-fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
+fn renderBlock(r: *Render, decl: Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const node_tags: []Node.Tag = tree.nodes.items(.tag);
+    const datas: []Node.Data = tree.nodes.items(.data);
 
     ais.indent_count = 0;
     ais.indent_next_line = 0;
@@ -88,13 +89,13 @@ fn renderBlock(r: *Render, decl: Ast.Node.Index, space: Space) Error!void {
 }
 
 // TODO: Render comments in weird places.
-fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+fn renderExpression(r: *Render, node: Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
-    const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
-    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
+    const node_tags: []Node.Tag = tree.nodes.items(.tag);
+    const datas: []Node.Data = tree.nodes.items(.data);
 
     switch (node_tags[node]) {
         .root => unreachable,
@@ -116,7 +117,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const data = datas[node];
 
             try renderToken(r, main_tokens[node], .none);
-            const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+            const sub_range = tree.extraData(data.lhs, Node.SubRange);
             const exprs = tree.extra_data[sub_range.start..sub_range.end];
             try renderExpression(r, exprs[0], .none);
             for (exprs[1..]) |expr| {
@@ -127,10 +128,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
         .table_literal => {
             const data = datas[node];
-            const table = tree.extraData(data.lhs, Ast.Node.Table);
+            const table = tree.extraData(data.lhs, Node.Table);
 
             try renderToken(r, main_tokens[node], .none);
-            const key_columns = tree.table_columns[table.column_start .. table.column_start + table.key_len];
+            const key_columns = tree.strings[table.column_start .. table.column_start + table.key_len];
             const key_exprs = tree.extra_data[table.expr_start .. table.expr_start + table.key_len];
             try ais.writer().writeByte('[');
             if (key_columns.len > 0) {
@@ -145,7 +146,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 }
             }
             try ais.writer().writeByte(']');
-            const columns = tree.table_columns[table.column_start + table.key_len .. table.column_start + table.key_len + table.len];
+            const columns = tree.strings[table.column_start + table.key_len .. table.column_start + table.key_len + table.len];
             const exprs = tree.extra_data[table.expr_start + table.key_len .. table.expr_start + table.key_len + table.len];
             try ais.writer().writeAll(columns[0]);
             try ais.writer().writeByte(':');
@@ -590,7 +591,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .backslash_colon_infix,
         => {
             const data = datas[node];
-            const iterator = tree.extraData(data.rhs, Ast.Node.Iterator);
+            const iterator = tree.extraData(data.rhs, Node.Iterator);
 
             try renderExpression(r, iterator.lhs, .none);
             try renderExpression(r, data.lhs, .none);
@@ -616,7 +617,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const data = datas[node];
 
             try renderToken(r, main_tokens[node], .none);
-            const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+            const sub_range = tree.extraData(data.lhs, Node.SubRange);
             const exprs = tree.extra_data[sub_range.start..sub_range.end];
             if (exprs.len > 0) {
                 if (exprs[0] > 0) try renderExpression(r, exprs[0], .none);
@@ -640,7 +641,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
         .call => {
             const data = datas[node];
-            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
             const exprs = tree.extra_data[sub_range.start..sub_range.end];
 
             try renderExpression(r, data.lhs, .none);
@@ -942,7 +943,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderToken(r, main_tokens[node], .none);
             try ais.writer().writeByte('[');
             try renderExpression(r, data.lhs, .semicolon);
-            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const sub_range = tree.extraData(data.rhs, Node.SubRange);
             const exprs = tree.extra_data[sub_range.start..sub_range.end];
             try renderExpression(r, exprs[0], .none);
             for (exprs[1..]) |expr| {
@@ -956,7 +957,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .select => {
             const data = datas[node];
-            const select = tree.extraData(data.lhs, Ast.Node.Select);
+            const select = tree.extraData(data.lhs, Node.Select);
 
             try renderToken(r, main_tokens[node], if (select.limit > 0 or select.order > 0) .none else .space);
 
@@ -978,7 +979,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             const column_exprs = tree.extra_data[select.select..select.select_end];
             if (column_exprs.len > 0) {
-                const column_names = tree.table_columns[select.select_columns .. select.select_columns + column_exprs.len];
+                const column_names = tree.strings[select.select_columns .. select.select_columns + column_exprs.len];
                 for (column_names[0 .. column_names.len - 1], column_exprs[0 .. column_exprs.len - 1]) |column, expr| {
                     try ais.writer().writeAll(column);
                     try ais.writer().writeByte(':');
@@ -993,7 +994,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const by_exprs = tree.extra_data[select.by..select.select];
             if (by_exprs.len > 0) {
                 try ais.writer().writeAll("by ");
-                const by_names = tree.table_columns[select.by_columns .. select.by_columns + by_exprs.len];
+                const by_names = tree.strings[select.by_columns .. select.by_columns + by_exprs.len];
                 for (by_names[0 .. by_names.len - 1], by_exprs[0 .. by_exprs.len - 1]) |column, expr| {
                     try ais.writer().writeAll(column);
                     try ais.writer().writeByte(':');
@@ -1020,14 +1021,14 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
         .exec => {
             const data = datas[node];
-            const exec = tree.extraData(data.lhs, Ast.Node.Exec);
+            const exec = tree.extraData(data.lhs, Node.Exec);
 
             try renderToken(r, main_tokens[node], .space);
 
             const column_exprs = tree.extra_data[exec.select..exec.select_end];
             if (column_exprs.len > 0) {
                 if (exec.data.has_select_columns) {
-                    const column_names = tree.table_columns[exec.select_columns .. exec.select_columns + column_exprs.len];
+                    const column_names = tree.strings[exec.select_columns .. exec.select_columns + column_exprs.len];
                     for (column_names[0 .. column_names.len - 1], column_exprs[0 .. column_exprs.len - 1]) |column, expr| {
                         try ais.writer().writeAll(column);
                         try ais.writer().writeByte(':');
@@ -1050,7 +1051,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             if (by_exprs.len > 0) {
                 try ais.writer().writeAll("by ");
                 if (exec.data.has_by_columns) {
-                    const by_names = tree.table_columns[exec.by_columns .. exec.by_columns + by_exprs.len];
+                    const by_names = tree.strings[exec.by_columns .. exec.by_columns + by_exprs.len];
                     for (by_names[0 .. by_names.len - 1], by_exprs[0 .. by_exprs.len - 1]) |column, expr| {
                         try ais.writer().writeAll(column);
                         try ais.writer().writeByte(':');
@@ -1083,13 +1084,13 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
         .update => {
             const data = datas[node];
-            const update = tree.extraData(data.lhs, Ast.Node.Update);
+            const update = tree.extraData(data.lhs, Node.Update);
 
             try renderToken(r, main_tokens[node], .space);
 
             const column_exprs = tree.extra_data[update.select..update.select_end];
             if (column_exprs.len > 0) {
-                const column_names = tree.table_columns[update.select_columns .. update.select_columns + column_exprs.len];
+                const column_names = tree.strings[update.select_columns .. update.select_columns + column_exprs.len];
                 for (column_names[0 .. column_names.len - 1], column_exprs[0 .. column_exprs.len - 1]) |column, expr| {
                     try ais.writer().writeAll(column);
                     try ais.writer().writeByte(':');
@@ -1104,7 +1105,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const by_exprs = tree.extra_data[update.by..update.select];
             if (by_exprs.len > 0) {
                 try ais.writer().writeAll("by ");
-                const by_names = tree.table_columns[update.by_columns .. update.by_columns + by_exprs.len];
+                const by_names = tree.strings[update.by_columns .. update.by_columns + by_exprs.len];
                 for (by_names[0 .. by_names.len - 1], by_exprs[0 .. by_exprs.len - 1]) |column, expr| {
                     try ais.writer().writeAll(column);
                     try ais.writer().writeByte(':');
@@ -1131,7 +1132,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
         .delete_rows => {
             const data = datas[node];
-            const delete = tree.extraData(data.lhs, Ast.Node.DeleteRows);
+            const delete = tree.extraData(data.lhs, Node.DeleteRows);
 
             try renderToken(r, main_tokens[node], .space);
 
@@ -1151,11 +1152,11 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
         .delete_cols => {
             const data = datas[node];
-            const delete = tree.extraData(data.lhs, Ast.Node.DeleteColumns);
+            const delete = tree.extraData(data.lhs, Node.DeleteColumns);
 
             try renderToken(r, main_tokens[node], .space);
 
-            const columns = tree.table_columns[delete.select_columns..delete.select_columns_end];
+            const columns = tree.strings[delete.select_columns..delete.select_columns_end];
             try ais.writer().writeAll(columns[0]);
             for (columns[1..]) |column| {
                 try ais.writer().writeByte(',');
@@ -1187,15 +1188,15 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     }
 }
 
-fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Tag, node: Ast.Node.Index, space: Space) !void {
+fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Node.Tag, node: Node.Index, space: Space) !void {
     const tree = r.tree;
-    const main_tokens: []Ast.TokenIndex = tree.nodes.items(.main_token);
-    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
+    const datas: []Node.Data = tree.nodes.items(.data);
 
     try renderToken(r, main_tokens[node], .none);
 
     const data = datas[node];
-    const lambda = tree.extraData(data.lhs, Ast.Node.Lambda);
+    const lambda = tree.extraData(data.lhs, Node.Lambda);
     const params = tree.extra_data[lambda.params_start..lambda.params_end];
     switch (params.len) {
         0 => {},
@@ -1229,7 +1230,7 @@ fn renderLambda(r: *Render, comptime multi_line: bool, comptime tag: Ast.Node.Ta
     try renderToken(r, data.rhs, space);
 }
 
-fn nextTag(r: *Render, comptime expected_tag: Token.Tag) ?Ast.TokenIndex {
+fn nextTag(r: *Render, comptime expected_tag: Token.Tag) ?Token.Index {
     const token_tags: []Token.Tag = r.tree.tokens.items(.tag);
     var i = r.prev_token + 1;
     while (true) : (i += 1) {
@@ -1241,7 +1242,7 @@ fn nextTag(r: *Render, comptime expected_tag: Token.Tag) ?Ast.TokenIndex {
     }
 }
 
-fn renderToken(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void {
+fn renderToken(r: *Render, token_index: Token.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const lexeme = tree.tokenSlice(token_index);
@@ -1250,14 +1251,14 @@ fn renderToken(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void
     r.prev_token = token_index;
 }
 
-fn renderValue(r: *Render, value: Value, token_index: Ast.TokenIndex, space: Space) Error!void {
+fn renderValue(r: *Render, value: Value, token_index: Token.Index, space: Space) Error!void {
     const ais = r.ais;
     try ais.writer().print("{}", .{value});
     try renderSpace(r, token_index, space);
     r.prev_token = token_index;
 }
 
-fn renderSpace(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void {
+fn renderSpace(r: *Render, token_index: Token.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
@@ -1332,7 +1333,7 @@ const Space = enum {
 
 /// Assumes that start is the first byte past the previous token and
 /// that end is the last byte before the next token.
-fn renderComments(r: *Render, token: Ast.TokenIndex) Error!bool {
+fn renderComments(r: *Render, token: Token.Index) Error!bool {
     const tree = r.tree;
     const ais = r.ais;
     const tags: []Token.Tag = tree.tokens.items(.tag);
@@ -1368,12 +1369,12 @@ fn renderComments(r: *Render, token: Ast.TokenIndex) Error!bool {
     return i > token;
 }
 
-fn renderExtraNewline(r: *Render, node: Ast.Node.Index) Error!void {
+fn renderExtraNewline(r: *Render, node: Node.Index) Error!void {
     return renderExtraNewlineToken(r, r.tree.firstToken(node));
 }
 
 /// Check if there is an empty line immediately before the given token. If so, render it.
-fn renderExtraNewlineToken(r: *Render, token_index: Ast.TokenIndex) Error!void {
+fn renderExtraNewlineToken(r: *Render, token_index: Token.Index) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_locs: []Token.Loc = tree.tokens.items(.loc);

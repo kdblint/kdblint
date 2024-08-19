@@ -9,17 +9,23 @@ token_locs: []const Token.Loc,
 token_eobs: []const bool,
 version: Ast.Version,
 language: Ast.Language,
-tok_i: TokenIndex = 0,
+tok_i: Token.Index = 0,
 eob: bool = false,
+in_lambda: bool = false,
 ends_expr_tags: std.ArrayListUnmanaged(Token.Tag) = .{},
 ends_sql_expr_identifiers: std.ArrayListUnmanaged(?SqlIdentifier) = .{},
 errors: std.ArrayListUnmanaged(AstError) = .{},
-nodes: Ast.NodeList = .{},
+nodes: std.MultiArrayList(Node) = .{},
 extra_data: std.ArrayListUnmanaged(Node.Index) = .{},
-table_columns: std.ArrayListUnmanaged([]const u8) = .{},
+strings: std.ArrayListUnmanaged([]const u8) = .{},
+locals: std.ArrayListUnmanaged(Token.Index) = .{},
+globals: std.ArrayListUnmanaged(Token.Index) = .{},
 values: std.ArrayListUnmanaged(Value) = .{},
 scratch: std.ArrayListUnmanaged(Node.Index) = .{},
-table_scratch: std.ArrayListUnmanaged([]const u8) = .{},
+strings_scratch: std.ArrayListUnmanaged([]const u8) = .{},
+params_scratch: std.ArrayListUnmanaged(Token.Index) = .{},
+locals_scratch: std.ArrayListUnmanaged(Token.Index) = .{},
+globals_scratch: std.ArrayListUnmanaged(Token.Index) = .{},
 
 pub fn deinit(p: *Parse) void {
     p.ends_expr_tags.deinit(p.gpa);
@@ -27,11 +33,16 @@ pub fn deinit(p: *Parse) void {
     p.errors.deinit(p.gpa);
     p.nodes.deinit(p.gpa);
     p.extra_data.deinit(p.gpa);
-    p.table_columns.deinit(p.gpa);
+    p.strings.deinit(p.gpa);
+    p.locals.deinit(p.gpa);
+    p.globals.deinit(p.gpa);
     for (p.values.items) |value| value.deinit(p.gpa);
     p.values.deinit(p.gpa);
     p.scratch.deinit(p.gpa);
-    p.table_scratch.deinit(p.gpa);
+    p.strings_scratch.deinit(p.gpa);
+    p.params_scratch.deinit(p.gpa);
+    p.locals_scratch.deinit(p.gpa);
+    p.globals_scratch.deinit(p.gpa);
 }
 
 const Blocks = struct {
@@ -79,10 +90,10 @@ pub fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
 
 fn listToTable(p: *Parse, columns: [][]const u8, list: []const Node.Index, key_len: u32) !Node.Table {
     assert(columns.len == list.len);
-    try p.table_columns.appendSlice(p.gpa, columns);
+    try p.strings.appendSlice(p.gpa, columns);
     try p.extra_data.appendSlice(p.gpa, list);
     return Node.Table{
-        .column_start = @intCast(p.table_columns.items.len - columns.len),
+        .column_start = @intCast(p.strings.items.len - columns.len),
         .expr_start = @intCast(p.extra_data.items.len - list.len),
         .key_len = key_len,
         .len = @intCast(list.len - key_len),
@@ -114,9 +125,9 @@ fn addList(p: *Parse, list: []Node.Index) Allocator.Error!Node.Index {
     return @intCast(p.extra_data.items.len - list.len);
 }
 
-fn addColumnList(p: *Parse, list: [][]const u8) Allocator.Error!Node.Index {
-    try p.table_columns.appendSlice(p.gpa, list);
-    return @intCast(p.table_columns.items.len - list.len);
+fn addStringList(p: *Parse, list: [][]const u8) Allocator.Error!Node.Index {
+    try p.strings.appendSlice(p.gpa, list);
+    return @intCast(p.strings.items.len - list.len);
 }
 
 pub fn addValue(p: *Parse, value: Value) Allocator.Error!Node.Index {
@@ -161,6 +172,11 @@ pub fn failMsg(p: *Parse, msg: Ast.Error) Error {
     @setCold(true);
     try p.warnMsg(msg);
     return error.ParseError;
+}
+
+fn tokenSlice(p: *Parse, token: Token.Index) []const u8 {
+    const loc = p.token_locs[token];
+    return p.source[loc.start..loc.end];
 }
 
 pub fn parseRoot(p: *Parse) Allocator.Error!void {
@@ -262,18 +278,18 @@ fn expectExpr(p: *Parse, comptime tag: Token.Tag) Error!Node.Index {
     }
 }
 
-fn parseSqlExpr(p: *Parse, comptime identifier: SqlIdentifier) Error!Node.Index {
+fn parseSqlExpr(p: *Parse, comptime sql_identifier: SqlIdentifier) Error!Node.Index {
     try p.ends_expr_tags.append(p.gpa, .semicolon);
     defer _ = p.ends_expr_tags.pop();
 
-    try p.ends_sql_expr_identifiers.append(p.gpa, identifier);
+    try p.ends_sql_expr_identifiers.append(p.gpa, sql_identifier);
     defer _ = p.ends_sql_expr_identifiers.pop();
 
     return p.parsePrecedence(.secondary);
 }
 
-fn expectSqlExpr(p: *Parse, comptime identifier: SqlIdentifier) Error!Node.Index {
-    const node = try p.parseSqlExpr(identifier);
+fn expectSqlExpr(p: *Parse, comptime sql_identifier: SqlIdentifier) Error!Node.Index {
+    const node = try p.parseSqlExpr(sql_identifier);
     if (node == 0) {
         return p.fail(.expected_expr);
     } else {
@@ -293,9 +309,16 @@ fn NoOp(comptime eat_token: bool) *const fn (*Parse) Error!Node.Index {
 fn Prefix(comptime tag: Node.Tag) *const fn (*Parse) Error!Node.Index {
     return struct {
         fn impl(p: *Parse) Error!Node.Index {
+            const main_token = p.nextToken();
+            switch (tag) {
+                .identifier => {
+                    if (p.in_lambda) try p.globals_scratch.append(p.gpa, main_token);
+                },
+                else => {},
+            }
             const lhs = try p.addNode(.{
                 .tag = tag,
-                .main_token = p.nextToken(),
+                .main_token = main_token,
                 .data = .{
                     .lhs = undefined,
                     .rhs = undefined,
@@ -340,12 +363,18 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
             switch (tag) {
                 .assign => {
                     const prev_tag = p.nodes.items(.tag)[lhs];
-                    if (prev_tag != .identifier) {
-                        return p.failMsg(.{
+                    switch (prev_tag) {
+                        .identifier => {
+                            if (p.in_lambda) {
+                                const main_token: Token.Index = p.nodes.items(.main_token)[lhs];
+                                try p.locals_scratch.append(p.gpa, main_token);
+                            }
+                        },
+                        else => return p.failMsg(.{
                             .tag = .expected_token,
                             .token = p.nodes.items(.main_token)[lhs],
                             .extra = .{ .expected_tag = .identifier },
-                        });
+                        }),
                     }
                 },
                 else => {},
@@ -451,12 +480,12 @@ fn grouping(p: *Parse) Error!Node.Index {
     }
 }
 
-fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
+fn addTable(p: *Parse, l_paren: Token.Index) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.table_scratch.items.len;
-    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+    const strings_scratch_top = p.strings_scratch.items.len;
+    defer p.strings_scratch.shrinkRetainingCapacity(strings_scratch_top);
 
     if (p.peekTag() != .r_bracket) {
         var key_hash_map = std.StringHashMap(u32).init(p.gpa);
@@ -464,14 +493,14 @@ fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
 
         while (true) {
             if (p.eob) return p.failExpected(.r_bracket);
-            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
-                const identifier = p.assertToken(.identifier);
+            const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+                const identifier_token = p.assertToken(.identifier);
                 _ = p.assertToken(.colon);
-                break :blk identifier;
+                break :blk identifier_token;
             } else 0;
             const expr = try p.expectExpr(.r_bracket);
             try p.scratch.append(p.gpa, expr);
-            try p.addTableColumn(identifier, expr, &key_hash_map);
+            try p.addTableColumn(identifier_token, expr, &key_hash_map);
             switch (p.peekTag()) {
                 .semicolon => _ = p.nextToken(),
                 .r_bracket => break,
@@ -489,14 +518,14 @@ fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
 
     while (true) {
         if (p.eob) return p.failExpected(.r_paren);
-        const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
-            const identifier = p.assertToken(.identifier);
+        const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+            const identifier_token = p.assertToken(.identifier);
             _ = p.assertToken(.colon);
-            break :blk identifier;
+            break :blk identifier_token;
         } else 0;
         const expr = try p.expectExpr(.r_paren);
         try p.scratch.append(p.gpa, expr);
-        try p.addTableColumn(identifier, expr, &hash_map);
+        try p.addTableColumn(identifier_token, expr, &hash_map);
         switch (p.peekTag()) {
             .semicolon => _ = p.nextToken(),
             .r_paren => break,
@@ -505,7 +534,7 @@ fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
     }
     const r_paren = p.assertToken(.r_paren);
 
-    const columns = p.table_scratch.items[table_scratch_top..];
+    const columns = p.strings_scratch.items[strings_scratch_top..];
     const expressions = p.scratch.items[scratch_top..];
     return p.addNode(.{
         .tag = .table_literal,
@@ -517,17 +546,11 @@ fn addTable(p: *Parse, l_paren: TokenIndex) Error!Node.Index {
     });
 }
 
-fn addTableColumn(p: *Parse, identifier: TokenIndex, expr: Node.Index, existing_columns: *std.StringHashMap(u32)) Error!void {
-    var source = if (identifier == 0) blk: {
-        if (p.findFirstIdentifier(expr)) |token_i| {
-            const loc = p.token_locs[token_i];
-            break :blk p.source[loc.start..loc.end];
-        }
-        break :blk "x";
-    } else blk: {
-        const loc = p.token_locs[identifier];
-        break :blk p.source[loc.start..loc.end];
-    };
+fn addTableColumn(p: *Parse, identifier_token: Token.Index, expr: Node.Index, existing_columns: *std.StringHashMap(u32)) Error!void {
+    var source = if (identifier_token == 0)
+        if (p.findFirstIdentifier(expr)) |token_i| p.tokenSlice(token_i) else "x"
+    else
+        p.tokenSlice(identifier_token);
 
     const a = try existing_columns.getOrPut(source);
     if (a.found_existing) {
@@ -539,7 +562,7 @@ fn addTableColumn(p: *Parse, identifier: TokenIndex, expr: Node.Index, existing_
     }
     errdefer p.gpa.free(source); // TODO: leak
 
-    try p.table_scratch.append(p.gpa, source);
+    try p.strings_scratch.append(p.gpa, source);
 }
 
 fn extraData(p: Parse, index: usize, comptime T: type) T {
@@ -552,7 +575,7 @@ fn extraData(p: Parse, index: usize, comptime T: type) T {
     return result;
 }
 
-fn findFirstIdentifier(p: *Parse, i: Node.Index) ?TokenIndex {
+fn findFirstIdentifier(p: *Parse, i: Node.Index) ?Token.Index {
     const tag: Node.Tag = p.nodes.items(.tag)[i];
     switch (tag) {
         .grouped_expression,
@@ -1012,19 +1035,19 @@ fn lambda(p: *Parse) Error!Node.Index {
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
+    const params_top = p.params_scratch.items.len;
+    defer p.params_scratch.shrinkRetainingCapacity(params_top);
 
-    if (p.eatToken(.l_bracket)) |l_bracket| {
-        try p.scratch.append(p.gpa, l_bracket);
+    if (p.eatToken(.l_bracket)) |_| {
         if (p.peekTag() != .r_bracket) {
             while (true) {
-                const identifier = try p.expectToken(.identifier);
-                try p.scratch.append(p.gpa, identifier);
+                const identifier_token = try p.expectToken(.identifier);
+                try p.params_scratch.append(p.gpa, identifier_token);
                 if (p.eatToken(.semicolon)) |_| continue;
                 break;
             }
         }
-        const r_bracket = try p.expectToken(.r_bracket);
-        try p.scratch.append(p.gpa, r_bracket);
+        _ = try p.expectToken(.r_bracket);
 
         // Ensure there is whitespace between r_bracket and negative number.
         if (p.language == .q and p.peekTag() == .number_literal) {
@@ -1035,16 +1058,20 @@ fn lambda(p: *Parse) Error!Node.Index {
         }
     }
 
-    const body_top = p.scratch.items.len;
+    const locals_top = p.locals_scratch.items.len;
+    const globals_top = p.globals_scratch.items.len;
+    defer p.globals_scratch.shrinkRetainingCapacity(globals_top);
+
+    const prev = p.in_lambda;
+    p.in_lambda = true;
+    defer p.in_lambda = prev;
 
     while (true) {
         if (p.eob) return p.failExpected(.r_brace);
         if (p.peekTag() == .r_brace) break;
         if (p.eatToken(.semicolon)) |_| continue;
         const expr = try p.parseExpr(.r_brace);
-        if (expr > 0) {
-            try p.scratch.append(p.gpa, expr);
-        }
+        if (expr > 0) try p.scratch.append(p.gpa, expr);
     }
     const r_brace = try p.expectToken(.r_brace);
 
@@ -1054,13 +1081,86 @@ fn lambda(p: *Parse) Error!Node.Index {
     }
     const semicolon = p.token_tags[i] == .semicolon;
 
-    const params = try p.listToSpan(p.scratch.items[scratch_top..body_top]);
-    const body = try p.listToSpan(p.scratch.items[body_top..]);
+    var locals_hash_map = std.StringHashMap(void).init(p.gpa);
+    defer locals_hash_map.deinit();
+
+    var params_list = std.ArrayList(Token.Index).init(p.gpa);
+    defer params_list.deinit();
+
+    // Params
+    if (params_top == p.params_scratch.items.len) {
+        var params_count: u32 = 1;
+        for (p.globals_scratch.items[globals_top..]) |global| {
+            const slice = p.tokenSlice(global);
+            if (slice.len == 1) {
+                switch (slice[0]) {
+                    'z' => {
+                        params_count = 3;
+                        break;
+                    },
+                    'y' => params_count = 2,
+                    else => {},
+                }
+            }
+        }
+
+        try params_list.appendNTimes(0, params_count);
+        try locals_hash_map.put("x", {});
+        switch (params_count) {
+            1 => {},
+            2 => try locals_hash_map.put("y", {}),
+            3 => {
+                try locals_hash_map.put("y", {});
+                try locals_hash_map.put("z", {});
+            },
+            else => unreachable,
+        }
+    } else {
+        for (p.params_scratch.items[params_top..]) |param| {
+            const gop = try locals_hash_map.getOrPut(p.tokenSlice(param));
+            if (!gop.found_existing) try params_list.append(param);
+        }
+    }
+
+    // Local variables
+    var locals_list = std.ArrayList(Token.Index).init(p.gpa);
+    defer locals_list.deinit();
+    for (p.locals_scratch.items[locals_top..]) |local| {
+        const gop = try locals_hash_map.getOrPut(p.tokenSlice(local));
+        if (!gop.found_existing) try locals_list.append(local);
+    }
+
+    // Global variables
+    var globals_hash_map = std.StringHashMap(void).init(p.gpa);
+    defer globals_hash_map.deinit();
+    var globals_list = std.ArrayList(Token.Index).init(p.gpa);
+    defer globals_list.deinit();
+    for (p.globals_scratch.items[globals_top..]) |global| {
+        const slice = p.tokenSlice(global);
+        if (locals_hash_map.contains(slice)) continue;
+        const gop = try globals_hash_map.getOrPut(slice);
+        if (!gop.found_existing) try globals_list.append(global);
+    }
+
+    log.debug("params: {d}, locals: {d}, globals: {d}", .{
+        params_list.items.len,
+        locals_list.items.len,
+        globals_list.items.len,
+    });
+
+    const params = try p.listToSpan(params_list.items);
+    const body = try p.listToSpan(p.scratch.items[scratch_top..]);
+    const locals = try p.listToSpan(locals_list.items);
+    const globals = try p.listToSpan(globals_list.items);
     const lambda_node = Node.Lambda{
         .params_start = params.start,
         .params_end = params.end,
         .body_start = body.start,
         .body_end = body.end,
+        .locals_start = locals.start,
+        .locals_end = locals.end,
+        .globals_start = globals.start,
+        .globals_end = globals.end,
     };
     return p.addNode(.{
         .tag = if (semicolon) .lambda_semicolon else .lambda,
@@ -1104,7 +1204,7 @@ fn block(p: *Parse) Error!Node.Index {
 }
 
 fn string(p: *Parse) Error!Node.Index {
-    const token: TokenIndex = p.peekToken();
+    const token: Token.Index = p.peekToken();
     const loc = p.token_locs[token];
     const len = loc.end - loc.start;
 
@@ -1140,8 +1240,7 @@ fn os(p: *Parse) Error!Node.Index {
         return p.fail(.os_expects_all_tokens_on_same_line);
     }
 
-    const loc = p.token_locs[main_token];
-    const source = p.source[loc.start..loc.end][1..];
+    const source = p.tokenSlice(main_token)[1..];
     return switch (source.len) {
         0 => null,
         1 => switch (source[0]) {
@@ -1159,18 +1258,18 @@ fn os(p: *Parse) Error!Node.Index {
     } orelse p.osInternal(.os, main_token, params);
 }
 
-fn changeDirectory(p: *Parse, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
+fn changeDirectory(p: *Parse, main_token: Token.Index, params: []Token.Index) Error!Node.Index {
     assert(params.len > 0);
     return p.osInternal(.change_directory, main_token, params);
 }
 
-fn loadFileOrDirectory(p: *Parse, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
+fn loadFileOrDirectory(p: *Parse, main_token: Token.Index, params: []Token.Index) Error!Node.Index {
     if (params.len == 0) return p.failExpected(.os_param);
 
     return p.osInternal(.load_file_or_directory, main_token, params);
 }
 
-fn osInternal(p: *Parse, comptime tag: Node.Tag, main_token: TokenIndex, params: []TokenIndex) Error!Node.Index {
+fn osInternal(p: *Parse, comptime tag: Node.Tag, main_token: Token.Index, params: []Token.Index) Error!Node.Index {
     return p.addNode(.{
         .tag = tag,
         .main_token = main_token,
@@ -1353,8 +1452,8 @@ fn select(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.table_scratch.items.len;
-    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+    const strings_scratch_top = p.strings_scratch.items.len;
+    defer p.strings_scratch.shrinkRetainingCapacity(strings_scratch_top);
 
     var hash_map = std.StringHashMap(u32).init(p.gpa);
     defer hash_map.deinit();
@@ -1363,7 +1462,7 @@ fn select(p: *Parse) Error!Node.Index {
     var distinct = false;
     var ascending = false;
     var limit_expr: Node.Index = 0;
-    var order_tok: TokenIndex = 0;
+    var order_tok: Token.Index = 0;
     if (p.peekTag() == .keyword_q_distinct) {
         var found_by = false;
         var counter = struct {
@@ -1444,19 +1543,19 @@ fn select(p: *Parse) Error!Node.Index {
 
     // Select phrase
     const select_top = p.scratch.items.len;
-    const select_columns_top = p.table_scratch.items.len;
+    const select_columns_top = p.strings_scratch.items.len;
     if (p.peekIdentifier(.{ .by = true, .from = true }) == null) {
         while (true) {
             if (p.eob) return p.fail(.expected_from);
-            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+            const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
                 if (p.peekIdentifier(.{ .by = true, .from = true })) |_| return p.fail(.expected_select_phrase);
-                const identifier = p.assertToken(.identifier);
+                const identifier_token = p.assertToken(.identifier);
                 _ = p.assertToken(.colon);
-                break :blk identifier;
+                break :blk identifier_token;
             } else 0;
             const expr = try p.expectSqlExpr(.{ .by = true, .from = true });
             try p.scratch.append(p.gpa, expr);
-            try p.addTableColumn(identifier, expr, &hash_map);
+            try p.addTableColumn(identifier_token, expr, &hash_map);
             if (p.eatToken(.comma)) |_| continue;
             break;
         }
@@ -1464,20 +1563,20 @@ fn select(p: *Parse) Error!Node.Index {
 
     // By phrase
     const by_top = p.scratch.items.len;
-    const by_columns_top = p.table_scratch.items.len;
+    const by_columns_top = p.strings_scratch.items.len;
     const has_by = p.eatIdentifier(.{ .by = true }) != null;
     if (has_by) {
-        const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+        const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
             if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_by_phrase);
-            const identifier = p.assertToken(.identifier);
+            const identifier_token = p.assertToken(.identifier);
             _ = p.assertToken(.colon);
-            break :blk identifier;
+            break :blk identifier_token;
         } else 0;
-        const expr = try if (identifier > 0) p.expectSqlExpr(.{ .from = true }) else p.parseSqlExpr(.{ .from = true });
+        const expr = try if (identifier_token > 0) p.expectSqlExpr(.{ .from = true }) else p.parseSqlExpr(.{ .from = true });
         if (expr > 0) {
             try p.scratch.append(p.gpa, expr);
             // TODO: Handle duplicates.
-            try p.addTableColumn(identifier, expr, &hash_map);
+            try p.addTableColumn(identifier_token, expr, &hash_map);
             while (p.eatToken(.comma) != null) {
                 if (p.eob) return p.fail(.expected_from);
                 const sql_identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
@@ -1512,10 +1611,10 @@ fn select(p: *Parse) Error!Node.Index {
         .from = from_expr,
         .where = try p.addList(p.scratch.items[where_top..]),
         .by = try p.addList(p.scratch.items[by_top..where_top]),
-        .by_columns = try p.addColumnList(p.table_scratch.items[by_columns_top..]),
+        .by_columns = try p.addStringList(p.strings_scratch.items[by_columns_top..]),
         .select = try p.addList(p.scratch.items[select_top..by_top]),
         .select_end = @intCast(p.extra_data.items.len),
-        .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..by_columns_top]),
+        .select_columns = try p.addStringList(p.strings_scratch.items[select_columns_top..by_columns_top]),
         .limit = limit_expr,
         .order = order_tok,
         .data = .{
@@ -1544,35 +1643,35 @@ fn exec(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.table_scratch.items.len;
-    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+    const strings_scratch_top = p.strings_scratch.items.len;
+    defer p.strings_scratch.shrinkRetainingCapacity(strings_scratch_top);
 
     var hash_map = std.StringHashMap(u32).init(p.gpa);
     defer hash_map.deinit();
 
     const ColumnData = struct {
-        identifier: TokenIndex,
+        identifier: Token.Index,
         expr: Node.Index,
     };
 
     // Select phrase
     const select_top = p.scratch.items.len;
-    const select_columns_top = p.table_scratch.items.len;
+    const select_columns_top = p.strings_scratch.items.len;
     var select_columns = std.ArrayList(ColumnData).init(p.gpa);
     defer select_columns.deinit();
     if (p.peekIdentifier(.{ .by = true, .from = true }) == null) {
         while (true) {
             if (p.eob) return p.fail(.expected_from);
-            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+            const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
                 if (p.peekIdentifier(.{ .by = true, .from = true })) |_| return p.fail(.expected_select_phrase);
-                const identifier = p.assertToken(.identifier);
+                const identifier_token = p.assertToken(.identifier);
                 _ = p.assertToken(.colon);
-                break :blk identifier;
+                break :blk identifier_token;
             } else 0;
             const expr = try p.expectSqlExpr(.{ .by = true, .from = true });
             try p.scratch.append(p.gpa, expr);
             try select_columns.append(.{
-                .identifier = identifier,
+                .identifier = identifier_token,
                 .expr = expr,
             });
             if (p.eatToken(.comma)) |_| continue;
@@ -1586,10 +1685,9 @@ fn exec(p: *Parse) Error!Node.Index {
             const column = select_columns.items[0];
             if (column.identifier > 0) {
                 has_select_columns = true;
-                const loc = p.token_locs[column.identifier];
-                const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
+                const source = try p.gpa.dupe(u8, p.tokenSlice(column.identifier));
                 errdefer p.gpa.free(source); // TODO: leak
-                try p.table_scratch.append(p.gpa, source);
+                try p.strings_scratch.append(p.gpa, source);
             }
         },
         else => {
@@ -1601,22 +1699,22 @@ fn exec(p: *Parse) Error!Node.Index {
 
     // By phrase
     const by_top = p.scratch.items.len;
-    const by_columns_top = p.table_scratch.items.len;
+    const by_columns_top = p.strings_scratch.items.len;
     var by_columns = std.ArrayList(ColumnData).init(p.gpa);
     defer by_columns.deinit();
     if (p.eatIdentifier(.{ .by = true })) |_| {
         while (true) {
             if (p.eob) return p.fail(.expected_from);
-            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+            const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
                 if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_by_phrase);
-                const identifier = p.assertToken(.identifier);
+                const identifier_token = p.assertToken(.identifier);
                 _ = p.assertToken(.colon);
-                break :blk identifier;
+                break :blk identifier_token;
             } else 0;
             const expr = try p.expectSqlExpr(.{ .from = true });
             try p.scratch.append(p.gpa, expr);
             try by_columns.append(.{
-                .identifier = identifier,
+                .identifier = identifier_token,
                 .expr = expr,
             });
             if (p.eatToken(.comma)) |_| continue;
@@ -1630,10 +1728,9 @@ fn exec(p: *Parse) Error!Node.Index {
             const column = by_columns.items[0];
             if (column.identifier > 0) {
                 has_by_columns = true;
-                const loc = p.token_locs[column.identifier];
-                const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
+                const source = try p.gpa.dupe(u8, p.tokenSlice(column.identifier));
                 errdefer p.gpa.free(source); // TODO: leak
-                try p.table_scratch.append(p.gpa, source);
+                try p.strings_scratch.append(p.gpa, source);
             }
         },
         else => {
@@ -1662,10 +1759,10 @@ fn exec(p: *Parse) Error!Node.Index {
         .from = from_expr,
         .where = try p.addList(p.scratch.items[where_top..]),
         .by = try p.addList(p.scratch.items[by_top..where_top]),
-        .by_columns = try p.addColumnList(p.table_scratch.items[by_columns_top..]),
+        .by_columns = try p.addStringList(p.strings_scratch.items[by_columns_top..]),
         .select = try p.addList(p.scratch.items[select_top..by_top]),
         .select_end = @intCast(p.extra_data.items.len),
-        .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..by_columns_top]),
+        .select_columns = try p.addStringList(p.strings_scratch.items[select_columns_top..by_columns_top]),
         .data = .{
             .has_by_columns = has_by_columns,
             .has_select_columns = has_select_columns,
@@ -1691,45 +1788,45 @@ fn update(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.table_scratch.items.len;
-    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+    const strings_scratch_top = p.strings_scratch.items.len;
+    defer p.strings_scratch.shrinkRetainingCapacity(strings_scratch_top);
 
     var hash_map = std.StringHashMap(u32).init(p.gpa);
     defer hash_map.deinit();
 
     // Select phrase
     const select_top = p.scratch.items.len;
-    const select_columns_top = p.table_scratch.items.len;
+    const select_columns_top = p.strings_scratch.items.len;
     while (true) {
         if (p.eob) return p.fail(.expected_from);
-        const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+        const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
             if (p.peekIdentifier(.{ .by = true, .from = true })) |_| return p.fail(.expected_select_phrase);
-            const identifier = p.assertToken(.identifier);
+            const identifier_token = p.assertToken(.identifier);
             _ = p.assertToken(.colon);
-            break :blk identifier;
+            break :blk identifier_token;
         } else 0;
         const expr = try p.expectSqlExpr(.{ .by = true, .from = true });
         try p.scratch.append(p.gpa, expr);
-        try p.addTableColumn(identifier, expr, &hash_map);
+        try p.addTableColumn(identifier_token, expr, &hash_map);
         if (p.eatToken(.comma)) |_| continue;
         break;
     }
 
     // By phrase
     const by_top = p.scratch.items.len;
-    const by_columns_top = p.table_scratch.items.len;
+    const by_columns_top = p.strings_scratch.items.len;
     if (p.eatIdentifier(.{ .by = true })) |_| {
         while (true) {
             if (p.eob) return p.fail(.expected_from);
-            const identifier = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
+            const identifier_token = if (p.peekTag() == .identifier and p.peekNextTag() == .colon) blk: {
                 if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_by_phrase);
-                const identifier = p.assertToken(.identifier);
+                const identifier_token = p.assertToken(.identifier);
                 _ = p.assertToken(.colon);
-                break :blk identifier;
+                break :blk identifier_token;
             } else 0;
             const expr = try p.expectSqlExpr(.{ .from = true });
             try p.scratch.append(p.gpa, expr);
-            try p.addTableColumn(identifier, expr, &hash_map);
+            try p.addTableColumn(identifier_token, expr, &hash_map);
             if (p.eatToken(.comma)) |_| continue;
             break;
         }
@@ -1754,10 +1851,10 @@ fn update(p: *Parse) Error!Node.Index {
         .from = from_expr,
         .where = try p.addList(p.scratch.items[where_top..]),
         .by = try p.addList(p.scratch.items[by_top..where_top]),
-        .by_columns = try p.addColumnList(p.table_scratch.items[by_columns_top..]),
+        .by_columns = try p.addStringList(p.strings_scratch.items[by_columns_top..]),
         .select = try p.addList(p.scratch.items[select_top..by_top]),
         .select_end = @intCast(p.extra_data.items.len),
-        .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..by_columns_top]),
+        .select_columns = try p.addStringList(p.strings_scratch.items[select_columns_top..by_columns_top]),
     };
     return p.addNode(.{
         .tag = .update,
@@ -1781,8 +1878,8 @@ fn delete(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const table_scratch_top = p.table_scratch.items.len;
-    defer p.table_scratch.shrinkRetainingCapacity(table_scratch_top);
+    const strings_scratch_top = p.strings_scratch.items.len;
+    defer p.strings_scratch.shrinkRetainingCapacity(strings_scratch_top);
 
     if (p.eatIdentifier(.{ .from = true })) |_| {
         // From phrase
@@ -1814,15 +1911,14 @@ fn delete(p: *Parse) Error!Node.Index {
         });
     } else {
         // Select phrase
-        const select_columns_top = p.table_scratch.items.len;
+        const select_columns_top = p.strings_scratch.items.len;
         while (true) {
             if (p.eob) return p.fail(.expected_from);
             if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_from);
-            const identifier = try p.expectToken(.identifier);
-            const loc = p.token_locs[identifier];
-            const source = try p.gpa.dupe(u8, p.source[loc.start..loc.end]);
+            const identifier_token = try p.expectToken(.identifier);
+            const source = try p.gpa.dupe(u8, p.tokenSlice(identifier_token));
             errdefer p.gpa.free(source); // TODO: leak
-            try p.table_scratch.append(p.gpa, source);
+            try p.strings_scratch.append(p.gpa, source);
             if (p.eatToken(.comma)) |_| continue;
             break;
         }
@@ -1833,8 +1929,8 @@ fn delete(p: *Parse) Error!Node.Index {
 
         const delete_node = Node.DeleteColumns{
             .from = from_expr,
-            .select_columns = try p.addColumnList(p.table_scratch.items[select_columns_top..]),
-            .select_columns_end = @intCast(p.table_columns.items.len),
+            .select_columns = try p.addStringList(p.strings_scratch.items[select_columns_top..]),
+            .select_columns_end = @intCast(p.strings.items.len),
         };
         return p.addNode(.{
             .tag = .delete_cols,
@@ -1866,14 +1962,16 @@ fn qApply(p: *Parse, lhs: Node.Index) Error!Node.Index {
 }
 
 fn applyIdentifier(p: *Parse, lhs: Node.Index) Error!Node.Index {
+    const main_token = p.nextToken();
     const rhs = try p.addNode(.{
         .tag = .identifier,
-        .main_token = p.nextToken(),
+        .main_token = main_token,
         .data = .{
             .lhs = undefined,
             .rhs = undefined,
         },
     });
+    try p.globals_scratch.append(p.gpa, main_token);
     const iterator_tag: Node.Tag = switch (p.peekTag()) {
         .apostrophe => .apostrophe_infix,
         .apostrophe_colon => .apostrophe_colon_infix,
@@ -1952,7 +2050,7 @@ fn call(p: *Parse, lhs: Node.Index) Error!Node.Index {
     }
 }
 
-fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
+fn tokensOnSameLine(p: *Parse, token1: Token.Index, token2: Token.Index) bool {
     return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].start..p.token_locs[token2].end], '\n') == null;
 }
 
@@ -1974,17 +2072,17 @@ fn peekNextTag(p: *Parse) Token.Tag {
     return p.token_tags[temp_i];
 }
 
-pub fn eatToken(p: *Parse, tag: Token.Tag) ?TokenIndex {
+pub fn eatToken(p: *Parse, tag: Token.Tag) ?Token.Index {
     return if (p.peekTag() == tag) p.nextToken() else null;
 }
 
-fn assertToken(p: *Parse, tag: Token.Tag) TokenIndex {
+fn assertToken(p: *Parse, tag: Token.Tag) Token.Index {
     const token = p.nextToken();
     assert(p.token_tags[token] == tag);
     return token;
 }
 
-fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
+fn expectToken(p: *Parse, tag: Token.Tag) Error!Token.Index {
     if (p.peekTag() != tag) {
         return p.failMsg(.{
             .tag = .expected_token,
@@ -1995,47 +2093,47 @@ fn expectToken(p: *Parse, tag: Token.Tag) Error!TokenIndex {
     return p.nextToken();
 }
 
-fn peekIdentifier(p: *Parse, comptime identifier: SqlIdentifier) ?TokenIndex {
+fn peekIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) ?Token.Index {
     switch (p.language) {
         .k => {
             if (p.peekTag() != .identifier) return null;
-            if (identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
-            if (identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
-            if (identifier.where) if (p.identifierEql("where", p.tok_i)) return p.tok_i;
-            if (identifier.distinct) if (p.identifierEql("distinct", p.tok_i)) return p.tok_i;
+            if (sql_identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
+            if (sql_identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
+            if (sql_identifier.where) if (p.identifierEql("where", p.tok_i)) return p.tok_i;
+            if (sql_identifier.distinct) if (p.identifierEql("distinct", p.tok_i)) return p.tok_i;
             return null;
         },
         .q => {
-            if (identifier.where) if (p.peekTag() == .keyword_q_where) return p.tok_i;
-            if (identifier.distinct) if (p.peekTag() == .keyword_q_distinct) return p.tok_i;
+            if (sql_identifier.where) if (p.peekTag() == .keyword_q_where) return p.tok_i;
+            if (sql_identifier.distinct) if (p.peekTag() == .keyword_q_distinct) return p.tok_i;
 
             if (p.peekTag() != .identifier) return null;
-            if (identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
-            if (identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
+            if (sql_identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
+            if (sql_identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
             return null;
         },
     }
 }
 
-fn eatIdentifier(p: *Parse, comptime identifier: SqlIdentifier) ?TokenIndex {
-    if (p.peekIdentifier(identifier)) |token_i| {
+fn eatIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) ?Token.Index {
+    if (p.peekIdentifier(sql_identifier)) |token_i| {
         _ = p.nextToken();
         return token_i;
     }
     return null;
 }
 
-fn expectIdentifier(p: *Parse, comptime identifier: SqlIdentifier) Error!TokenIndex {
-    if (p.eatIdentifier(identifier)) |token_i| return token_i;
+fn expectIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) Error!Token.Index {
+    if (p.eatIdentifier(sql_identifier)) |token_i| return token_i;
     return p.failMsg(.{
         .tag = .expected_qsql_token,
         .token = p.tok_i,
         .extra = .{
-            .expected_string = if (identifier.by)
+            .expected_string = if (sql_identifier.by)
                 "by"
-            else if (identifier.from)
+            else if (sql_identifier.from)
                 "from"
-            else if (identifier.where)
+            else if (sql_identifier.where)
                 "where"
             else
                 unreachable,
@@ -2043,16 +2141,11 @@ fn expectIdentifier(p: *Parse, comptime identifier: SqlIdentifier) Error!TokenIn
     });
 }
 
-fn identifierEql(p: *Parse, comptime slice: []const u8, i: Node.Index) bool {
-    if (p.token_tags[i] == .identifier) {
-        const loc = p.token_locs[i];
-        const source = p.source[loc.start..loc.end];
-        return std.mem.eql(u8, source, slice);
-    }
-    return false;
+fn identifierEql(p: *Parse, comptime slice: []const u8, i: Token.Index) bool {
+    return p.token_tags[i] == .identifier and std.mem.eql(u8, p.tokenSlice(i), slice);
 }
 
-pub fn nextToken(p: *Parse) TokenIndex {
+pub fn nextToken(p: *Parse) Token.Index {
     if (p.eob) return null_node;
 
     p.skipComments();
@@ -2062,7 +2155,7 @@ pub fn nextToken(p: *Parse) TokenIndex {
     return result;
 }
 
-fn peekToken(p: *Parse) TokenIndex {
+fn peekToken(p: *Parse) Token.Index {
     if (p.eob) return null_node;
 
     p.skipComments();
@@ -2090,8 +2183,7 @@ fn getRule(p: *Parse) OperInfo {
     if (p.ends_sql_expr_identifiers.getLastOrNull()) |i| if (i) |sql_identifier| {
         switch (tag) {
             .identifier => {
-                const loc = p.token_locs[p.tok_i];
-                const source = p.source[loc.start..loc.end];
+                const source = p.tokenSlice(p.tok_i);
                 if (sql_identifier.by and std.mem.eql(u8, source, "by")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
                 if (sql_identifier.from and std.mem.eql(u8, source, "from")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
             },
@@ -2105,8 +2197,7 @@ fn getRule(p: *Parse) OperInfo {
     if (p.ends_sql_expr_identifiers.getLastOrNull()) |i| if (i != null) {
         switch (tag) {
             .identifier => {
-                const loc = p.token_locs[p.tok_i];
-                const source = p.source[loc.start..loc.end];
+                const source = p.tokenSlice(p.tok_i);
                 if (i.?.by and std.mem.eql(u8, source, "by")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
                 if (i.?.from and std.mem.eql(u8, source, "from")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
                 if (i.?.where and std.mem.eql(u8, source, "where")) return .{ .prefix = NoOp(false), .infix = null, .prec = .none };
@@ -2124,7 +2215,7 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
         _ = p.nextToken();
         return null_node;
     };
-    var node = try prefix(p);
+    var node: Node.Index = try prefix(p);
 
     while (@intFromEnum(precedence) <= @intFromEnum(p.getRule().prec)) {
         const infix = p.getRule().infix orelse {
@@ -2415,10 +2506,9 @@ const panic = std.debug.panic;
 const Allocator = std.mem.Allocator;
 const kdb = @import("../kdb.zig");
 const Ast = kdb.Ast;
+const Token = Ast.Token;
 const Node = Ast.Node;
 const AstError = Ast.Error;
-const TokenIndex = Ast.TokenIndex;
-const Token = kdb.Token;
 const number_parser = @import("parser/number_parser.zig");
 const Value = number_parser.Value;
 

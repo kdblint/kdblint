@@ -5,7 +5,7 @@ const types = zls.types;
 
 const kdb = @import("kdb.zig");
 const Ast = kdb.Ast;
-const Token = kdb.Token;
+const Token = Ast.Token;
 
 pub const Encoding = zls.offsets.Encoding;
 pub const Loc = Token.Loc;
@@ -39,20 +39,20 @@ pub fn maybePositionToIndex(text: []const u8, position: types.Position, encoding
     return line_start_index + line_byte_length;
 }
 
-pub fn tokenToIndex(tree: Ast, token_index: Ast.TokenIndex) usize {
+pub fn tokenToIndex(tree: Ast, token_index: Ast.Token.Index) usize {
     return tree.tokens.items(.loc)[token_index].start;
 }
 
-pub fn tokenToLoc(tree: Ast, token_index: Ast.TokenIndex) Loc {
+pub fn tokenToLoc(tree: Ast, token_index: Ast.Token.Index) Loc {
     return tree.tokens.items(.loc)[token_index];
 }
 
-pub fn tokenToPosition(tree: Ast, token_index: Ast.TokenIndex, encoding: Encoding) types.Position {
+pub fn tokenToPosition(tree: Ast, token_index: Ast.Token.Index, encoding: Encoding) types.Position {
     const start = tokenToIndex(tree, token_index);
     return indexToPosition(tree.source, start, encoding);
 }
 
-pub fn tokenToRange(tree: Ast, token_index: Ast.TokenIndex, encoding: Encoding) types.Range {
+pub fn tokenToRange(tree: Ast, token_index: Ast.Token.Index, encoding: Encoding) types.Range {
     const loc = tokenToLoc(tree, token_index);
     const start = indexToPosition(tree.source, loc.start, encoding);
     const end = indexToPosition(tree.source, loc.end, encoding);
