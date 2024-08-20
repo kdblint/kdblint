@@ -6,7 +6,7 @@ const types = zls.types;
 
 const kdb = @import("../kdb.zig");
 const Ast = kdb.Ast;
-const LambdaVisitor = kdb.Ast.AnyVisitor.LambdaVisitor;
+const LambdaVisitor = Ast.LambdaVisitor;
 const Server = @import("../Server.zig");
 const DocumentStore = @import("../DocumentStore.zig");
 const offsets = @import("../offsets.zig");

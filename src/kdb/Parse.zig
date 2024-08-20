@@ -363,19 +363,17 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
             assert(lhs > 0);
             switch (tag) {
                 .assign => {
-                    const prev_tag = p.nodes.items(.tag)[lhs];
-                    switch (prev_tag) {
-                        .identifier => {
-                            if (p.in_lambda) {
-                                const main_token: Token.Index = p.nodes.items(.main_token)[lhs];
-                                try p.locals_scratch.append(p.gpa, main_token);
-                            }
-                        },
-                        else => return p.failMsg(.{
+                    // TODO: Add more assignment targets - Config[`assetClass]:`fi
+                    if (p.findFirstIdentifier(lhs)) |identifier_token| {
+                        if (p.in_lambda) {
+                            try p.locals_scratch.append(p.gpa, identifier_token);
+                        }
+                    } else {
+                        return p.failMsg(.{
                             .tag = .expected_token,
                             .token = p.nodes.items(.main_token)[lhs],
                             .extra = .{ .expected_tag = .identifier },
-                        }),
+                        });
                     }
                 },
                 else => {},
@@ -1911,15 +1909,18 @@ fn delete(p: *Parse) Error!Node.Index {
             },
         });
     } else {
+        var hash_map = std.StringHashMap(u32).init(p.gpa);
+        defer hash_map.deinit();
+
         // Select phrase
+        const select_top = p.scratch.items.len;
         const select_columns_top = p.strings_scratch.items.len;
         while (true) {
             if (p.eob) return p.fail(.expected_from);
             if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_from);
             const identifier_token = try p.expectToken(.identifier);
-            const source = try p.gpa.dupe(u8, p.tokenSlice(identifier_token));
-            errdefer p.gpa.free(source); // TODO: leak
-            try p.strings_scratch.append(p.gpa, source);
+            try p.scratch.append(p.gpa, identifier_token);
+            try p.addTableColumn(identifier_token, 0, &hash_map);
             if (p.eatToken(.comma)) |_| continue;
             break;
         }
@@ -1930,8 +1931,9 @@ fn delete(p: *Parse) Error!Node.Index {
 
         const delete_node = Node.DeleteColumns{
             .from = from_expr,
+            .select = try p.addList(p.scratch.items[select_top..]),
+            .select_end = @intCast(p.extra_data.items.len),
             .select_columns = try p.addStringList(p.strings_scratch.items[select_columns_top..]),
-            .select_columns_end = @intCast(p.strings.items.len),
         };
         return p.addNode(.{
             .tag = .delete_cols,
@@ -2515,237 +2517,6 @@ const Value = number_parser.Value;
 
 const log = std.log.scoped(.kdblint_parse);
 
-fn appendTags(tree: Ast, i: Node.Index, tags: *std.ArrayList(Node.Tag)) !void {
-    const tag: Node.Tag = tree.nodes.items(.tag)[i];
-    try tags.append(tag);
-
-    switch (tag) {
-        .implicit_return,
-        .grouped_expression,
-        => {
-            const data = tree.nodes.items(.data)[i];
-            try appendTags(tree, data.lhs, tags);
-        },
-        .call_one,
-        .add,
-        .subtract,
-        .global_assign,
-        .apply,
-        => {
-            const data = tree.nodes.items(.data)[i];
-            if (data.rhs > 0) try appendTags(tree, data.rhs, tags);
-            if (data.lhs > 0) try appendTags(tree, data.lhs, tags);
-        },
-
-        .backslash_colon => {
-            const data = tree.nodes.items(.data)[i];
-            if (data.lhs > 0) try appendTags(tree, data.lhs, tags);
-        },
-        .backslash_colon_infix => {
-            const data = tree.nodes.items(.data)[i];
-            const iterator = tree.extraData(data.rhs, Node.Iterator);
-            try appendTags(tree, iterator.rhs, tags);
-            try appendTags(tree, data.lhs, tags);
-            try appendTags(tree, iterator.lhs, tags);
-        },
-
-        .lambda,
-        .lambda_semicolon,
-        => {
-            const data = tree.nodes.items(.data)[i];
-            const lambda_node = tree.extraData(data.lhs, Node.Lambda);
-            const body = tree.extra_data[lambda_node.body_start..lambda_node.body_end];
-            for (body) |expr| {
-                try appendTags(tree, expr, tags);
-            }
-        },
-
-        .identifier,
-        .boolean_literal,
-        .boolean_list_literal,
-        .guid_literal,
-        .guid_list_literal,
-        .byte_literal,
-        .byte_list_literal,
-        .short_literal,
-        .short_list_literal,
-        .int_literal,
-        .int_list_literal,
-        .long_literal,
-        .long_list_literal,
-        .real_literal,
-        .real_list_literal,
-        .float_literal,
-        .float_list_literal,
-        .char_number_literal,
-        .char_number_list_literal,
-        .char_literal,
-        .char_list_literal,
-        .symbol_literal,
-        .symbol_list_literal,
-        .timestamp_literal,
-        .timestamp_list_literal,
-        .month_literal,
-        .month_list_literal,
-        .date_literal,
-        .date_list_literal,
-        .datetime_literal,
-        .datetime_list_literal,
-        .timespan_literal,
-        .timespan_list_literal,
-        .minute_literal,
-        .minute_list_literal,
-        .second_literal,
-        .second_list_literal,
-        .time_literal,
-        .time_list_literal,
-        .empty_list,
-        .distinct,
-        .sum,
-        .til,
-        .minus,
-        .at,
-        .os,
-        .current_directory,
-        .change_directory,
-        .load_file_or_directory,
-        => {},
-        .call => {
-            const data = tree.nodes.items(.data)[i];
-            const sub_range = tree.extraData(data.rhs, Node.SubRange);
-            for (sub_range.start..sub_range.end, 1..) |_, temp_i| {
-                const extra_data_i = sub_range.end - temp_i;
-                const node_i = tree.extra_data[extra_data_i];
-                if (node_i > 0) {
-                    try appendTags(tree, node_i, tags);
-                }
-            }
-            try appendTags(tree, data.lhs, tags);
-        },
-        .block => {
-            const data = tree.nodes.items(.data)[i];
-            const sub_range = tree.extraData(data.lhs, Node.SubRange);
-            const exprs = tree.extra_data[sub_range.start..sub_range.end];
-            for (exprs) |expr| {
-                if (expr > 0) try appendTags(tree, expr, tags);
-            }
-        },
-        .list => {
-            const data = tree.nodes.items(.data)[i];
-            const sub_range = tree.extraData(data.lhs, Node.SubRange);
-            for (sub_range.start..sub_range.end, 1..) |_, temp_i| {
-                const extra_data_i = sub_range.end - temp_i;
-                const node_i = tree.extra_data[extra_data_i];
-                if (node_i > 0) {
-                    try appendTags(tree, node_i, tags);
-                }
-            }
-        },
-        .table_literal => {
-            const data = tree.nodes.items(.data)[i];
-            const table = tree.extraData(data.lhs, Node.Table);
-            for (table.expr_start + table.key_len..table.expr_start + table.key_len + table.len, 1..) |_, temp_i| {
-                const node_i = tree.extra_data[table.expr_start + table.key_len + table.len - temp_i];
-                try appendTags(tree, node_i, tags);
-            }
-            for (table.expr_start..table.expr_start + table.key_len, 1..) |_, temp_i| {
-                const node_i = tree.extra_data[table.expr_start + table.key_len - temp_i];
-                try appendTags(tree, node_i, tags);
-            }
-        },
-        .implicit_apply => {
-            const data = tree.nodes.items(.data)[i];
-            try appendTags(tree, data.rhs, tags);
-            try appendTags(tree, data.lhs, tags);
-        },
-        .select => {
-            const data = tree.nodes.items(.data)[i];
-            const select_node = tree.extraData(data.lhs, Node.Select);
-
-            try appendTags(tree, select_node.from, tags);
-
-            for (tree.extra_data[select_node.where..select_node.by]) |where_i| {
-                try appendTags(tree, where_i, tags);
-            }
-
-            if (select_node.data.has_by) {
-                for (tree.extra_data[select_node.by..select_node.select]) |by_i| {
-                    try appendTags(tree, by_i, tags);
-                }
-            }
-
-            for (tree.extra_data[select_node.select..select_node.select_end]) |select_i| {
-                try appendTags(tree, select_i, tags);
-            }
-
-            if (select_node.limit > 0) {
-                try appendTags(tree, select_node.limit, tags);
-            }
-
-            if (select_node.order > 0) {
-                try tags.append(.identifier);
-            }
-        },
-        .exec => {
-            const data = tree.nodes.items(.data)[i];
-            const exec_node = tree.extraData(data.lhs, Node.Exec);
-
-            try appendTags(tree, exec_node.from, tags);
-
-            for (tree.extra_data[exec_node.where..exec_node.by]) |where_i| {
-                try appendTags(tree, where_i, tags);
-            }
-
-            for (tree.extra_data[exec_node.by..exec_node.select]) |by_i| {
-                try appendTags(tree, by_i, tags);
-            }
-
-            for (tree.extra_data[exec_node.select..exec_node.select_end]) |select_i| {
-                try appendTags(tree, select_i, tags);
-            }
-        },
-        .update => {
-            const data = tree.nodes.items(.data)[i];
-            const update_node = tree.extraData(data.lhs, Node.Update);
-
-            try appendTags(tree, update_node.from, tags);
-
-            for (tree.extra_data[update_node.where..update_node.by]) |where_i| {
-                try appendTags(tree, where_i, tags);
-            }
-
-            for (tree.extra_data[update_node.by..update_node.select]) |by_i| {
-                try appendTags(tree, by_i, tags);
-            }
-
-            for (tree.extra_data[update_node.select..update_node.select_end]) |select_i| {
-                try appendTags(tree, select_i, tags);
-            }
-        },
-        .delete_rows => {
-            const data = tree.nodes.items(.data)[i];
-            const delete_node = tree.extraData(data.lhs, Node.DeleteRows);
-
-            try appendTags(tree, delete_node.from, tags);
-
-            for (tree.extra_data[delete_node.where..delete_node.where_end]) |where_i| {
-                try appendTags(tree, where_i, tags);
-            }
-        },
-        .delete_cols => {
-            const data = tree.nodes.items(.data)[i];
-            const delete_node = tree.extraData(data.lhs, Node.DeleteColumns);
-
-            try appendTags(tree, delete_node.from, tags);
-
-            for (tree.extra_data[delete_node.select_columns..delete_node.select_columns_end]) |_| {
-                try tags.append(.identifier);
-            }
-        },
-        else => |t| panic("{s}", .{@tagName(t)}),
-    }
-}
-
 pub fn testParse(source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
     inline for (&.{.@"4.0"}) |version| {
         inline for (&.{ .k, .q }) |language| {
@@ -2776,11 +2547,13 @@ fn testParseLanguage(language: Ast.Language, source: [:0]const u8, expected_tags
 }
 
 fn testParseSettings(settings: Ast.ParseSettings, source: [:0]const u8, expected_tags: []const Node.Tag, expected_parse_tree: []const u8) !void {
-    var tree = try Ast.parse(std.testing.allocator, source, settings);
-    defer tree.deinit(std.testing.allocator);
+    const gpa = std.testing.allocator;
 
-    const errors = try std.testing.allocator.alloc(Ast.Error.Tag, tree.errors.len);
-    defer std.testing.allocator.free(errors);
+    var tree = try Ast.parse(gpa, source, settings);
+    defer tree.deinit(gpa);
+
+    const errors = try gpa.alloc(Ast.Error.Tag, tree.errors.len);
+    defer gpa.free(errors);
     for (tree.errors, 0..) |err, i| {
         errors[i] = err.tag;
     }
@@ -2789,15 +2562,18 @@ fn testParseSettings(settings: Ast.ParseSettings, source: [:0]const u8, expected
     const data = tree.nodes.items(.data)[0];
     const i = tree.extra_data[data.lhs];
 
-    var tags = std.ArrayList(Node.Tag).init(std.testing.allocator);
+    var tags = std.ArrayList(Node.Tag).init(gpa);
     defer tags.deinit();
-    try appendTags(tree, i, &tags);
+
+    const node_tag_visitor = try Ast.NodeTagVisitor.create(gpa, &tags);
+    defer node_tag_visitor.destroy(gpa);
+    tree.visit(node_tag_visitor.any());
 
     try std.testing.expectEqualSlices(Node.Tag, expected_tags, tags.items);
 
-    var parse_tree = std.ArrayList(u8).init(std.testing.allocator);
+    var parse_tree = std.ArrayList(u8).init(gpa);
     defer parse_tree.deinit();
-    try tree.print(i, parse_tree.writer(), std.testing.allocator);
+    try tree.print(i, parse_tree.writer(), gpa);
 
     try std.testing.expectEqualSlices(u8, expected_parse_tree, parse_tree.items);
 }
@@ -3158,7 +2934,7 @@ test "iterators" {
     try testParse("f\\:", &.{ .implicit_return, .backslash_colon, .identifier }, "(\\:;`f)");
     try testParse("@\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .at }, "((\\:;@);`x;`y)");
     try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .identifier }, "((\\:;`f);`x;`y)");
-    try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .apply, .identifier }, "((\\:;@);`x;`y)");
+    try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon_infix, .apply, .identifier, .identifier }, "((\\:;@);`x;`y)");
     try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
 }
 

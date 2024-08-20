@@ -195,101 +195,101 @@ pub const Tag = enum {
     /// Both lhs and rhs unused.
     two_colon,
 
-    /// `lhs : rhs`. rhs can be omitted. main_token is `:`.
+    /// `lhs : rhs`. lhs and rhs can be omitted. main_token is `:`.
     assign,
-    /// `lhs :: rhs`. rhs can be omitted. main_token is `::`.
+    /// `lhs :: rhs`. lhs and rhs can be omitted. main_token is `::`.
     global_assign,
-    /// `lhs + rhs`. rhs can be omitted. main_token is `+`.
+    /// `lhs + rhs`. lhs and rhs can be omitted. main_token is `+`.
     add,
-    /// `lhs +: rhs`. rhs can be omitted. main_token is `+:`.
+    /// `lhs +: rhs`. lhs and rhs can be omitted. main_token is `+:`.
     plus_assign,
-    /// `lhs - rhs`. rhs can be omitted. main_token is `-`.
+    /// `lhs - rhs`. lhs and rhs can be omitted. main_token is `-`.
     subtract,
-    /// `lhs -: rhs`. rhs can be omitted. main_token is `-:`.
+    /// `lhs -: rhs`. lhs and rhs can be omitted. main_token is `-:`.
     minus_assign,
-    /// `lhs * rhs`. rhs can be omitted. main_token is `*`.
+    /// `lhs * rhs`. lhs and rhs can be omitted. main_token is `*`.
     multiply,
-    /// `lhs *: rhs`. rhs can be omitted. main_token is `*:`.
+    /// `lhs *: rhs`. lhs and rhs can be omitted. main_token is `*:`.
     asterisk_assign,
-    /// `lhs % rhs`. rhs can be omitted. main_token is `%`.
+    /// `lhs % rhs`. lhs and rhs can be omitted. main_token is `%`.
     divide,
-    /// `lhs %: rhs`. rhs can be omitted. main_token is `%:`.
+    /// `lhs %: rhs`. lhs and rhs can be omitted. main_token is `%:`.
     percent_assign,
-    /// `lhs ! rhs`. rhs can be omitted. main_token is `!`.
+    /// `lhs ! rhs`. lhs and rhs can be omitted. main_token is `!`.
     dict,
-    /// `lhs !: rhs`. rhs can be omitted. main_token is `!:`.
+    /// `lhs !: rhs`. lhs and rhs can be omitted. main_token is `!:`.
     bang_assign,
-    /// `lhs & rhs`. rhs can be omitted. main_token is `&`.
+    /// `lhs & rhs`. lhs and rhs can be omitted. main_token is `&`.
     lesser,
-    /// `lhs &: rhs`. rhs can be omitted. main_token is `&:`.
+    /// `lhs &: rhs`. lhs and rhs can be omitted. main_token is `&:`.
     ampersand_assign,
-    /// `lhs | rhs`. rhs can be omitted. main_token is `|`.
+    /// `lhs | rhs`. lhs and rhs can be omitted. main_token is `|`.
     greater,
-    /// `lhs |: rhs`. rhs can be omitted. main_token is `|:`.
+    /// `lhs |: rhs`. lhs and rhs can be omitted. main_token is `|:`.
     pipe_assign,
-    /// `lhs < rhs`. rhs can be omitted. main_token is `<`.
+    /// `lhs < rhs`. lhs and rhs can be omitted. main_token is `<`.
     less_than,
-    /// `lhs <: rhs`. rhs can be omitted. main_token is `<:`.
+    /// `lhs <: rhs`. lhs and rhs can be omitted. main_token is `<:`.
     angle_bracket_left_assign,
-    /// `lhs <= rhs`. rhs can be omitted. main_token is `<=`.
+    /// `lhs <= rhs`. lhs and rhs can be omitted. main_token is `<=`.
     less_than_equal,
-    /// `lhs <> rhs`. rhs can be omitted. main_token is `<>`.
+    /// `lhs <> rhs`. lhs and rhs can be omitted. main_token is `<>`.
     not_equal,
-    /// `lhs > rhs`. rhs can be omitted. main_token is `>`.
+    /// `lhs > rhs`. lhs and rhs can be omitted. main_token is `>`.
     greater_than,
-    /// `lhs >: rhs`. rhs can be omitted. main_token is `>:`.
+    /// `lhs >: rhs`. lhs and rhs can be omitted. main_token is `>:`.
     angle_bracket_right_assign,
-    /// `lhs >= rhs`. rhs can be omitted. main_token is `>=`.
+    /// `lhs >= rhs`. lhs and rhs can be omitted. main_token is `>=`.
     greater_than_equal,
-    /// `lhs = rhs`. rhs can be omitted. main_token is `=`.
+    /// `lhs = rhs`. lhs and rhs can be omitted. main_token is `=`.
     equals,
-    /// `lhs =: rhs`. rhs can be omitted. main_token is `=:`.
+    /// `lhs =: rhs`. lhs and rhs can be omitted. main_token is `=:`.
     equal_assign,
-    /// `lhs ~ rhs`. rhs can be omitted. main_token is `~`.
+    /// `lhs ~ rhs`. lhs and rhs can be omitted. main_token is `~`.
     match,
-    /// `lhs ~: rhs`. rhs can be omitted. main_token is `~:`.
+    /// `lhs ~: rhs`. lhs and rhs can be omitted. main_token is `~:`.
     tilde_assign,
-    /// `lhs , rhs`. rhs can be omitted. main_token is `,`.
+    /// `lhs , rhs`. lhs and rhs can be omitted. main_token is `,`.
     join,
-    /// `lhs ,: rhs`. rhs can be omitted. main_token is `,:`.
+    /// `lhs ,: rhs`. lhs and rhs can be omitted. main_token is `,:`.
     comma_assign,
-    /// `lhs ^ rhs`. rhs can be omitted. main_token is `^`.
+    /// `lhs ^ rhs`. lhs and rhs can be omitted. main_token is `^`.
     fill,
-    /// `lhs ^: rhs`. rhs can be omitted. main_token is `^:`.
+    /// `lhs ^: rhs`. lhs and rhs can be omitted. main_token is `^:`.
     caret_assign,
-    /// `lhs # rhs`. rhs can be omitted. main_token is `#`.
+    /// `lhs # rhs`. lhs and rhs can be omitted. main_token is `#`.
     take,
-    /// `lhs #: rhs`. rhs can be omitted. main_token is `#:`.
+    /// `lhs #: rhs`. lhs and rhs can be omitted. main_token is `#:`.
     hash_assign,
-    /// `lhs _ rhs`. rhs can be omitted. main_token is `_`.
+    /// `lhs _ rhs`. lhs and rhs can be omitted. main_token is `_`.
     drop,
-    /// `lhs _: rhs`. rhs can be omitted. main_token is `_:`.
+    /// `lhs _: rhs`. lhs and rhs can be omitted. main_token is `_:`.
     underscore_assign,
-    /// `lhs $ rhs`. rhs can be omitted. main_token is `$`.
+    /// `lhs $ rhs`. lhs and rhs can be omitted. main_token is `$`.
     cast,
-    /// `lhs $: rhs`. rhs can be omitted. main_token is `$:`.
+    /// `lhs $: rhs`. lhs and rhs can be omitted. main_token is `$:`.
     dollar_assign,
-    /// `lhs ? rhs`. rhs can be omitted. main_token is `?`.
+    /// `lhs ? rhs`. lhs and rhs can be omitted. main_token is `?`.
     find,
-    /// `lhs ?: rhs`. rhs can be omitted. main_token is `?:`.
+    /// `lhs ?: rhs`. lhs and rhs can be omitted. main_token is `?:`.
     question_mark_assign,
-    /// `lhs @ rhs`. rhs can be omitted. main_token is `@`.
+    /// `lhs @ rhs`. lhs and rhs can be omitted. main_token is `@`.
     apply,
-    /// `lhs @: rhs`. rhs can be omitted. main_token is `@:`.
+    /// `lhs @: rhs`. lhs and rhs can be omitted. main_token is `@:`.
     at_assign,
-    /// `lhs . rhs`. rhs can be omitted. main_token is `.`.
+    /// `lhs . rhs`. lhs and rhs can be omitted. main_token is `.`.
     apply_n,
-    /// `lhs .: rhs`. rhs can be omitted. main_token is `.:`.
+    /// `lhs .: rhs`. lhs and rhs can be omitted. main_token is `.:`.
     dot_assign,
-    /// `lhs 0: rhs`. rhs can be omitted. main_token is `0:`.
+    /// `lhs 0: rhs`. lhs and rhs can be omitted. main_token is `0:`.
     file_text,
-    /// `lhs 0:: rhs`. rhs can be omitted. main_token is `0::`.
+    /// `lhs 0:: rhs`. lhs and rhs can be omitted. main_token is `0::`.
     zero_colon_assign,
-    /// `lhs 1: rhs`. rhs can be omitted. main_token is `1:`.
+    /// `lhs 1: rhs`. lhs and rhs can be omitted. main_token is `1:`.
     file_binary,
-    /// `lhs 1:: rhs`. rhs can be omitted. main_token is `1::`.
+    /// `lhs 1:: rhs`. lhs and rhs can be omitted. main_token is `1::`.
     one_colon_assign,
-    /// `lhs 2: rhs`. rhs can be omitted. main_token is `2:`.
+    /// `lhs 2: rhs`. lhs and rhs can be omitted. main_token is `2:`.
     dynamic_load,
 
     /// `lhs rhs`. main_token is unused.
@@ -682,129 +682,129 @@ pub const Tag = enum {
     xprev,
     /// Both lhs and rhs unused.
     xrank,
-    /// `lhs and rhs`. rhs can be omitted. main_token is `and`.
+    /// `lhs and rhs`. lhs and rhs can be omitted. main_token is `and`.
     and_infix,
-    /// `lhs asof rhs`. rhs can be omitted. main_token is `asof`.
+    /// `lhs asof rhs`. lhs and rhs can be omitted. main_token is `asof`.
     asof_infix,
-    /// `lhs bin rhs`. rhs can be omitted. main_token is `bin`.
+    /// `lhs bin rhs`. lhs and rhs can be omitted. main_token is `bin`.
     bin_infix,
-    /// `lhs binr rhs`. rhs can be omitted. main_token is `binr`.
+    /// `lhs binr rhs`. lhs and rhs can be omitted. main_token is `binr`.
     binr_infix,
-    /// `lhs cor rhs`. rhs can be omitted. main_token is `cor`.
+    /// `lhs cor rhs`. lhs and rhs can be omitted. main_token is `cor`.
     cor_infix,
-    /// `lhs cov rhs`. rhs can be omitted. main_token is `cov`.
+    /// `lhs cov rhs`. lhs and rhs can be omitted. main_token is `cov`.
     cov_infix,
-    /// `lhs cross rhs`. rhs can be omitted. main_token is `cross`.
+    /// `lhs cross rhs`. lhs and rhs can be omitted. main_token is `cross`.
     cross_infix,
-    /// `lhs cut rhs`. rhs can be omitted. main_token is `cut`.
+    /// `lhs cut rhs`. lhs and rhs can be omitted. main_token is `cut`.
     cut_infix,
-    /// `lhs div rhs`. rhs can be omitted. main_token is `div`.
+    /// `lhs div rhs`. lhs and rhs can be omitted. main_token is `div`.
     div_infix,
-    /// `lhs dsave rhs`. rhs can be omitted. main_token is `dsave`.
+    /// `lhs dsave rhs`. lhs and rhs can be omitted. main_token is `dsave`.
     dsave_infix,
-    /// `lhs each rhs`. rhs can be omitted. main_token is `each`.
+    /// `lhs each rhs`. lhs and rhs can be omitted. main_token is `each`.
     each_infix,
-    /// `lhs ema rhs`. rhs can be omitted. main_token is `ema`.
+    /// `lhs ema rhs`. lhs and rhs can be omitted. main_token is `ema`.
     ema_infix,
-    /// `lhs except rhs`. rhs can be omitted. main_token is `except`.
+    /// `lhs except rhs`. lhs and rhs can be omitted. main_token is `except`.
     except_infix,
-    /// `lhs fby rhs`. rhs can be omitted. main_token is `fby`.
+    /// `lhs fby rhs`. lhs and rhs can be omitted. main_token is `fby`.
     fby_infix,
-    /// `lhs ij rhs`. rhs can be omitted. main_token is `ij`.
+    /// `lhs ij rhs`. lhs and rhs can be omitted. main_token is `ij`.
     ij_infix,
-    /// `lhs ijf rhs`. rhs can be omitted. main_token is `ijf`.
+    /// `lhs ijf rhs`. lhs and rhs can be omitted. main_token is `ijf`.
     ijf_infix,
-    /// `lhs in rhs`. rhs can be omitted. main_token is `in`.
+    /// `lhs in rhs`. lhs and rhs can be omitted. main_token is `in`.
     in_infix,
-    /// `lhs insert rhs`. rhs can be omitted. main_token is `insert`.
+    /// `lhs insert rhs`. lhs and rhs can be omitted. main_token is `insert`.
     insert_infix,
-    /// `lhs inter rhs`. rhs can be omitted. main_token is `inter`.
+    /// `lhs inter rhs`. lhs and rhs can be omitted. main_token is `inter`.
     inter_infix,
-    /// `lhs like rhs`. rhs can be omitted. main_token is `like`.
+    /// `lhs like rhs`. lhs and rhs can be omitted. main_token is `like`.
     like_infix,
-    /// `lhs lj rhs`. rhs can be omitted. main_token is `lj`.
+    /// `lhs lj rhs`. lhs and rhs can be omitted. main_token is `lj`.
     lj_infix,
-    /// `lhs ljf rhs`. rhs can be omitted. main_token is `ljf`.
+    /// `lhs ljf rhs`. lhs and rhs can be omitted. main_token is `ljf`.
     ljf_infix,
-    /// `lhs lsq rhs`. rhs can be omitted. main_token is `lsq`.
+    /// `lhs lsq rhs`. lhs and rhs can be omitted. main_token is `lsq`.
     lsq_infix,
-    /// `lhs mavg rhs`. rhs can be omitted. main_token is `mavg`.
+    /// `lhs mavg rhs`. lhs and rhs can be omitted. main_token is `mavg`.
     mavg_infix,
-    /// `lhs mcount rhs`. rhs can be omitted. main_token is `mcount`.
+    /// `lhs mcount rhs`. lhs and rhs can be omitted. main_token is `mcount`.
     mcount_infix,
-    /// `lhs mdev rhs`. rhs can be omitted. main_token is `mdev`.
+    /// `lhs mdev rhs`. lhs and rhs can be omitted. main_token is `mdev`.
     mdev_infix,
-    /// `lhs mmax rhs`. rhs can be omitted. main_token is `mmax`.
+    /// `lhs mmax rhs`. lhs and rhs can be omitted. main_token is `mmax`.
     mmax_infix,
-    /// `lhs mmin rhs`. rhs can be omitted. main_token is `mmin`.
+    /// `lhs mmin rhs`. lhs and rhs can be omitted. main_token is `mmin`.
     mmin_infix,
-    /// `lhs mmu rhs`. rhs can be omitted. main_token is `mmu`.
+    /// `lhs mmu rhs`. lhs and rhs can be omitted. main_token is `mmu`.
     mmu_infix,
-    /// `lhs mod rhs`. rhs can be omitted. main_token is `mod`.
+    /// `lhs mod rhs`. lhs and rhs can be omitted. main_token is `mod`.
     mod_infix,
-    /// `lhs msum rhs`. rhs can be omitted. main_token is `msum`.
+    /// `lhs msum rhs`. lhs and rhs can be omitted. main_token is `msum`.
     msum_infix,
-    /// `lhs or rhs`. rhs can be omitted. main_token is `or`.
+    /// `lhs or rhs`. lhs and rhs can be omitted. main_token is `or`.
     or_infix,
-    /// `lhs over rhs`. rhs can be omitted. main_token is `over`.
+    /// `lhs over rhs`. lhs and rhs can be omitted. main_token is `over`.
     over_infix,
-    /// `lhs peach rhs`. rhs can be omitted. main_token is `peach`.
+    /// `lhs peach rhs`. lhs and rhs can be omitted. main_token is `peach`.
     peach_infix,
-    /// `lhs pj rhs`. rhs can be omitted. main_token is `pj`.
+    /// `lhs pj rhs`. lhs and rhs can be omitted. main_token is `pj`.
     pj_infix,
-    /// `lhs prior rhs`. rhs can be omitted. main_token is `prior`.
+    /// `lhs prior rhs`. lhs and rhs can be omitted. main_token is `prior`.
     prior_infix,
-    /// `lhs rotate rhs`. rhs can be omitted. main_token is `rotate`.
+    /// `lhs rotate rhs`. lhs and rhs can be omitted. main_token is `rotate`.
     rotate_infix,
-    /// `lhs scan rhs`. rhs can be omitted. main_token is `scan`.
+    /// `lhs scan rhs`. lhs and rhs can be omitted. main_token is `scan`.
     scan_infix,
-    /// `lhs scov rhs`. rhs can be omitted. main_token is `scov`.
+    /// `lhs scov rhs`. lhs and rhs can be omitted. main_token is `scov`.
     scov_infix,
-    /// `lhs set rhs`. rhs can be omitted. main_token is `set`.
+    /// `lhs set rhs`. lhs and rhs can be omitted. main_token is `set`.
     set_infix,
-    /// `lhs setenv rhs`. rhs can be omitted. main_token is `setenv`.
+    /// `lhs setenv rhs`. lhs and rhs can be omitted. main_token is `setenv`.
     setenv_infix,
-    /// `lhs ss rhs`. rhs can be omitted. main_token is `ss`.
+    /// `lhs ss rhs`. lhs and rhs can be omitted. main_token is `ss`.
     ss_infix,
-    /// `lhs sublist rhs`. rhs can be omitted. main_token is `sublist`.
+    /// `lhs sublist rhs`. lhs and rhs can be omitted. main_token is `sublist`.
     sublist_infix,
-    /// `lhs sv rhs`. rhs can be omitted. main_token is `sv`.
+    /// `lhs sv rhs`. lhs and rhs can be omitted. main_token is `sv`.
     sv_infix,
-    /// `lhs uj rhs`. rhs can be omitted. main_token is `uj`.
+    /// `lhs uj rhs`. lhs and rhs can be omitted. main_token is `uj`.
     uj_infix,
-    /// `lhs ujf rhs`. rhs can be omitted. main_token is `ujf`.
+    /// `lhs ujf rhs`. lhs and rhs can be omitted. main_token is `ujf`.
     ujf_infix,
-    /// `lhs upsert rhs`. rhs can be omitted. main_token is `upsert`.
+    /// `lhs upsert rhs`. lhs and rhs can be omitted. main_token is `upsert`.
     upsert_infix,
-    /// `lhs vs rhs`. rhs can be omitted. main_token is `vs`.
+    /// `lhs vs rhs`. lhs and rhs can be omitted. main_token is `vs`.
     vs_infix,
-    /// `lhs wavg rhs`. rhs can be omitted. main_token is `wavg`.
+    /// `lhs wavg rhs`. lhs and rhs can be omitted. main_token is `wavg`.
     wavg_infix,
-    /// `lhs within rhs`. rhs can be omitted. main_token is `within`.
+    /// `lhs within rhs`. lhs and rhs can be omitted. main_token is `within`.
     within_infix,
-    /// `lhs wsum rhs`. rhs can be omitted. main_token is `wsum`.
+    /// `lhs wsum rhs`. lhs and rhs can be omitted. main_token is `wsum`.
     wsum_infix,
-    /// `lhs xasc rhs`. rhs can be omitted. main_token is `xasc`.
+    /// `lhs xasc rhs`. lhs and rhs can be omitted. main_token is `xasc`.
     xasc_infix,
-    /// `lhs xbar rhs`. rhs can be omitted. main_token is `xbar`.
+    /// `lhs xbar rhs`. lhs and rhs can be omitted. main_token is `xbar`.
     xbar_infix,
-    /// `lhs xcol rhs`. rhs can be omitted. main_token is `xcol`.
+    /// `lhs xcol rhs`. lhs and rhs can be omitted. main_token is `xcol`.
     xcol_infix,
-    /// `lhs xcols rhs`. rhs can be omitted. main_token is `xcols`.
+    /// `lhs xcols rhs`. lhs and rhs can be omitted. main_token is `xcols`.
     xcols_infix,
-    /// `lhs xdesc rhs`. rhs can be omitted. main_token is `xdesc`.
+    /// `lhs xdesc rhs`. lhs and rhs can be omitted. main_token is `xdesc`.
     xdesc_infix,
-    /// `lhs xexp rhs`. rhs can be omitted. main_token is `xexp`.
+    /// `lhs xexp rhs`. lhs and rhs can be omitted. main_token is `xexp`.
     xexp_infix,
-    /// `lhs xgroup rhs`. rhs can be omitted. main_token is `xgroup`.
+    /// `lhs xgroup rhs`. lhs and rhs can be omitted. main_token is `xgroup`.
     xgroup_infix,
-    /// `lhs xkey rhs`. rhs can be omitted. main_token is `xkey`.
+    /// `lhs xkey rhs`. lhs and rhs can be omitted. main_token is `xkey`.
     xkey_infix,
-    /// `lhs xlog rhs`. rhs can be omitted. main_token is `xlog`.
+    /// `lhs xlog rhs`. lhs and rhs can be omitted. main_token is `xlog`.
     xlog_infix,
-    /// `lhs xprev rhs`. rhs can be omitted. main_token is `xprev`.
+    /// `lhs xprev rhs`. lhs and rhs can be omitted. main_token is `xprev`.
     xprev_infix,
-    /// `lhs xrank rhs`. rhs can be omitted. main_token is `xrank`.
+    /// `lhs xrank rhs`. lhs and rhs can be omitted. main_token is `xrank`.
     xrank_infix,
 
     /// `do[lhs;rhs]`. rhs can be omitted. main_token is `do`.
@@ -961,8 +961,10 @@ pub const DeleteRows = struct {
 
 pub const DeleteColumns = struct {
     from: Index,
+    /// Index into extra_data.
+    select: Index,
+    /// Index into extra_data.
+    select_end: Index,
     /// Index into strings.
     select_columns: Index,
-    /// Index into strings.
-    select_columns_end: Index,
 };

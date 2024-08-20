@@ -949,9 +949,29 @@ pub const Value = union(ValueType) {
                     }
                 }
             },
-            .timestamp => unreachable,
+            .timestamp => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Np");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0Wp");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0Wp");
+                } else {
+                    try writer.print("{d}p", .{value}); // TODO: NYI
+                }
+            },
             .timestamp_list => unreachable,
-            .timespan => unreachable,
+            .timespan => |value| {
+                if (utils.isNull(value)) {
+                    try writer.writeAll("0Nn");
+                } else if (utils.isPositiveInf(value)) {
+                    try writer.writeAll("0Wn");
+                } else if (utils.isNegativeInf(value)) {
+                    try writer.writeAll("-0Wn");
+                } else {
+                    try writer.print("{d}n", .{value}); // TODO: NYI
+                }
+            },
             .timespan_list => unreachable,
             .real => |value| {
                 if (utils.isNull(value)) {
