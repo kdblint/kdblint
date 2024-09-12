@@ -363,15 +363,21 @@ fn Infix(comptime tag: Node.Tag) *const fn (*Parse, Node.Index) Error!Node.Index
             assert(lhs > 0);
             switch (tag) {
                 .assign => {
-                    // TODO: Add more assignment targets - Config[`assetClass]:`fi
-                    if (p.findFirstIdentifier(lhs)) |identifier_token| {
+                    // TODO: Add more assignment targets
+                    // TODO: Test edge cases for call_one/call nodes
+                    const lhs_tag: Node.Tag = p.nodes.items(.tag)[lhs];
+                    const lhs_node: Node.Index = switch (lhs_tag) {
+                        .call_one, .call => p.nodes.items(.data)[lhs].lhs,
+                        else => lhs,
+                    };
+                    if (p.findFirstIdentifier(lhs_node)) |identifier_token| {
                         if (p.in_lambda) {
                             try p.locals_scratch.append(p.gpa, identifier_token);
                         }
                     } else {
                         return p.failMsg(.{
                             .tag = .expected_token,
-                            .token = p.nodes.items(.main_token)[lhs],
+                            .token = p.nodes.items(.main_token)[lhs_node],
                             .extra = .{ .expected_tag = .identifier },
                         });
                     }
