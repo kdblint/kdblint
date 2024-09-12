@@ -965,6 +965,4 @@ pub const DeleteColumns = struct {
     select: Index,
     /// Index into extra_data.
     select_end: Index,
-    /// Index into strings.
-    select_columns: Index,
 };

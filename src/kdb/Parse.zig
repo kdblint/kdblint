@@ -1877,9 +1877,6 @@ fn delete(p: *Parse) Error!Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const strings_scratch_top = p.strings_scratch.items.len;
-    defer p.strings_scratch.shrinkRetainingCapacity(strings_scratch_top);
-
     if (p.eatIdentifier(.{ .from = true })) |_| {
         // From phrase
         const from_expr = try p.expectSqlExpr(.{ .where = true });
@@ -1909,18 +1906,20 @@ fn delete(p: *Parse) Error!Node.Index {
             },
         });
     } else {
-        var hash_map = std.StringHashMap(u32).init(p.gpa);
-        defer hash_map.deinit();
-
         // Select phrase
         const select_top = p.scratch.items.len;
-        const select_columns_top = p.strings_scratch.items.len;
         while (true) {
             if (p.eob) return p.fail(.expected_from);
-            if (p.peekIdentifier(.{ .from = true })) |_| return p.fail(.expected_from);
             const identifier_token = try p.expectToken(.identifier);
-            try p.scratch.append(p.gpa, identifier_token);
-            try p.addTableColumn(identifier_token, 0, &hash_map);
+            const node = try p.addNode(.{
+                .tag = .identifier,
+                .main_token = identifier_token,
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+            try p.scratch.append(p.gpa, node);
             if (p.eatToken(.comma)) |_| continue;
             break;
         }
@@ -1933,7 +1932,6 @@ fn delete(p: *Parse) Error!Node.Index {
             .from = from_expr,
             .select = try p.addList(p.scratch.items[select_top..]),
             .select_end = @intCast(p.extra_data.items.len),
-            .select_columns = try p.addStringList(p.strings_scratch.items[select_columns_top..]),
         };
         return p.addNode(.{
             .tag = .delete_cols,
