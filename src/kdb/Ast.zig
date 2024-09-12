@@ -2130,9 +2130,7 @@ pub fn print(tree: Ast, i: Node.Index, stream: anytype, gpa: Allocator) Allocato
             } else {
                 if (select_slice.len == 1) try select.append(',');
                 try select.append(',');
-                for (select_slice) |column| {
-                    try select.writer().print("`{s}", .{tree.tokenSlice(column)});
-                }
+                for (select_slice) |column| try tree.print(column, select.writer(), gpa);
             }
 
             try stream.print("(!;{s};();0b;{s})", .{ from.items, select.items });
