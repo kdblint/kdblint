@@ -136,7 +136,7 @@ pub fn addValue(p: *Parse, value: Value) Allocator.Error!Node.Index {
 }
 
 fn warnExpected(p: *Parse, tag: Token.Tag) Allocator.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     try p.warnMsg(.{
         .tag = .expected_token,
         .token = p.tok_i,
@@ -145,22 +145,22 @@ fn warnExpected(p: *Parse, tag: Token.Tag) Allocator.Error!void {
 }
 
 fn warn(p: *Parse, error_tag: AstError.Tag) Allocator.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     try p.warnMsg(.{ .tag = error_tag, .token = p.tok_i });
 }
 
 fn warnMsg(p: *Parse, msg: Ast.Error) Allocator.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     try p.errors.append(p.gpa, msg);
 }
 
 pub fn fail(p: *Parse, tag: Ast.Error.Tag) Error {
-    @setCold(true);
+    @branchHint(.cold);
     return p.failMsg(.{ .tag = tag, .token = p.tok_i });
 }
 
 fn failExpected(p: *Parse, tag: Token.Tag) Error {
-    @setCold(true);
+    @branchHint(.cold);
     return p.failMsg(.{
         .tag = .expected_token,
         .token = p.tok_i,
@@ -169,7 +169,7 @@ fn failExpected(p: *Parse, tag: Token.Tag) Error {
 }
 
 pub fn failMsg(p: *Parse, msg: Ast.Error) Error {
-    @setCold(true);
+    @branchHint(.cold);
     try p.warnMsg(msg);
     return error.ParseError;
 }
@@ -2233,7 +2233,7 @@ fn parsePrecedence(p: *Parse, precedence: Precedence) Error!Node.Index {
 }
 
 const operTable = operTable: {
-    @setEvalBranchQuota(1045);
+    @setEvalBranchQuota(1791);
     break :operTable std.enums.directEnumArray(Token.Tag, OperInfo, 0, .{
         // Punctuation
         .l_paren = .{ .prefix = grouping, .infix = apply, .prec = .secondary },
