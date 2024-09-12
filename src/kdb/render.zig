@@ -1157,8 +1157,8 @@ fn renderExpression(r: *Render, node: Node.Index, space: Space) Error!void {
             try renderToken(r, main_tokens[node], .space);
 
             const columns = tree.extra_data[delete.select..delete.select_end];
-            for (columns[0 .. columns.len - 1]) |column| try renderToken(r, column, .comma);
-            try renderToken(r, columns[columns.len - 1], .space);
+            for (columns[0 .. columns.len - 1]) |column| try renderExpression(r, column, .comma);
+            try renderExpression(r, columns[columns.len - 1], .space);
             try ais.writer().writeAll("from ");
             try renderExpression(r, delete.from, space);
         },
