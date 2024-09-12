@@ -195,7 +195,7 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: std.io.AnyWriter) !voi
             return writer.writeAll("TODO");
         },
         .expected_qsql_token => {
-            return writer.writeAll("TODO");
+            return writer.print("Expected '{s}'", .{parse_error.extra.expected_string});
         },
         .expected_from => {
             return writer.writeAll("TODO");
