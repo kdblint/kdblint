@@ -61,7 +61,7 @@ fn cast(comptime T: type, value: anytype) T {
 
 pub fn isNull(value: anytype) bool {
     const T = @TypeOf(value);
-    if (@typeInfo(T) == .Pointer) {
+    if (@typeInfo(T) == .pointer) {
         for (value) |v| if (!isNull(v)) return false;
         return true;
     }
@@ -78,7 +78,7 @@ pub fn isNull(value: anytype) bool {
 
 pub fn isPositiveInf(value: anytype) bool {
     const T = @TypeOf(value);
-    if (@typeInfo(T) == .Pointer) {
+    if (@typeInfo(T) == .pointer) {
         for (value) |v| if (!isPositiveInf(v)) return false;
         return true;
     }
@@ -91,7 +91,7 @@ pub fn isPositiveInf(value: anytype) bool {
 
 pub fn isNegativeInf(value: anytype) bool {
     const T = @TypeOf(value);
-    if (@typeInfo(T) == .Pointer) {
+    if (@typeInfo(T) == .pointer) {
         for (value) |v| if (!isNegativeInf(v)) return false;
         return true;
     }
@@ -104,7 +104,7 @@ pub fn isNegativeInf(value: anytype) bool {
 
 pub fn isNullOrInf(value: anytype) bool {
     const T = @TypeOf(value);
-    if (@typeInfo(T) == .Pointer) {
+    if (@typeInfo(T) == .pointer) {
         for (value) |v| if (!isNullOrInf(v)) return false;
         return true;
     }

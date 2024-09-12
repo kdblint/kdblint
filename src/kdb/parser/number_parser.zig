@@ -2114,17 +2114,17 @@ pub fn testNumberParser(input: [:0]const u8, comptime expected_type: ValueType, 
     try std.testing.expectEqual(expected_type, @as(ValueType, value));
 
     const actual_value = @field(value, @tagName(expected_type));
-    const actual = if (@typeInfo(@TypeOf(actual_value)) == .Array) &actual_value else actual_value;
+    const actual = if (@typeInfo(@TypeOf(actual_value)) == .array) &actual_value else actual_value;
     switch (@typeInfo(@TypeOf(expected_value))) {
-        .Array => |type_info| {
+        .array => |type_info| {
             try std.testing.expectEqualSlices(type_info.child, &expected_value, actual);
         },
-        .Pointer => |type_info| {
+        .pointer => |type_info| {
             try std.testing.expectEqualSlices(@typeInfo(type_info.child).Array.child, expected_value, actual);
         },
-        .Struct => |type_info| {
+        .@"struct" => |type_info| {
             const fields_info = type_info.fields;
-            const T = if (fields_info.len > 0) fields_info[0].type else @typeInfo(@TypeOf(actual)).Pointer.child;
+            const T = if (fields_info.len > 0) fields_info[0].type else @typeInfo(@TypeOf(actual)).pointer.child;
             const expected = try gpa.alloc(T, fields_info.len);
             defer gpa.free(expected);
             inline for (fields_info, 0..) |field, i| {

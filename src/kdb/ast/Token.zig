@@ -725,7 +725,7 @@ pub const Tag = enum {
     }
 
     test "Token tags which have a known lexeme parse as expected" {
-        inline for (@typeInfo(Token.Tag).Enum.fields) |field| {
+        inline for (@typeInfo(Token.Tag).@"enum".fields) |field| {
             const tag: Token.Tag = @enumFromInt(field.value);
             if (tag.lexeme()) |l| {
                 const source = try std.testing.allocator.allocSentinel(u8, l.len + 2, 0);
@@ -759,7 +759,7 @@ pub const Tag = enum {
     }
 
     test "Token tags are not unreachable when calling symbol()" {
-        inline for (@typeInfo(Token.Tag).Enum.fields) |field| {
+        inline for (@typeInfo(Token.Tag).@"enum".fields) |field| {
             const tag: Token.Tag = @enumFromInt(field.value);
             _ = tag.symbol();
         }
