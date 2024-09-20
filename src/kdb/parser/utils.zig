@@ -184,3 +184,7 @@ pub fn millisecondsToHourMinuteSecondMillisecond(milliseconds: i32) struct { u32
     const millisecond = ms % number_parser.milliseconds_per_second;
     return .{ hour, minute, second, millisecond };
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

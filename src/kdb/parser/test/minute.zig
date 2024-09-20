@@ -384,3 +384,7 @@ test "invalid minute inputs" {
 
     try testParseError("00:00 10:00 -20:00 000000000060u", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

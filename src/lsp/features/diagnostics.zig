@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const zls = @import("zls");
 const types = zls.types;
 
-const kdb = @import("../kdb.zig");
+const kdb = @import("../../kdb.zig");
 const Ast = kdb.Ast;
 const LambdaVisitor = Ast.LambdaVisitor;
 const Server = @import("../Server.zig");

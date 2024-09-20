@@ -56,3 +56,7 @@ test "invalid datetime inputs" {
     try testNumberParserError("00010100z", error.Overflow);
     try testNumberParserError("-00010100z", error.Overflow);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

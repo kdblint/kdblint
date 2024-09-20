@@ -1,4 +1,5 @@
-const Version = @import("kdb.zig").Ast.Version;
+const kdb = @import("../kdb.zig");
+const Version = kdb.Ast.Version;
 
 kdb_version: Version = .@"4.0",
 

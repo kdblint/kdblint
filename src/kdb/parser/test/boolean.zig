@@ -68,3 +68,7 @@ test "invalid boolean inputs" {
     try testNumberParserError("1b0", error.InvalidCharacter);
     try testNumberParserError("10b0", error.InvalidCharacter);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

@@ -515,3 +515,7 @@ test "invalid float inputs" {
 test "float scientific notation" {
     return error.SkipZigTest;
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

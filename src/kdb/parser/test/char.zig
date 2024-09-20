@@ -66,3 +66,7 @@ test "valid char inputs" {
     try testParse("0n 0n 0Nc", &.{ .implicit_return, .char_number_list_literal }, "\"   \"");
     try testParse("0n 0n 0nc", &.{ .implicit_return, .char_number_list_literal }, "\"   \"");
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

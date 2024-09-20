@@ -364,3 +364,7 @@ test "invalid long inputs" {
     try testParseError("-9223372036854775808 1", &.{.parse_error});
     try testParseError("-9223372036854775808 1j", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

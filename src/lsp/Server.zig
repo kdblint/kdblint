@@ -486,7 +486,7 @@ fn initializeHandler(server: *Server, arena: std.mem.Allocator, request: types.I
                     server.showMessage(.Error, "Failed to load configuration options:\n{s}", .{message});
                 },
                 .not_found => {
-                    log.info("No config file zls.json found. This is not an error.", .{});
+                    log.info("No config file kdblint.json found. This is not an error.", .{});
                     try server.updateConfiguration(.{});
                 },
             }
@@ -1073,7 +1073,7 @@ fn formattingHandler(server: *Server, arena: std.mem.Allocator, request: types.D
     if (handle.tree.errors.len != 0) return null;
 
     // TODO: formatting settings
-    const formatted = try handle.tree.render(arena, .{});
+    const formatted = try handle.tree.render(arena);
 
     if (std.mem.eql(u8, handle.tree.source, formatted)) return null;
 
@@ -1598,4 +1598,8 @@ pub fn formatMessage(
 
 fn fmtMessage(message: Message) std.fmt.Formatter(formatMessage) {
     return .{ .data = message };
+}
+
+test {
+    @import("std").testing.refAllDecls(@This());
 }

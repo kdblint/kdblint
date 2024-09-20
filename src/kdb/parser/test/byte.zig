@@ -52,3 +52,7 @@ test "invalid byte inputs" {
     try testNumberParserError("0xgg", error.InvalidCharacter);
     try testNumberParserError("0xGG", error.InvalidCharacter);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

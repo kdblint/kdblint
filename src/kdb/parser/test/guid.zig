@@ -86,3 +86,7 @@ test "invalid guid inputs" {
     try testParseError("1f 0Ng", &.{.parse_error});
     try testParseError("1 2f 0Ng", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

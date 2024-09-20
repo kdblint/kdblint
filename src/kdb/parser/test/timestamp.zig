@@ -468,3 +468,7 @@ test "invalid timestamp inputs" {
     try testNumberParserError("-2000.01.01D9223372036854775808", error.Overflow);
     try testNumberParserError("-2000.01.01D9223372036854775808.", error.Overflow);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

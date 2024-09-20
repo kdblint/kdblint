@@ -402,3 +402,7 @@ test "invalid second inputs" {
 
     try testParseError("00:00:00 00:10:00 01:00:30 060v", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

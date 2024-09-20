@@ -37,3 +37,7 @@ fn visit(ctx: *anyopaque, tag: Node.Tag, tree: Ast, i: Node.Index) !void {
 
     self.identifier = tree.nodes.items(.main_token)[i];
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
