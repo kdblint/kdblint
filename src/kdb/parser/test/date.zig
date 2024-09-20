@@ -359,3 +359,7 @@ test "invalid date inputs" {
     try testParseError("1. 2000.02.03", &.{.parse_error});
     try testParseError("1. 2. 2000.03.04", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

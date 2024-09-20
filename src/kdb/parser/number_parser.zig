@@ -2198,3 +2198,7 @@ test "edge cases" {
 
     try testNumberParser("99:59:59.", .second, @as(i32, 359999));
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

@@ -48,3 +48,7 @@ fn visit(ctx: *anyopaque, tag: Node.Tag, tree: Ast, i: Node.Index) !void {
     defer expr_visitor.destroy(self.allocator);
     try tree.accept(expr_visitor.any(), i);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

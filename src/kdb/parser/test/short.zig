@@ -306,3 +306,7 @@ test "invalid short inputs" {
 
     try testParseError("-32768 1h", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

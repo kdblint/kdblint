@@ -15,3 +15,7 @@ pub const VTable = struct {
 pub fn visit(self: AnyVisitor, tag: Node.Tag, tree: Ast, i: Node.Index) !void {
     try self.vtable.visit(self.ptr, tag, tree, i);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

@@ -36,3 +36,7 @@ fn visit(ctx: *anyopaque, tag: Node.Tag, _: Ast, _: Node.Index) !void {
     const self: *NodeTagVisitor = @ptrCast(@alignCast(ctx));
     try self.tags.append(tag);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

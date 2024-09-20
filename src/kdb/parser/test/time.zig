@@ -476,3 +476,7 @@ test "invalid time inputs" {
     try testParseError("00:60:00.000 00:00:60.000 99:60:59.999 99:59:60.999 -99:60:59.999 -99:59:60.999", &.{.parse_error});
     try testParseError("-999:59:59.9 -999:59:59.99 -999:59:59.999", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

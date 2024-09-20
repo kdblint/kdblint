@@ -7,13 +7,18 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const test_step = b.step("test", "Run all the tests");
-    const check_step = b.step("check", "TODO");
+    const options = try getOptions(b);
 
-    const exe = addCompilerStep(b, .{
-        .optimize = optimize,
+    const exe = b.addExecutable(.{
+        .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
+        .optimize = optimize,
     });
+    addImports(b, exe, options);
+
+    const check_step = b.step("check", "Compile project without build artifacts");
+    check_step.dependOn(&exe.step);
 
     const install_exe = b.addInstallArtifact(exe, .{
         .dest_dir = .{
@@ -24,14 +29,41 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&install_exe.step);
     if (target.result.os.tag == builtin.target.os.tag and target.result.cpu.arch == builtin.target.cpu.arch) {
-        const install_native_exe = b.addInstallArtifact(exe, .{});
-        b.getInstallStep().dependOn(&install_native_exe.step);
+        b.installArtifact(exe);
     }
 
-    check_step.dependOn(&exe.step);
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
 
-    const exe_options = b.addOptions();
-    exe.root_module.addOptions("build_options", exe_options);
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
+
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
+
+    const unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .filters = test_filters,
+    });
+    addImports(b, unit_tests, options);
+
+    const run_exe_unit_tests = b.addRunArtifact(unit_tests);
+
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_exe_unit_tests.step);
+}
+
+const AddCompilerStepOptions = struct {
+    optimize: std.builtin.OptimizeMode,
+    target: std.Build.ResolvedTarget,
+};
+
+fn getOptions(b: *std.Build) !*std.Build.Step.Options {
+    const options = b.addOptions();
 
     const version_slice = v: {
         if (!std.process.can_spawn) {
@@ -94,44 +126,17 @@ pub fn build(b: *std.Build) !void {
 
         break :v "";
     };
+
     const version = try b.allocator.dupeZ(u8, version_slice);
-    exe_options.addOption([:0]const u8, "version", version);
+    options.addOption([:0]const u8, "version", version);
 
     const semver = try std.SemanticVersion.parse(version);
-    exe_options.addOption(std.SemanticVersion, "semver", semver);
+    options.addOption(std.SemanticVersion, "semver", semver);
 
-    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
-
-    const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-        .filters = test_filters,
-    });
-    addImports(b, unit_tests);
-    unit_tests.root_module.addOptions("build_options", exe_options);
-
-    const run_exe_unit_tests = b.addRunArtifact(unit_tests);
-    test_step.dependOn(&run_exe_unit_tests.step);
+    return options;
 }
 
-const AddCompilerStepOptions = struct {
-    optimize: std.builtin.OptimizeMode,
-    target: std.Build.ResolvedTarget,
-};
-
-fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
-        .name = if (options.optimize == .Debug) "kdblint.Debug" else "kdblint",
-        .root_source_file = b.path("src/main.zig"),
-        .target = options.target,
-        .optimize = options.optimize,
-    });
-    addImports(b, exe);
-    return exe;
-}
-
-fn addImports(b: *std.Build, step: *std.Build.Step.Compile) void {
+fn addImports(b: *std.Build, step: *std.Build.Step.Compile, options: *std.Build.Step.Options) void {
     const zls = b.dependency("zls", .{});
     const zls_module = zls.module("zls");
     const tracy_module = zls.module("tracy");
@@ -142,4 +147,6 @@ fn addImports(b: *std.Build, step: *std.Build.Step.Compile) void {
     step.root_module.addImport("zls", zls_module);
     step.root_module.addImport("tracy", tracy_module);
     step.root_module.addImport("known_folders", known_folders_module);
+
+    step.root_module.addOptions("build_options", options);
 }

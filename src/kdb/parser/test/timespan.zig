@@ -473,3 +473,7 @@ test "invalid timespan inputs" {
     try testNumberParserError("-0D9223372036854775808", error.Overflow);
     try testNumberParserError("-0D9223372036854775808.", error.Overflow);
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

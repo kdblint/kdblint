@@ -306,3 +306,7 @@ test "invalid int inputs" {
 
     try testParseError("-2147483648 1i", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

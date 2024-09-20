@@ -765,3 +765,7 @@ pub const Tag = enum {
         }
     }
 };
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

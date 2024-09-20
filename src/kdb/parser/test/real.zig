@@ -341,3 +341,7 @@ test "invalid real inputs" {
 test "real scientific notation" {
     return error.SkipZigTest;
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

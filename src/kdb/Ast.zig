@@ -114,16 +114,16 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) Allo
 /// for allocating extra stack memory if needed, because this function utilizes recursion.
 /// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
-pub fn render(tree: Ast, gpa: Allocator, settings: RenderSettings) RenderError![]u8 {
+pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    try tree.renderToArrayList(&buffer, settings);
+    try tree.renderToArrayList(&buffer);
     return buffer.toOwnedSlice();
 }
 
-pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), settings: RenderSettings) RenderError!void {
-    return private_render.renderTree(buffer, tree, settings);
+pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void {
+    return private_render.renderTree(buffer, tree);
 }
 
 pub fn tokenSlice(tree: Ast, token_index: Token.Index) []const u8 {
@@ -2836,9 +2836,8 @@ const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
 const assert = std.debug.assert;
-const diagnostics = @import("../features/diagnostics.zig");
+const diagnostics = @import("../lsp/features/diagnostics.zig");
 const private_render = @import("./render.zig");
-const RenderSettings = private_render.RenderSettings;
 const Value = @import("parser/number_parser.zig").Value;
 
 const log = std.log.scoped(.kdblint_ast);

@@ -1,5 +1,7 @@
 const std = @import("std");
-const Ast = @import("kdb.zig").Ast;
+
+const kdb = @import("../kdb.zig");
+const Ast = kdb.Ast;
 
 const log = std.log.scoped(.kdblint_analysis);
 

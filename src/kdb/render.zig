@@ -3,11 +3,9 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const meta = std.meta;
-const kdb = @import("../kdb.zig");
-const Ast = kdb.Ast;
+const Ast = @import("Ast.zig");
 const Token = Ast.Token;
 const Node = Ast.Node;
-const primitives = kdb.primitives;
 const panic = std.debug.panic;
 const Value = @import("parser/number_parser.zig").Value;
 
@@ -25,14 +23,9 @@ const Render = struct {
     ais: *Ais,
     tree: Ast,
     prev_token: Token.Index,
-    settings: RenderSettings,
 };
 
-pub const RenderSettings = struct {
-    explicit_function_args: bool = true,
-};
-
-pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSettings) Error!void {
+pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
     var auto_indenting_stream = Ais{
         .indent_delta = indent_delta,
@@ -43,7 +36,6 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSetting
         .ais = &auto_indenting_stream,
         .tree = tree,
         .prev_token = 0,
-        .settings = settings,
     };
 
     if (tree.tokens.items(.tag)[0] == .comment) {
@@ -1550,9 +1542,7 @@ fn testRender(comptime source: [:0]const u8) !void {
         .language = .q,
     });
     defer tree.deinit(std.testing.allocator);
-    const actual = try Ast.render(tree, std.testing.allocator, .{
-        .explicit_function_args = false,
-    });
+    const actual = try Ast.render(tree, std.testing.allocator);
     defer std.testing.allocator.free(actual);
     try std.testing.expectEqualSlices(u8, source ++ "\n", actual);
 }

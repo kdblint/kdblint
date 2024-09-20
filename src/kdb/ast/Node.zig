@@ -966,3 +966,7 @@ pub const DeleteColumns = struct {
     /// Index into extra_data.
     select_end: Index,
 };
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

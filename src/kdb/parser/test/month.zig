@@ -356,3 +356,7 @@ test "invalid month inputs" {
     try testParseError("1. 2000.02m", &.{.parse_error});
     try testParseError("1. 2. 2000.03m", &.{.parse_error});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
