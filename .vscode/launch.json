@@ -2,6 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "(Windows) Launch",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceRoot}/lib/kdb/zig-out/bin/fmt.exe",
+      "args": ["test.q"],
+      "cwd": "${workspaceRoot}/lib/kdb"
+    },
+    {
       "name": "(lldb) Attach",
       "type": "cppdbg",
       "request": "attach",
