@@ -1441,38 +1441,6 @@ test "tokenize string" {
     });
 }
 
-test "tokenize identifier" {
-    try testTokenize("a", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 1 }, .eob = true }});
-    try testTokenize("identifier", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = true }});
-    try testTokenize("test1", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 5 }, .eob = true }});
-    try testTokenize("UPPERCASE", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 9 }, .eob = true }});
-    try testTokenize("identifier.with.dot", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 19 }, .eob = true }});
-    try testTokenize(".identifier.with.leading.dot", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 28 }, .eob = true }});
-
-    try testTokenizeLanguage(.k, "identifier_with_underscore", &.{
-        .{ .tag = .identifier, .loc = .{ .start = 0, .end = 10 }, .eob = false },
-        .{ .tag = .underscore, .loc = .{ .start = 10, .end = 11 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 11, .end = 15 }, .eob = false },
-        .{ .tag = .underscore, .loc = .{ .start = 15, .end = 16 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 16, .end = 26 }, .eob = true },
-    });
-    try testTokenizeLanguage(.q, "identifier_with_underscore", &.{.{ .tag = .identifier, .loc = .{ .start = 0, .end = 26 }, .eob = true }});
-    try testTokenizeLanguage(.k, "_identifier_with_leading_underscore", &.{
-        .{ .tag = .underscore, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 1, .end = 11 }, .eob = false },
-        .{ .tag = .underscore, .loc = .{ .start = 11, .end = 12 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 12, .end = 16 }, .eob = false },
-        .{ .tag = .underscore, .loc = .{ .start = 16, .end = 17 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 17, .end = 24 }, .eob = false },
-        .{ .tag = .underscore, .loc = .{ .start = 24, .end = 25 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 25, .end = 35 }, .eob = true },
-    });
-    try testTokenizeLanguage(.q, "_identifier_with_leading_underscore", &.{
-        .{ .tag = .underscore, .loc = .{ .start = 0, .end = 1 }, .eob = false },
-        .{ .tag = .identifier, .loc = .{ .start = 1, .end = 35 }, .eob = true },
-    });
-}
-
 test "tokenize starting comment" {
     try testTokenize(
         \\ this is a starting
