@@ -94,7 +94,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
     switch (node_tags[node]) {
-        .root => unreachable,
+        .root,
+        => unreachable,
 
         .grouped_expression,
         => {
@@ -176,6 +177,32 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderToken(r, main_tokens[node], .none);
             if (datas[node].lhs > 0) try renderExpression(r, datas[node].lhs, .none);
             return renderExpression(r, datas[node].rhs, space);
+        },
+
+        .expr_block,
+        => {
+            try renderToken(r, main_tokens[node], .none);
+            if (datas[node].lhs > 0) {
+                const sub_range = tree.extraData(datas[node].lhs, Ast.Node.SubRange);
+                const exprs = tree.extra_data[sub_range.start..sub_range.end];
+                if (exprs.len > 1) {
+                    if (tree.tokensOnSameLine(tree.firstToken(exprs[0]), tree.firstToken(exprs[1]))) {
+                        for (exprs) |expr| {
+                            try renderExpression(r, expr, .semicolon);
+                        }
+                    } else {
+                        for (exprs) |expr| {
+                            try ais.maybeInsertNewline();
+                            try renderExpression(r, expr, .semicolon);
+                        }
+                    }
+                } else {
+                    for (exprs) |expr| {
+                        try renderExpression(r, expr, .semicolon);
+                    }
+                }
+            }
+            try renderToken(r, datas[node].rhs, space);
         },
 
         .assign,
