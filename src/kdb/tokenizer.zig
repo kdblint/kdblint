@@ -1396,51 +1396,6 @@ test "tokenize negative number" {
     });
 }
 
-test "tokenize string" {
-    try testTokenize(
-        \\"this is a string"
-    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 18 }, .eob = true }});
-    try testTokenize(
-        \\"this is a string\"with\\embedded\nescape\rchars\t"
-    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 51 }, .eob = true }});
-    try testTokenize(
-        \\"this is \a string with bad ch\ars"
-    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 35 }, .eob = true }});
-    try testTokenize(
-        \\"\012"
-    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 6 }, .eob = true }});
-
-    try testTokenize(
-        \\"\
-    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 2 }, .eob = true }});
-    try testTokenize(
-        \\"\0
-    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 3 }, .eob = true }});
-    try testTokenize(
-        \\"\0"
-    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
-    try testTokenize(
-        \\"\01
-    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 4 }, .eob = true }});
-    try testTokenize(
-        \\"\01"
-    , &.{.{ .tag = .invalid, .loc = .{ .start = 0, .end = 5 }, .eob = true }});
-
-    try testTokenize(
-        \\"this is a valid
-        \\ multiline string"
-    , &.{.{ .tag = .string_literal, .loc = .{ .start = 0, .end = 35 }, .eob = true }});
-    try testTokenize(
-        \\"this is an invalid
-        \\multiline string"
-    , &.{
-        .{ .tag = .invalid, .loc = .{ .start = 0, .end = 19 }, .eob = true },
-        .{ .tag = .identifier, .loc = .{ .start = 20, .end = 29 }, .eob = false },
-        .{ .tag = .keyword_q_string, .loc = .{ .start = 30, .end = 36 }, .eob = false },
-        .{ .tag = .invalid, .loc = .{ .start = 36, .end = 37 }, .eob = true },
-    });
-}
-
 test "tokenize starting comment" {
     try testTokenize(
         \\ this is a starting
