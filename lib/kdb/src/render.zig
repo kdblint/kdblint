@@ -208,7 +208,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .assign,
         => {
             const args = datas[node];
-            try renderExpressionSpace(r, args.lhs);
+            try renderExpression(r, args.lhs, .none);
             try renderTokenSpace(r, main_tokens[node]);
             return renderExpression(r, args.rhs, space);
         },
@@ -547,8 +547,16 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
 fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
     const tags: []Token.Tag = r.tree.tokens.items(.tag);
     return switch (tags[token1]) {
-        .number_literal => tags[token2] == .identifier,
-        .symbol_literal => switch (tags[token2]) {
+        .r_paren,
+        .r_brace,
+        .r_bracket,
+        => tags[token2] == .number_literal and r.tree.tokenSlice(token2)[0] == '-',
+
+        .number_literal,
+        => tags[token2] == .identifier,
+
+        .symbol_literal,
+        => switch (tags[token2]) {
             .colon,
             .colon_colon,
             .period,
@@ -570,7 +578,10 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
 
             else => false,
         },
-        .identifier => tags[token2] == .number_literal or tags[token2] == .identifier,
+
+        .identifier,
+        => tags[token2] == .number_literal or tags[token2] == .identifier,
+
         else => false,
     };
 }

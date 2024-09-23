@@ -174,7 +174,14 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
 
         .lambda_body,
         .lambda_body_semicolon,
-        => n = datas[n].lhs,
+        => {
+            const extra_data: []Node.Index = tree.extra_data[datas[n].lhs..datas[n].rhs];
+            if (extra_data.len > 0) {
+                n = extra_data[0];
+            } else {
+                return 0; // TODO: Which token is first when we have an empty lambda?
+            }
+        },
 
         .expr_block,
         => return main_tokens[n] - end_offset,
@@ -352,6 +359,7 @@ pub const Error = struct {
         cannot_project_operator_without_lhs,
         cannot_apply_operator_directly,
         cannot_apply_iterator_directly,
+        expected_whitespace,
 
         /// `expected_tag` is populated.
         expected_token,
@@ -641,9 +649,6 @@ fn testAstModeRender(
     var tree = try Ast.parse(gpa, source_code, mode);
     defer tree.deinit(gpa);
 
-    // Errors
-    try std.testing.expect(tree.errors.len == 0);
-
     // Token tags
     const actual_token_tags: []Token.Tag = tree.tokens.items(.tag);
     try std.testing.expectEqualSlices(Token.Tag, expected_tokens, actual_token_tags[0 .. actual_token_tags.len - 1]);
@@ -653,6 +658,9 @@ fn testAstModeRender(
     const actual_nodes: []Node.Tag = tree.nodes.items(.tag);
     try std.testing.expectEqualSlices(Node.Tag, expected_nodes, actual_nodes[1..]);
     try std.testing.expectEqual(.root, actual_nodes[0]);
+
+    // Errors
+    try std.testing.expect(tree.errors.len == 0);
 
     // Render
     const actual_source = try render(tree, gpa);
@@ -709,6 +717,225 @@ fn failAstMode(
     try std.testing.expect(tree.errors.len > 0);
 }
 
+test "tokenize number" {
+    try testAst("0", &.{.number_literal}, &.{.number_literal});
+    try testAst("1", &.{.number_literal}, &.{.number_literal});
+    try testAst("-1", &.{.number_literal}, &.{.number_literal});
+    try testAst("123", &.{.number_literal}, &.{.number_literal});
+    try testAst("-123", &.{.number_literal}, &.{.number_literal});
+    try testAst(".1", &.{.number_literal}, &.{.number_literal});
+    try testAst("-.1", &.{.number_literal}, &.{.number_literal});
+    try testAst("1.1", &.{.number_literal}, &.{.number_literal});
+    try testAst("-1.1", &.{.number_literal}, &.{.number_literal});
+    try testAst("1.", &.{.number_literal}, &.{.number_literal});
+    try testAst("-1.", &.{.number_literal}, &.{.number_literal});
+    try testAst("-.", &.{ .minus, .period }, &.{ .sub, .apply, .apply_binary });
+}
+
+test "tokenize negative number" {
+    try testAst(
+        "(-1)",
+        &.{ .l_paren, .number_literal, .r_paren },
+        &.{ .grouped_expression, .number_literal },
+    );
+    try testAst(
+        "(-.1)",
+        &.{ .l_paren, .number_literal, .r_paren },
+        &.{ .grouped_expression, .number_literal },
+    );
+    try testAst(
+        "()-1",
+        &.{ .l_paren, .r_paren, .minus, .number_literal },
+        &.{ .empty_list, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "()-.1",
+        &.{ .l_paren, .r_paren, .minus, .number_literal },
+        &.{ .empty_list, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "() -1",
+        &.{ .l_paren, .r_paren, .number_literal },
+        &.{ .empty_list, .number_literal, .apply_unary },
+    );
+    try testAst(
+        "() -.1",
+        &.{ .l_paren, .r_paren, .number_literal },
+        &.{ .empty_list, .number_literal, .apply_unary },
+    );
+    try testAst(
+        "{-1}",
+        &.{ .l_brace, .number_literal, .r_brace },
+        &.{ .lambda, .lambda_body, .number_literal },
+    );
+    try testAst(
+        "{-.1}",
+        &.{ .l_brace, .number_literal, .r_brace },
+        &.{ .lambda, .lambda_body, .number_literal },
+    );
+    try testAst(
+        "{}-1",
+        &.{ .l_brace, .r_brace, .minus, .number_literal },
+        &.{ .lambda, .lambda_body, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "{}-.1",
+        &.{ .l_brace, .r_brace, .minus, .number_literal },
+        &.{ .lambda, .lambda_body, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "{} -1",
+        &.{ .l_brace, .r_brace, .number_literal },
+        &.{ .lambda, .lambda_body, .number_literal, .apply_unary },
+    );
+    try testAst(
+        "{} -.1",
+        &.{ .l_brace, .r_brace, .number_literal },
+        &.{ .lambda, .lambda_body, .number_literal, .apply_unary },
+    );
+    try testAst(
+        "[-1]",
+        &.{ .l_bracket, .number_literal, .r_bracket },
+        &.{ .expr_block, .number_literal },
+    );
+    try testAst(
+        "[-.1]",
+        &.{ .l_bracket, .number_literal, .r_bracket },
+        &.{ .expr_block, .number_literal },
+    );
+    try testAst(
+        "[]-1",
+        &.{ .l_bracket, .r_bracket, .minus, .number_literal },
+        &.{ .expr_block, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "[]-.1",
+        &.{ .l_bracket, .r_bracket, .minus, .number_literal },
+        &.{ .expr_block, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "[] -1",
+        &.{ .l_bracket, .r_bracket, .number_literal },
+        &.{ .expr_block, .number_literal, .apply_unary },
+    );
+    try testAst(
+        "[] -.1",
+        &.{ .l_bracket, .r_bracket, .number_literal },
+        &.{ .expr_block, .number_literal, .apply_unary },
+    );
+    try testAstRender(
+        ";-1",
+        "-1",
+        &.{ .semicolon, .number_literal },
+        &.{.number_literal},
+    );
+    try testAstRender(
+        ";-.1",
+        "-.1",
+        &.{ .semicolon, .number_literal },
+        &.{.number_literal},
+    );
+    try testAst(
+        "1-1",
+        &.{ .number_literal, .minus, .number_literal },
+        &.{ .number_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "1-.1",
+        &.{ .number_literal, .minus, .number_literal },
+        &.{ .number_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "1 -1",
+        &.{ .number_literal, .number_literal },
+        &.{.number_list_literal},
+    );
+    try testAst(
+        "1 -.1",
+        &.{ .number_literal, .number_literal },
+        &.{.number_list_literal},
+    );
+    try testAst(
+        "\"string\"-1",
+        &.{ .string_literal, .minus, .number_literal },
+        &.{ .string_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "\"string\"-.1",
+        &.{ .string_literal, .minus, .number_literal },
+        &.{ .string_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "`symbol-1",
+        &.{ .symbol_literal, .minus, .number_literal },
+        &.{ .symbol_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "`symbol-.1",
+        &.{ .symbol_literal, .minus, .number_literal },
+        &.{ .symbol_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "`symbol`list-1",
+        &.{ .symbol_literal, .symbol_literal, .minus, .number_literal },
+        &.{ .symbol_list_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "`symbol`list-.1",
+        &.{ .symbol_literal, .symbol_literal, .minus, .number_literal },
+        &.{ .symbol_list_literal, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "identifier-1",
+        &.{ .identifier, .minus, .number_literal },
+        &.{ .identifier, .sub, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "identifier-.1",
+        &.{ .identifier, .minus, .number_literal },
+        &.{ .identifier, .sub, .number_literal, .apply_binary },
+    );
+}
+
+// try testAst(
+//     "{-1}[]-1",
+//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+//     &.{
+//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .sub, .number_literal, .apply_binary,
+//     },
+// );
+// try testAst(
+//     "{-1}[]- 1",
+//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+//     &.{
+//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .sub, .number_literal, .apply_binary,
+//     },
+// );
+// try testAst(
+//     "{-1}[] - 1",
+//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+//     &.{
+//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .sub, .number_literal, .apply_binary,
+//     },
+// );
+// try testAst(
+//     "{-1}[] -1",
+//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .number_literal },
+//     &.{
+//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .number_literal, .apply_unary,
+//     },
+// );
+// try testAst(
+//     "([]-1)",
+//     &.{ .l_paren, .l_bracket, .r_bracket, .number_literal, .r_paren },
+//     &.{ .table, .number_literal },
+// );
+// try testAst(
+//     "([x]-1)",
+//     &.{ .l_paren, .l_bracket, .identifier, .r_bracket, .number_literal, .r_paren },
+//     &.{ .table, .identifier, .number_literal },
+// );
+
 test "lambda renders on same line" {
     try testAst(
         "{}",
@@ -733,8 +960,7 @@ test "lambda renders on same line" {
     try testAst(
         "{1;2;}",
         &.{
-            .l_brace,        .number_literal, .semicolon,
-            .number_literal, .semicolon,      .r_brace,
+            .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .r_brace,
         },
         &.{ .lambda, .lambda_body_semicolon, .number_literal, .number_literal },
     );
@@ -748,11 +974,38 @@ test "lambda renders on same line" {
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .r_brace },
         &.{ .lambda, .lambda_params, .lambda_body, .number_literal },
     );
+    try testAstMode(
+        .k,
+        "{[]-1}",
+        &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .r_brace },
+        &.{ .lambda, .lambda_params, .lambda_body, .number_literal },
+    );
+    try testAstMode(
+        .q,
+        "{[] -1}",
+        &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .r_brace },
+        &.{ .lambda, .lambda_params, .lambda_body, .number_literal },
+    );
     try testAst(
         "{[]1;}",
         &.{
-            .l_brace,        .l_bracket, .r_bracket,
-            .number_literal, .semicolon, .r_brace,
+            .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace,
+        },
+        &.{ .lambda, .lambda_params, .lambda_body_semicolon, .number_literal },
+    );
+    try testAstMode(
+        .k,
+        "{[]-1;}",
+        &.{
+            .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace,
+        },
+        &.{ .lambda, .lambda_params, .lambda_body_semicolon, .number_literal },
+    );
+    try testAstMode(
+        .q,
+        "{[] -1;}",
+        &.{
+            .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace,
         },
         &.{ .lambda, .lambda_params, .lambda_body_semicolon, .number_literal },
     );

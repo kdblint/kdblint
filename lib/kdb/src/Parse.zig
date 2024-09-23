@@ -383,30 +383,7 @@ fn parseExprPrecedence(p: *Parse) Error!Node.Index {
     return node;
 }
 
-fn parsePrefixExpr(p: *Parse) Error!Node.Index {
-    const tag: Node.Tag = switch (p.peekTag()) {
-        .minus => .sub, // TODO: Add negation
-        else => return p.parsePrimaryExpr(),
-    };
-    return p.addNode(.{
-        .tag = tag,
-        .main_token = p.tok_i,
-        .data = .{
-            .lhs = try p.expectPrefixExpr(),
-            .rhs = undefined,
-        },
-    });
-}
-
-fn expectPrefixExpr(p: *Parse) Error!Node.Index {
-    const node = try p.parsePrefixExpr();
-    if (node == null_node) {
-        return p.fail(.expected_prefix_expr);
-    }
-    return node;
-}
-
-/// PrimaryExpr
+/// PrefixExpr
 ///     <- Group
 ///      / Lambda
 ///      / Operator
@@ -414,7 +391,7 @@ fn expectPrefixExpr(p: *Parse) Error!Node.Index {
 ///      / STRING_LITERAL
 ///      / SYMBOL_LITERAL
 ///      / IDENTIFIER
-fn parsePrimaryExpr(p: *Parse) !Node.Index {
+fn parsePrefixExpr(p: *Parse) Error!Node.Index {
     const tag = p.peekTag();
     switch (tag) {
         .l_paren => return p.parseGroup(),
@@ -565,6 +542,15 @@ fn parseLambda(p: *Parse) !Node.Index {
     errdefer p.unreserveNode(lambda_index);
 
     const params = try p.parseLambdaParams();
+
+    // Check for negative number after params
+    if (p.mode == .q and params != null_node and p.peekTag() == .number_literal) {
+        const loc = p.peekLoc();
+        if (p.source[loc.start] == '-' and p.prevLoc().end == loc.start) {
+            try p.warn(.expected_whitespace);
+        }
+    }
+
     const body = try p.parseLambdaBody();
 
     return p.setNode(lambda_index, .{
