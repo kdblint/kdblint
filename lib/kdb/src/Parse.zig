@@ -276,9 +276,9 @@ fn expectExpr(p: *Parse) Error!Node.Index {
 // A table of binary operators.
 const operTable = std.enums.directEnumArray(Token.Tag, ?Node.Tag, 0, .{
     // Punctuation
-    .l_paren = null,
+    .l_paren = .apply_unary,
     .r_paren = null,
-    .l_brace = null,
+    .l_brace = .apply_unary,
     .r_brace = null,
     .l_bracket = null,
     .r_bracket = null,

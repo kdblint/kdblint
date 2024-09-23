@@ -130,6 +130,13 @@ pub fn tokenSlice(tree: Ast, token_index: Token.Index) []const u8 {
     return tree.source[token_loc.start..token_loc.end];
 }
 
+pub fn tokenLen(tree: Ast, token_index: Token.Index) usize {
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
+
+    const token_loc = token_locs[token_index];
+    return token_loc.end - token_loc.start;
+}
+
 pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
@@ -1449,4 +1456,317 @@ test "render comments" {
         &.{ .number_literal, .plus, .number_literal, .semicolon },
         &.{ .number_literal, .add, .number_literal, .apply_binary },
     );
+}
+
+test "number literals whitespace" {
+    try testAst(
+        "1(1;)1",
+        &.{ .number_literal, .l_paren, .number_literal, .semicolon, .r_paren, .number_literal },
+        &.{ .number_literal, .list, .number_literal, .number_literal, .apply_unary, .apply_unary },
+    ); // l_paren/r_paren
+    try testAst(
+        "1{1}1",
+        &.{ .number_literal, .l_brace, .number_literal, .r_brace, .number_literal },
+        &.{ .number_literal, .lambda, .lambda_body, .number_literal, .number_literal, .apply_unary, .apply_unary },
+    ); // l_brace/r_brace
+    // try testAst(
+    //     "[1;]1",
+    //     &.{ .l_bracket, .number_literal, .semicolon, .r_bracket, .number_literal },
+    //     &.{},
+    // ); // r_bracket
+    try testAst(
+        "\"string\"1",
+        &.{ .string_literal, .number_literal },
+        &.{ .string_literal, .number_literal, .apply_unary },
+    ); // string_literal
+    try testAst(
+        "`symbol 1",
+        &.{ .symbol_literal, .number_literal },
+        &.{ .symbol_literal, .number_literal, .apply_unary },
+    ); // symbol_literal
+    try testAst(
+        "`symbol`symbol 1",
+        &.{ .symbol_literal, .symbol_literal, .number_literal },
+        &.{ .symbol_list_literal, .number_literal, .apply_unary },
+    ); // symbol_list_literal
+    try testAst(
+        "x 1",
+        &.{ .identifier, .number_literal },
+        &.{ .identifier, .number_literal, .apply_unary },
+    ); // identifier
+}
+
+test "number list literals whitespace" {
+    try testAst(
+        "1 2 3(1 2 3;)1 2 3",
+        &.{
+            .number_literal, .number_literal, .number_literal, .l_paren,        .number_literal, .number_literal,
+            .number_literal, .semicolon,      .r_paren,        .number_literal, .number_literal, .number_literal,
+        },
+        &.{ .number_list_literal, .list, .number_list_literal, .number_list_literal, .apply_unary, .apply_unary },
+    ); // l_paren/r_paren
+    try testAst(
+        "1 2 3{1 2 3}1 2 3",
+        &.{
+            .number_literal, .number_literal, .number_literal, .l_brace,        .number_literal, .number_literal,
+            .number_literal, .r_brace,        .number_literal, .number_literal, .number_literal,
+        },
+        &.{ .number_list_literal, .lambda, .lambda_body, .number_list_literal, .number_list_literal, .apply_unary, .apply_unary },
+    ); // l_brace/r_brace
+    // try testAst(
+    //     "[1 2 3;]1 2 3",
+    //     &.{ .l_bracket, .number_literal, .number_literal, .number_literal, .semicolon, .r_bracket, .number_literal, .number_literal, .number_literal },
+    //     &.{},
+    // ); // r_bracket
+    try testAst(
+        "\"string\"1 2 3",
+        &.{ .string_literal, .number_literal, .number_literal, .number_literal },
+        &.{ .string_literal, .number_list_literal, .apply_unary },
+    ); // string_literal
+    try testAst(
+        "`symbol 1 2 3",
+        &.{ .symbol_literal, .number_literal, .number_literal, .number_literal },
+        &.{ .symbol_literal, .number_list_literal, .apply_unary },
+    ); // symbol_literal
+    try testAst(
+        "`symbol`symbol 1 2 3",
+        &.{ .symbol_literal, .symbol_literal, .number_literal, .number_literal, .number_literal },
+        &.{ .symbol_list_literal, .number_list_literal, .apply_unary },
+    ); // symbol_list_literal
+    try testAst(
+        "x 1 2 3",
+        &.{ .identifier, .number_literal, .number_literal, .number_literal },
+        &.{ .identifier, .number_list_literal, .apply_unary },
+    ); // identifier
+}
+
+test "string literals whitespace" {
+    try testAst(
+        "\"string\"(\"string\";)\"string\"",
+        &.{ .string_literal, .l_paren, .string_literal, .semicolon, .r_paren, .string_literal },
+        &.{ .string_literal, .list, .string_literal, .string_literal, .apply_unary, .apply_unary },
+    ); // l_paren/r_paren
+    try testAst(
+        "\"string\"{\"string\"}\"string\"",
+        &.{ .string_literal, .l_brace, .string_literal, .r_brace, .string_literal },
+        &.{ .string_literal, .lambda, .lambda_body, .string_literal, .string_literal, .apply_unary, .apply_unary },
+    ); // l_brace/r_brace
+    // try testAst(
+    //     "[\"string\";]\"string\"",
+    //     &.{ .l_bracket, .string_literal, .semicolon, .r_bracket, .string_literal },
+    //     &.{},
+    // ); // r_bracket
+    try testAst(
+        "1\"string\"",
+        &.{ .number_literal, .string_literal },
+        &.{ .number_literal, .string_literal, .apply_unary },
+    ); // number_literal
+    try testAst(
+        "\"string\"\"string\"",
+        &.{ .string_literal, .string_literal },
+        &.{ .string_literal, .string_literal, .apply_unary },
+    ); // string_literal
+    try testAst(
+        "`symbol\"string\"",
+        &.{ .symbol_literal, .string_literal },
+        &.{ .symbol_literal, .string_literal, .apply_unary },
+    ); // symbol_literal
+    try testAst(
+        "`symbol`symbol\"string\"",
+        &.{ .symbol_literal, .symbol_literal, .string_literal },
+        &.{ .symbol_list_literal, .string_literal, .apply_unary },
+    ); // symbol_list_literal
+    try testAst(
+        "x\"string\"",
+        &.{ .identifier, .string_literal },
+        &.{ .identifier, .string_literal, .apply_unary },
+    ); // identifier
+}
+
+test "symbol literals whitespace" {
+    try testAst(
+        "`symbol(`symbol;)`symbol",
+        &.{ .symbol_literal, .l_paren, .symbol_literal, .semicolon, .r_paren, .symbol_literal },
+        &.{ .symbol_literal, .list, .symbol_literal, .symbol_literal, .apply_unary, .apply_unary },
+    ); // l_paren/r_paren
+    try testAst(
+        "`symbol{`symbol}`symbol",
+        &.{ .symbol_literal, .l_brace, .symbol_literal, .r_brace, .symbol_literal },
+        &.{ .symbol_literal, .lambda, .lambda_body, .symbol_literal, .symbol_literal, .apply_unary, .apply_unary },
+    ); // r_paren/r_brace
+    // try testAst(
+    //     "[`symbol;]`symbol",
+    //     &.{ .l_bracket, .symbol_literal, .semicolon, .r_bracket, .symbol_literal },
+    //     &.{},
+    // ); // r_bracket
+    try testAst(
+        "1`symbol",
+        &.{ .number_literal, .symbol_literal },
+        &.{ .number_literal, .symbol_literal, .apply_unary },
+    ); // number_literal
+    try testAst(
+        "\"string\"`symbol",
+        &.{ .string_literal, .symbol_literal },
+        &.{ .string_literal, .symbol_literal, .apply_unary },
+    ); // string_literal
+    try testAst(
+        "`symbol `symbol",
+        &.{ .symbol_literal, .symbol_literal },
+        &.{ .symbol_literal, .symbol_literal, .apply_unary },
+    ); // symbol_literal
+    try testAst(
+        "`symbol`symbol `symbol",
+        &.{ .symbol_literal, .symbol_literal, .symbol_literal },
+        &.{ .symbol_list_literal, .symbol_literal, .apply_unary },
+    ); // symbol_list_literal
+    try testAst(
+        "x`symbol",
+        &.{ .identifier, .symbol_literal },
+        &.{ .identifier, .symbol_literal, .apply_unary },
+    ); // identifier
+
+    try testAst("`_`", &.{ .symbol_literal, .underscore, .symbol_literal }, &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary });
+    try testAst("`_`a", &.{ .symbol_literal, .underscore, .symbol_literal }, &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary });
+    try testAstMode(
+        .k,
+        "`a_`",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+    try testAstMode(.q, "`a_`", &.{ .symbol_literal, .symbol_literal }, &.{.symbol_list_literal});
+    try testAstMode(
+        .k,
+        "`a_`a",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+    try testAstMode(.q, "`a_`a", &.{ .symbol_literal, .symbol_literal }, &.{.symbol_list_literal});
+    try testAstModeRender(
+        .k,
+        "`a_ `",
+        "`a_`",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+    try testAstMode(.q, "`a_ `", &.{ .symbol_literal, .symbol_literal }, &.{ .symbol_literal, .symbol_literal, .apply_unary });
+    try testAstModeRender(
+        .k,
+        "`a_ `a",
+        "`a_`a",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+    try testAstMode(.q, "`a_ `a", &.{ .symbol_literal, .symbol_literal }, &.{ .symbol_literal, .symbol_literal, .apply_unary });
+    try testAstModeRender(
+        .k,
+        "`a _`",
+        "`a_`",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+    try testAstMode(
+        .q,
+        "`a _`",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+    try testAstModeRender(
+        .k,
+        "`a _`a",
+        "`a_`a",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+    try testAstMode(
+        .q,
+        "`a _`a",
+        &.{ .symbol_literal, .underscore, .symbol_literal },
+        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+    );
+}
+
+test "symbol list literals whitespace" {
+    try testAst(
+        "`symbol`symbol(`symbol`symbol;)`symbol`symbol",
+        &.{ .symbol_literal, .symbol_literal, .l_paren, .symbol_literal, .symbol_literal, .semicolon, .r_paren, .symbol_literal, .symbol_literal },
+        &.{ .symbol_list_literal, .list, .symbol_list_literal, .symbol_list_literal, .apply_unary, .apply_unary },
+    ); // l_paren/r_paren
+    try testAst(
+        "`symbol`symbol{`symbol`symbol}`symbol`symbol",
+        &.{ .symbol_literal, .symbol_literal, .l_brace, .symbol_literal, .symbol_literal, .r_brace, .symbol_literal, .symbol_literal },
+        &.{ .symbol_list_literal, .lambda, .lambda_body, .symbol_list_literal, .symbol_list_literal, .apply_unary, .apply_unary },
+    ); // l_brace/r_brace
+    // try testAst(
+    //     "[`symbol`symbol;]`symbol`symbol",
+    //     &.{ .l_bracket, .symbol_literal, .symbol_literal, .semicolon, .r_bracket, .symbol_literal, .symbol_literal },
+    //     &.{},
+    // ); // r_bracket
+    try testAst(
+        "1`symbol`symbol",
+        &.{ .number_literal, .symbol_literal, .symbol_literal },
+        &.{ .number_literal, .symbol_list_literal, .apply_unary },
+    ); // number_literal
+    try testAst(
+        "\"string\"`symbol`symbol",
+        &.{ .string_literal, .symbol_literal, .symbol_literal },
+        &.{ .string_literal, .symbol_list_literal, .apply_unary },
+    ); // string_literal
+    try testAst(
+        "`symbol `symbol`symbol",
+        &.{ .symbol_literal, .symbol_literal, .symbol_literal },
+        &.{ .symbol_literal, .symbol_list_literal, .apply_unary },
+    ); // symbol_literal
+    try testAst(
+        "`symbol`symbol `symbol`symbol",
+        &.{ .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal },
+        &.{ .symbol_list_literal, .symbol_list_literal, .apply_unary },
+    ); // symbol_list_literal
+    try testAst(
+        "x`symbol`symbol",
+        &.{ .identifier, .symbol_literal, .symbol_literal },
+        &.{ .identifier, .symbol_list_literal, .apply_unary },
+    ); // identifier
+}
+
+test "identifiers whitespace" {
+    try testAst(
+        "x(x;)x",
+        &.{ .identifier, .l_paren, .identifier, .semicolon, .r_paren, .identifier },
+        &.{ .identifier, .list, .identifier, .identifier, .apply_unary, .apply_unary },
+    ); // l_paren/r_paren
+    try testAst(
+        "x{x}x",
+        &.{ .identifier, .l_brace, .identifier, .r_brace, .identifier },
+        &.{ .identifier, .lambda, .lambda_body, .identifier, .identifier, .apply_unary, .apply_unary },
+    ); // l_brace/r_brace
+    // try testAst(
+    //     "[x;]x",
+    //     &.{ .l_bracket, .identifier, .semicolon, .r_bracket, .identifier },
+    //     &.{},
+    // ); // r_bracket
+    try testAst(
+        "1 x",
+        &.{ .number_literal, .identifier },
+        &.{ .number_literal, .identifier, .apply_unary },
+    ); // number_literal
+    try testAst(
+        "\"string\"x",
+        &.{ .string_literal, .identifier },
+        &.{ .string_literal, .identifier, .apply_unary },
+    ); // string_literal
+    try testAst(
+        "`symbol x",
+        &.{ .symbol_literal, .identifier },
+        &.{ .symbol_literal, .identifier, .apply_unary },
+    ); // symbol_literal
+    try testAst(
+        "`symbol`symbol x",
+        &.{ .symbol_literal, .symbol_literal, .identifier },
+        &.{ .symbol_list_literal, .identifier, .apply_unary },
+    ); // symbol_list_literal
+    try testAst(
+        "x x",
+        &.{ .identifier, .identifier },
+        &.{ .identifier, .identifier, .apply_unary },
+    ); // identifier
 }
