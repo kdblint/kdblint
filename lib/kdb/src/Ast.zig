@@ -63,7 +63,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     const estimated_token_count = source.len / 8;
     try tokens.ensureTotalCapacity(gpa, estimated_token_count);
 
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source, mode);
     while (true) {
         const token = tokenizer.next();
         try tokens.append(gpa, token);
@@ -220,6 +220,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .number_list_literal,
         .string_literal,
         .symbol_literal,
+        .symbol_list_literal,
         .identifier,
         => return main_tokens[n] + end_offset,
     };
@@ -308,6 +309,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] + end_offset,
 
         .number_list_literal,
+        .symbol_list_literal,
         => return datas[n].lhs + end_offset,
     };
 }
@@ -467,6 +469,9 @@ pub const Node = struct {
         /// main_token is the symbol literal token.
         /// Both lhs and rhs unused.
         symbol_literal,
+        /// main_token is the first symbol literal token. lhs is the last symbol literal token.
+        /// rhs unused.
+        symbol_list_literal,
         /// Both lhs and rhs unused.
         /// Most identifiers will not have explicit AST nodes, however for expressions
         /// which could be one of many different kinds of AST nodes, there will be an
@@ -534,6 +539,7 @@ pub const Node = struct {
                 .number_list_literal,
                 .string_literal,
                 .symbol_literal,
+                .symbol_list_literal,
                 .identifier,
                 => .other,
             };
@@ -1003,6 +1009,12 @@ test "number literals" {
             .apply_binary,
         },
     );
+}
+
+test "symbol literals" {
+    try testAst("`", &.{.symbol_literal}, &.{.symbol_literal});
+    try testAst("`symbol", &.{.symbol_literal}, &.{.symbol_literal});
+    try testAst("`symbol`symbol", &.{ .symbol_literal, .symbol_literal }, &.{.symbol_list_literal});
 }
 
 test "operators" {

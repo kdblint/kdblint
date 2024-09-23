@@ -257,6 +257,14 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
             return renderToken(r, datas[node].lhs, space);
         },
+
+        .symbol_list_literal,
+        => {
+            for (main_tokens[node]..datas[node].lhs) |token| {
+                try renderToken(r, @intCast(token), .none);
+            }
+            return renderToken(r, datas[node].lhs, space);
+        },
     }
 }
 
