@@ -280,7 +280,7 @@ const operTable = std.enums.directEnumArray(Token.Tag, ?Node.Tag, 0, .{
     .r_paren = null,
     .l_brace = .apply_unary,
     .r_brace = null,
-    .l_bracket = null,
+    .l_bracket = .apply_unary,
     .r_bracket = null,
     .semicolon = null,
 
@@ -418,8 +418,8 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
     const tag = p.peekTag();
     switch (tag) {
         .l_paren => return p.parseGroup(),
-
         .l_brace => return p.parseLambda(),
+        .l_bracket => return p.parseExprBlock(),
 
         .plus,
         .minus,
@@ -552,8 +552,6 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
 }
 
 /// Lambda <- LBRACE ParamList? Exprs? RBRACE
-///
-/// Exprs <- Expr (SEMICOLON Expr?)*
 fn parseLambda(p: *Parse) !Node.Index {
     const l_brace = p.assertToken(.l_brace);
 
@@ -575,6 +573,41 @@ fn parseLambda(p: *Parse) !Node.Index {
         .data = .{
             .lhs = params,
             .rhs = body,
+        },
+    });
+}
+
+/// ExprBlock <- LBRACKET Exprs? RBRACKET
+fn parseExprBlock(p: *Parse) !Node.Index {
+    const l_bracket = p.assertToken(.l_bracket);
+    if (p.eatToken(.r_paren)) |r_bracket| {
+        return p.addNode(.{
+            .tag = .expr_block,
+            .main_token = l_bracket,
+            .data = .{
+                .lhs = undefined,
+                .rhs = r_bracket,
+            },
+        });
+    }
+
+    try p.ends_expr.append(p.gpa, .r_bracket);
+    defer {
+        const ends_expr = p.ends_expr.pop();
+        assert(ends_expr == .r_bracket);
+    }
+
+    const expr_block_index = try p.reserveNode(.expr_block);
+    errdefer p.unreserveNode(expr_block_index);
+
+    const span = try p.parseExprs();
+    const r_bracket = try p.expectToken(.r_bracket);
+    return p.setNode(expr_block_index, .{
+        .tag = .expr_block,
+        .main_token = l_bracket,
+        .data = .{
+            .lhs = try p.addExtra(span),
+            .rhs = r_bracket,
         },
     });
 }
@@ -793,14 +826,13 @@ fn parseLambdaParams(p: *Parse) !Node.Index {
     });
 }
 
-fn parseLambdaBody(p: *Parse) !Node.Index {
+/// Exprs <- Expr (SEMICOLON Expr?)*
+fn parseExprs(p: *Parse) !Node.SubRange {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const lambda_body_index = try p.reserveNode(.lambda_body);
-    errdefer p.unreserveNode(lambda_body_index);
-
-    while (p.peekTag() != .r_brace) {
+    const ends_expr = p.ends_expr.getLast();
+    while (p.peekTag() != ends_expr) {
         const expr = try p.parseExpr();
         if (expr != null_node) {
             try p.scratch.append(p.gpa, expr);
@@ -808,11 +840,17 @@ fn parseLambdaBody(p: *Parse) !Node.Index {
         if (p.eatToken(.semicolon)) |_| continue;
     }
 
-    const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_body_semicolon else .lambda_body;
+    return p.listToSpan(p.scratch.items[scratch_top..]);
+}
 
+fn parseLambdaBody(p: *Parse) !Node.Index {
+    const lambda_body_index = try p.reserveNode(.lambda_body);
+    errdefer p.unreserveNode(lambda_body_index);
+
+    const span = try p.parseExprs();
+    const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_body_semicolon else .lambda_body;
     const r_brace = try p.expectToken(.r_brace);
 
-    const span = try p.listToSpan(p.scratch.items[scratch_top..]);
     return p.setNode(lambda_body_index, .{
         .tag = tag,
         .main_token = r_brace,

@@ -160,7 +160,8 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
     const end_offset: Token.Index = 0;
     var n = node;
     while (true) switch (tags[n]) {
-        .root => return 0,
+        .root,
+        => return 0,
 
         .grouped_expression,
         .empty_list,
@@ -174,6 +175,9 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .lambda_body,
         .lambda_body_semicolon,
         => n = datas[n].lhs,
+
+        .expr_block,
+        => return main_tokens[n] - end_offset,
 
         .assign,
         => n = datas[n].lhs,
@@ -240,7 +244,8 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
     var end_offset: Token.Index = 0;
     var n = node;
     while (true) switch (tags[n]) {
-        .root => return @intCast(tree.tokens.len - 1),
+        .root,
+        => return @intCast(tree.tokens.len - 1),
 
         .grouped_expression,
         .empty_list,
@@ -264,6 +269,9 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
 
         .lambda,
         => n = datas[n].rhs,
+
+        .expr_block,
+        => return datas[n].rhs + end_offset,
 
         .assign,
         => n = datas[n].rhs,
@@ -393,6 +401,9 @@ pub const Node = struct {
         /// main_token is the `{`.
         lambda,
 
+        /// `[lhs]`. main_token is the `[`. lhs can be omitted. rhs is the token index of the `]`. `SubRange[lhs]`.
+        expr_block,
+
         /// `lhs : rhs`. main_token is the `:`.
         assign,
 
@@ -487,7 +498,8 @@ pub const Node = struct {
 
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
-                .root => unreachable,
+                .root,
+                => unreachable,
 
                 .grouped_expression,
                 .empty_list,
@@ -498,6 +510,9 @@ pub const Node = struct {
                 .lambda_body,
                 .lambda_body_semicolon,
                 .lambda,
+                => .other,
+
+                .expr_block,
                 => .other,
 
                 .assign,
@@ -1469,11 +1484,11 @@ test "number literals whitespace" {
         &.{ .number_literal, .l_brace, .number_literal, .r_brace, .number_literal },
         &.{ .number_literal, .lambda, .lambda_body, .number_literal, .number_literal, .apply_unary, .apply_unary },
     ); // l_brace/r_brace
-    // try testAst(
-    //     "[1;]1",
-    //     &.{ .l_bracket, .number_literal, .semicolon, .r_bracket, .number_literal },
-    //     &.{},
-    // ); // r_bracket
+    try testAst(
+        "[1;]1",
+        &.{ .l_bracket, .number_literal, .semicolon, .r_bracket, .number_literal },
+        &.{ .expr_block, .number_literal, .number_literal, .apply_unary },
+    ); // r_bracket
     try testAst(
         "\"string\"1",
         &.{ .string_literal, .number_literal },
@@ -1513,11 +1528,11 @@ test "number list literals whitespace" {
         },
         &.{ .number_list_literal, .lambda, .lambda_body, .number_list_literal, .number_list_literal, .apply_unary, .apply_unary },
     ); // l_brace/r_brace
-    // try testAst(
-    //     "[1 2 3;]1 2 3",
-    //     &.{ .l_bracket, .number_literal, .number_literal, .number_literal, .semicolon, .r_bracket, .number_literal, .number_literal, .number_literal },
-    //     &.{},
-    // ); // r_bracket
+    try testAst(
+        "[1 2 3;]1 2 3",
+        &.{ .l_bracket, .number_literal, .number_literal, .number_literal, .semicolon, .r_bracket, .number_literal, .number_literal, .number_literal },
+        &.{ .expr_block, .number_list_literal, .number_list_literal, .apply_unary },
+    ); // r_bracket
     try testAst(
         "\"string\"1 2 3",
         &.{ .string_literal, .number_literal, .number_literal, .number_literal },
@@ -1551,11 +1566,11 @@ test "string literals whitespace" {
         &.{ .string_literal, .l_brace, .string_literal, .r_brace, .string_literal },
         &.{ .string_literal, .lambda, .lambda_body, .string_literal, .string_literal, .apply_unary, .apply_unary },
     ); // l_brace/r_brace
-    // try testAst(
-    //     "[\"string\";]\"string\"",
-    //     &.{ .l_bracket, .string_literal, .semicolon, .r_bracket, .string_literal },
-    //     &.{},
-    // ); // r_bracket
+    try testAst(
+        "[\"string\";]\"string\"",
+        &.{ .l_bracket, .string_literal, .semicolon, .r_bracket, .string_literal },
+        &.{ .expr_block, .string_literal, .string_literal, .apply_unary },
+    ); // r_bracket
     try testAst(
         "1\"string\"",
         &.{ .number_literal, .string_literal },
@@ -1594,11 +1609,11 @@ test "symbol literals whitespace" {
         &.{ .symbol_literal, .l_brace, .symbol_literal, .r_brace, .symbol_literal },
         &.{ .symbol_literal, .lambda, .lambda_body, .symbol_literal, .symbol_literal, .apply_unary, .apply_unary },
     ); // r_paren/r_brace
-    // try testAst(
-    //     "[`symbol;]`symbol",
-    //     &.{ .l_bracket, .symbol_literal, .semicolon, .r_bracket, .symbol_literal },
-    //     &.{},
-    // ); // r_bracket
+    try testAst(
+        "[`symbol;]`symbol",
+        &.{ .l_bracket, .symbol_literal, .semicolon, .r_bracket, .symbol_literal },
+        &.{ .expr_block, .symbol_literal, .symbol_literal, .apply_unary },
+    ); // r_bracket
     try testAst(
         "1`symbol",
         &.{ .number_literal, .symbol_literal },
@@ -1696,11 +1711,11 @@ test "symbol list literals whitespace" {
         &.{ .symbol_literal, .symbol_literal, .l_brace, .symbol_literal, .symbol_literal, .r_brace, .symbol_literal, .symbol_literal },
         &.{ .symbol_list_literal, .lambda, .lambda_body, .symbol_list_literal, .symbol_list_literal, .apply_unary, .apply_unary },
     ); // l_brace/r_brace
-    // try testAst(
-    //     "[`symbol`symbol;]`symbol`symbol",
-    //     &.{ .l_bracket, .symbol_literal, .symbol_literal, .semicolon, .r_bracket, .symbol_literal, .symbol_literal },
-    //     &.{},
-    // ); // r_bracket
+    try testAst(
+        "[`symbol`symbol;]`symbol`symbol",
+        &.{ .l_bracket, .symbol_literal, .symbol_literal, .semicolon, .r_bracket, .symbol_literal, .symbol_literal },
+        &.{ .expr_block, .symbol_list_literal, .symbol_list_literal, .apply_unary },
+    ); // r_bracket
     try testAst(
         "1`symbol`symbol",
         &.{ .number_literal, .symbol_literal, .symbol_literal },
@@ -1739,11 +1754,11 @@ test "identifiers whitespace" {
         &.{ .identifier, .l_brace, .identifier, .r_brace, .identifier },
         &.{ .identifier, .lambda, .lambda_body, .identifier, .identifier, .apply_unary, .apply_unary },
     ); // l_brace/r_brace
-    // try testAst(
-    //     "[x;]x",
-    //     &.{ .l_bracket, .identifier, .semicolon, .r_bracket, .identifier },
-    //     &.{},
-    // ); // r_bracket
+    try testAst(
+        "[x;]x",
+        &.{ .l_bracket, .identifier, .semicolon, .r_bracket, .identifier },
+        &.{ .expr_block, .identifier, .identifier, .apply_unary },
+    ); // r_bracket
     try testAst(
         "1 x",
         &.{ .number_literal, .identifier },
@@ -1769,4 +1784,25 @@ test "identifiers whitespace" {
         &.{ .identifier, .identifier },
         &.{ .identifier, .identifier, .apply_unary },
     ); // identifier
+}
+
+test "expression blocks" {
+    try testAst("[]", &.{ .l_bracket, .r_bracket }, &.{.expr_block});
+    try testAst("[1]", &.{ .l_bracket, .number_literal, .r_bracket }, &.{ .expr_block, .number_literal });
+    try testAstRender(
+        "[;]",
+        "[]",
+        &.{ .l_bracket, .semicolon, .r_bracket },
+        &.{.expr_block},
+    );
+    try testAst(
+        "[1;]",
+        &.{ .l_bracket, .number_literal, .semicolon, .r_bracket },
+        &.{ .expr_block, .number_literal },
+    );
+    try testAst(
+        "[1;2]",
+        &.{ .l_bracket, .number_literal, .semicolon, .number_literal, .r_bracket },
+        &.{ .expr_block, .number_literal, .number_literal },
+    );
 }
