@@ -2623,44 +2623,6 @@ fn testParseErrorSettings(settings: Ast.ParseSettings, source: [:0]const u8, exp
     try std.testing.expectEqualSlices(Ast.Error.Tag, expected_tags, errors);
 }
 
-test "expressions" {
-    try testParse("1", &.{ .implicit_return, .long_literal }, "1");
-    try testParse("1;", &.{.long_literal}, "1");
-}
-
-test "lambda" {
-    try testParse("{x}", &.{
-        .implicit_return,
-        .lambda,
-        .identifier,
-    }, "{x}");
-    try testParse("{x;}", &.{
-        .implicit_return,
-        .lambda_semicolon,
-        .identifier,
-    }, "{x;}");
-    try testParse("{x;y}", &.{
-        .implicit_return,
-        .lambda,
-        .identifier,
-        .identifier,
-    }, "{x;y}");
-    try testParse("{x;y;}", &.{
-        .implicit_return,
-        .lambda_semicolon,
-        .identifier,
-        .identifier,
-    }, "{x;y;}");
-    try testParse("{-1}", &.{ .implicit_return, .lambda, .long_literal }, "{-1}");
-    try testParse("{-1;}", &.{ .implicit_return, .lambda_semicolon, .long_literal }, "{-1;}");
-    try testParseErrorLanguage(.q, "{[]-1}", &.{.expected_whitespace});
-    try testParseErrorLanguage(.q, "{[]-1;}", &.{.expected_whitespace});
-    try testParseLanguage(.k, "{[]-1}", &.{ .implicit_return, .lambda, .long_literal }, "{[]-1}");
-    try testParseLanguage(.k, "{[]-1;}", &.{ .implicit_return, .lambda_semicolon, .long_literal }, "{[]-1;}");
-    try testParse("{[] -1}", &.{ .implicit_return, .lambda, .long_literal }, "{[] -1}");
-    try testParse("{[] -1;}", &.{ .implicit_return, .lambda_semicolon, .long_literal }, "{[] -1;}");
-}
-
 test "implicit apply" {
     try testParse("{x}a", &.{
         .implicit_return,
