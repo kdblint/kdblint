@@ -738,6 +738,10 @@ pub const Tokenizer = struct {
                         result.tag = .period_colon;
                         self.index += 1;
                     },
+                    'a'...'z', 'A'...'Z' => {
+                        result.tag = .identifier;
+                        continue :state .identifier;
+                    },
                     else => result.tag = .period,
                 }
             },
@@ -1080,15 +1084,13 @@ pub const Tokenizer = struct {
                 }
             },
 
-            // TODO: period in identifier
-            // TODO: k/q differences
             .identifier => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     '_' => if (self.mode == .q) {
                         continue :state .identifier;
                     },
-                    'a'...'z', 'A'...'Z', '0'...'9' => continue :state .identifier,
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .identifier,
                     else => {
                         const ident = self.buffer[result.loc.start..self.index];
                         if (Token.getKeyword(ident)) |tag| {
@@ -1578,6 +1580,24 @@ test "symbols" {
     try testTokenize("`.symbol.with.leading.dot`.symbol.with.leading.dot", &.{ .symbol_literal, .symbol_literal });
     try testTokenize("`:handle/with/slash`:handle/with/slash", &.{ .symbol_literal, .symbol_literal });
     try testTokenize("`symbol:with/slash/after/colon`symbol:with/slash/after/colon", &.{ .symbol_literal, .symbol_literal });
+}
+
+test "identifiers" {
+    try testTokenize("a", &.{.identifier});
+    try testTokenize("identifier", &.{.identifier});
+    try testTokenize("test1", &.{.identifier});
+    try testTokenize("UPPERCASE", &.{.identifier});
+    try testTokenize("identifier.with.dot", &.{.identifier});
+    try testTokenize(".identifier.with.leading.dot", &.{.identifier});
+
+    try testTokenizeMode(.k, "identifier_with_underscore", &.{ .identifier, .underscore, .identifier, .underscore, .identifier });
+    try testTokenizeMode(.q, "identifier_with_underscore", &.{.identifier});
+    try testTokenizeMode(
+        .k,
+        "_identifier_with_leading_underscore",
+        &.{ .underscore, .identifier, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier },
+    );
+    try testTokenizeMode(.q, "_identifier_with_leading_underscore", &.{ .underscore, .identifier });
 }
 
 fn testTokenize(
