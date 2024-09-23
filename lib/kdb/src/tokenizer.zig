@@ -387,6 +387,9 @@ pub const Tokenizer = struct {
         float_exponent,
         string_literal,
         string_literal_backslash,
+        octal_char_start,
+        octal_char_end,
+        multiline_string_literal,
         symbol_literal_start,
         symbol_literal,
         file_handle,
@@ -1019,21 +1022,16 @@ pub const Tokenizer = struct {
                 }
             },
 
-            // TODO: multiline_string_literal
             .string_literal => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    } else {
+                    0 => if (self.index == self.buffer.len) {
                         result.tag = .invalid;
-                    },
-                    '\n' => result.tag = .invalid,
+                    } else continue :state .invalid,
+                    '\n' => continue :state .multiline_string_literal,
                     '\\' => continue :state .string_literal_backslash,
                     '"' => self.index += 1,
-                    0x01...0x09, 0x0b...0x1f, 0x7f => {
-                        continue :state .invalid;
-                    },
+                    0x01...0x09, 0x0b...0x1f, 0x7f => continue :state .invalid,
                     else => continue :state .string_literal,
                 }
             },
@@ -1041,8 +1039,50 @@ pub const Tokenizer = struct {
             .string_literal_backslash => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
-                    0, '\n' => result.tag = .invalid,
-                    else => continue :state .string_literal,
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '"', '\\', 'n', 'r', 't' => continue :state .string_literal,
+                    '0'...'9' => continue :state .octal_char_start,
+                    else => continue :state .invalid,
+                }
+            },
+
+            .octal_char_start => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '0'...'9' => continue :state .octal_char_end,
+                    else => continue :state .invalid,
+                }
+            },
+
+            .octal_char_end => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '0'...'9' => continue :state .string_literal,
+                    else => continue :state .invalid,
+                }
+            },
+
+            .multiline_string_literal => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    ' ', '\t' => continue :state .string_literal,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .multiline_string_literal;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .multiline_string_literal,
+                    else => continue :state .invalid,
                 }
             },
 
@@ -1103,11 +1143,9 @@ pub const Tokenizer = struct {
             .expect_newline => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    } else {
+                    0 => if (self.index == self.buffer.len) {
                         result.tag = .invalid;
-                    },
+                    } else continue :state .invalid,
                     '\n' => {
                         self.index += 1;
                         result.loc.start = self.index;
@@ -1150,20 +1188,6 @@ test "unknown length pointer and then c pointer" {
         .r_bracket,
         .identifier,
     });
-}
-
-test "newline in char literal" {
-    try testTokenize(
-        \\'
-        \\'
-    , &.{ .apostrophe, .apostrophe });
-}
-
-test "newline in string literal" {
-    try testTokenize(
-        \\"
-        \\"
-    , &.{ .invalid, .invalid });
 }
 
 test "float literal e exponent" {
@@ -1520,10 +1544,6 @@ test "number literals hexadecimal" {
     try testTokenize("0x0.0p0_", &.{.number_literal});
 }
 
-test "invalid token with unfinished escape right before eof" {
-    try testTokenize("\"\\", &.{.invalid});
-}
-
 test "null byte before eof" {
     try testTokenize("123 \x00 456", &.{ .number_literal, .invalid });
     try testTokenize("//\x00", &.{});
@@ -1598,6 +1618,52 @@ test "identifiers" {
         &.{ .underscore, .identifier, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier },
     );
     try testTokenizeMode(.q, "_identifier_with_leading_underscore", &.{ .underscore, .identifier });
+}
+
+test "strings" {
+    try testTokenize(
+        \\"this is a string"
+    , &.{.string_literal});
+    try testTokenize(
+        \\"this is a string\"with\\embedded\nescape\rchars\t"
+    , &.{.string_literal});
+    try testTokenize(
+        \\"Zürich"
+    , &.{.string_literal});
+    try testTokenize(
+        \\"this is \a string with bad ch\ars"
+    , &.{.invalid});
+    try testTokenize(
+        \\"\012"
+    , &.{.string_literal});
+
+    try testTokenize(
+        \\"
+    , &.{.invalid});
+    try testTokenize(
+        \\"\
+    , &.{.invalid});
+    try testTokenize(
+        \\"\0
+    , &.{.invalid});
+    try testTokenize(
+        \\"\0"
+    , &.{.invalid});
+    try testTokenize(
+        \\"\01
+    , &.{.invalid});
+    try testTokenize(
+        \\"\01"
+    , &.{.invalid});
+
+    try testTokenize(
+        \\"this is a valid
+        \\ multiline string"
+    , &.{.string_literal});
+    try testTokenize(
+        \\"this is an invalid
+        \\multiline string"
+    , &.{.invalid});
 }
 
 fn testTokenize(
