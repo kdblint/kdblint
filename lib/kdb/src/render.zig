@@ -521,7 +521,28 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
     const tags: []Token.Tag = r.tree.tokens.items(.tag);
     return switch (tags[token1]) {
         .number_literal => tags[token2] == .identifier,
-        .symbol_literal => tags[token2] != .string_literal,
+        .symbol_literal => switch (tags[token2]) {
+            .colon,
+            .colon_colon,
+            .period,
+            .period_colon,
+            .zero_colon,
+            .zero_colon_colon,
+            .one_colon,
+            .one_colon_colon,
+            .two_colon,
+            .number_literal,
+            .symbol_literal,
+            .identifier,
+            => true,
+
+            // Depends on language.
+            .underscore,
+            .underscore_colon,
+            => r.tree.mode == .q and r.tree.tokenLen(token1) > 1,
+
+            else => false,
+        },
         .identifier => tags[token2] == .number_literal or tags[token2] == .identifier,
         else => false,
     };
