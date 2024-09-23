@@ -1,5 +1,8 @@
 const std = @import("std");
 
+const kdb = @import("root.zig");
+const Mode = kdb.Ast.Mode;
+
 /// The root token is assumed to be index 0. Since there can be no
 /// references to the root token, this means 0 is available to indicate null.
 pub const Token = struct {
@@ -189,6 +192,7 @@ pub const Token = struct {
 
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
+    mode: Mode,
     index: usize,
     parens_count: u32 = 0,
     braces_count: u32 = 0,
@@ -200,7 +204,7 @@ pub const Tokenizer = struct {
     }
 
     // TODO: Check for null byte.
-    pub fn init(buffer: [:0]const u8) Tokenizer {
+    pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
         // Skip the UTF-8 BOM if present.
         const start_index: usize = if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0;
         var index = start_index;
@@ -326,6 +330,7 @@ pub const Tokenizer = struct {
         return .{
             .buffer = buffer,
             .index = index,
+            .mode = mode,
         };
     }
 
@@ -382,7 +387,9 @@ pub const Tokenizer = struct {
         float_exponent,
         string_literal,
         string_literal_backslash,
+        symbol_literal_start,
         symbol_literal,
+        file_handle,
         identifier,
         expect_newline,
         invalid,
@@ -420,7 +427,7 @@ pub const Tokenizer = struct {
                 },
                 '`' => {
                     result.tag = .symbol_literal;
-                    continue :state .symbol_literal;
+                    continue :state .symbol_literal_start;
                 },
                 'a'...'z', 'A'...'Z' => {
                     result.tag = .identifier;
@@ -1035,15 +1042,40 @@ pub const Tokenizer = struct {
                 }
             },
 
-            // TODO: slash in file handle only
-            // TODO: k/q differences
+            .symbol_literal_start => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index != self.buffer.len) {
+                        result.tag = .invalid;
+                    },
+                    ':' => continue :state .file_handle,
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .symbol_literal,
+                    else => {},
+                }
+            },
+
             .symbol_literal => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         result.tag = .invalid;
                     },
-                    'a'...'z', 'A'...'Z', '0'...'9' => continue :state .symbol_literal,
+                    ':' => continue :state .file_handle,
+                    '_' => if (self.mode == .q) {
+                        continue :state .symbol_literal;
+                    },
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .symbol_literal,
+                    else => {},
+                }
+            },
+
+            .file_handle => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index != self.buffer.len) {
+                        result.tag = .invalid;
+                    },
+                    'a'...'z', 'A'...'Z', '0'...'9', '.', '/' => continue :state .file_handle,
                     else => {},
                 }
             },
@@ -1053,7 +1085,10 @@ pub const Tokenizer = struct {
             .identifier => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => continue :state .identifier,
+                    '_' => if (self.mode == .q) {
+                        continue :state .identifier;
+                    },
+                    'a'...'z', 'A'...'Z', '0'...'9' => continue :state .identifier,
                     else => {
                         const ident = self.buffer[result.loc.start..self.index];
                         if (Token.getKeyword(ident)) |tag| {
@@ -1507,8 +1542,63 @@ test "trailing whitespace" {
     try testTokenize("1;\n2\n\n", &.{ .number_literal, .semicolon, .number_literal });
 }
 
-fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {
-    var tokenizer = Tokenizer.init(source);
+test "symbols" {
+    try testTokenize("`", &.{.symbol_literal});
+    try testTokenize("`a", &.{.symbol_literal});
+    try testTokenize("`symbol", &.{.symbol_literal});
+    try testTokenize("`1", &.{.symbol_literal});
+    try testTokenize("`1test", &.{.symbol_literal});
+    try testTokenize("`UPPERCASE", &.{.symbol_literal});
+    try testTokenize("`symbol.with.dot", &.{.symbol_literal});
+    try testTokenize("`.symbol.with.leading.dot", &.{.symbol_literal});
+    try testTokenize("`symbol/with/slash", &.{ .symbol_literal, .slash, .identifier, .slash, .identifier });
+    try testTokenize("`:handle/with/slash", &.{.symbol_literal});
+    try testTokenize("`symbol:with/slash/after/colon", &.{.symbol_literal});
+    try testTokenize(
+        "`symbol/with/slash:before:colon",
+        &.{ .symbol_literal, .slash, .identifier, .slash, .identifier, .colon, .identifier, .colon, .identifier },
+    );
+
+    try testTokenizeMode(.k, "`symbol_with_underscore", &.{ .symbol_literal, .underscore, .identifier, .underscore, .identifier });
+    try testTokenizeMode(.q, "`symbol_with_underscore", &.{.symbol_literal});
+    try testTokenizeMode(
+        .k,
+        "`_symbol_with_leading_underscore",
+        &.{ .symbol_literal, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier },
+    );
+    try testTokenizeMode(.q, "`_symbol_with_leading_underscore", &.{ .symbol_literal, .underscore, .identifier });
+
+    try testTokenize("``", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`a`a", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`symbol`symbol", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`1`1", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`1test`1test", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`UPPERCASE`UPPERCASE", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`symbol.with.dot`symbol.with.dot", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`.symbol.with.leading.dot`.symbol.with.leading.dot", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`:handle/with/slash`:handle/with/slash", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize("`symbol:with/slash/after/colon`symbol:with/slash/after/colon", &.{ .symbol_literal, .symbol_literal });
+}
+
+fn testTokenize(
+    source: [:0]const u8,
+    expected_token_tags: []const Token.Tag,
+) !void {
+    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+        try testTokenizeMode(
+            @enumFromInt(field.value),
+            source,
+            expected_token_tags,
+        );
+    }
+}
+
+fn testTokenizeMode(
+    mode: Mode,
+    source: [:0]const u8,
+    expected_token_tags: []const Token.Tag,
+) !void {
+    var tokenizer = Tokenizer.init(source, mode);
     for (expected_token_tags) |expected_token_tag| {
         const token = tokenizer.next();
         try std.testing.expectEqual(expected_token_tag, token.tag);
@@ -1525,7 +1615,7 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
 fn testPropertiesUpheld(source: []const u8) anyerror!void {
     const source0 = try std.testing.allocator.dupeZ(u8, source);
     defer std.testing.allocator.free(source0);
-    var tokenizer = Tokenizer.init(source0);
+    var tokenizer = Tokenizer.init(source0, .q);
     var tokenization_failed = false;
     while (true) {
         const token = tokenizer.next();

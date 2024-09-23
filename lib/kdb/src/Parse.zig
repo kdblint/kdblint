@@ -24,11 +24,6 @@ extra_data: std.ArrayListUnmanaged(Node.Index) = .{},
 scratch: std.ArrayListUnmanaged(Node.Index) = .{},
 ends_expr: std.ArrayListUnmanaged(Token.Tag) = .{},
 
-const SmallSpan = union(enum) {
-    zero_or_one: Node.Index,
-    multi: Node.SubRange,
-};
-
 const Blocks = struct {
     len: usize,
     lhs: Node.Index,
@@ -470,14 +465,7 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
                 .rhs = undefined,
             },
         }),
-        .symbol_literal => return p.addNode(.{
-            .tag = .symbol_literal,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
+        .symbol_literal => return p.parseSymbolLiteral(),
         .identifier => return p.addNode(.{
             .tag = .identifier,
             .main_token = p.nextToken(),
@@ -734,6 +722,39 @@ fn parseNumberLiteral(p: *Parse) !Node.Index {
     }
 }
 
+fn parseSymbolLiteral(p: *Parse) !Node.Index {
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (p.peekTag() == .symbol_literal) {
+        const symbol_literal = p.assertToken(.symbol_literal);
+        try p.scratch.append(p.gpa, symbol_literal);
+        if (p.eob) break;
+        if (p.prevLoc().end != p.peekLoc().start) break;
+    }
+
+    const items = p.scratch.items[scratch_top..];
+    switch (items.len) {
+        0 => unreachable,
+        1 => return p.addNode(.{
+            .tag = .symbol_literal,
+            .main_token = items[0],
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        else => return p.addNode(.{
+            .tag = .symbol_list_literal,
+            .main_token = items[0],
+            .data = .{
+                .lhs = items[items.len - 1],
+                .rhs = undefined,
+            },
+        }),
+    }
+}
+
 fn parseLambdaParams(p: *Parse) !Node.Index {
     const l_bracket = p.eatToken(.l_bracket) orelse return null_node;
 
@@ -827,9 +848,19 @@ fn prevTag(p: *Parse) Token.Tag {
     return tag;
 }
 
+fn prevLoc(p: *Parse) Token.Loc {
+    const loc = p.tokens.items(.loc)[p.tok_i - 1];
+    return loc;
+}
+
 fn peekTag(p: *Parse) Token.Tag {
     const tag = p.tokens.items(.tag)[p.tok_i];
     return tag;
+}
+
+fn peekLoc(p: *Parse) Token.Loc {
+    const loc = p.tokens.items(.loc)[p.tok_i];
+    return loc;
 }
 
 fn nextToken(p: *Parse) Token.Index {
