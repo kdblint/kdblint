@@ -187,6 +187,18 @@ pub const Token = struct {
                 => null,
             };
         }
+
+        pub fn symbol(tag: Tag) []const u8 {
+            return tag.lexeme() orelse switch (tag) {
+                .number_literal => "a number literal",
+                .string_literal => "a string literal",
+                .symbol_literal => "a symbol literal",
+                .identifier => "an identifier",
+                .invalid => "invalid bytes",
+                .eof => "EOF",
+                else => unreachable,
+            };
+        }
     };
 };
 
