@@ -298,7 +298,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .apply_unary,
         => n = datas[n].rhs,
 
-        // TODO: Test this.
         .apply_binary,
         => n = if (datas[n].rhs > 0) datas[n].rhs else main_tokens[n],
 
@@ -2138,5 +2137,36 @@ test "expression blocks" {
         "[1;2]",
         &.{ .l_bracket, .number_literal, .semicolon, .number_literal, .r_bracket },
         &.{ .expr_block, .number_literal, .number_literal },
+    );
+}
+
+test "call" {
+    try testAst(
+        "{x}[]",
+        &.{ .l_brace, .identifier, .r_brace, .l_bracket, .r_bracket },
+        &.{ .lambda, .identifier, .expr_block, .apply_unary },
+    );
+    try testAst(
+        "{x}[1]",
+        &.{ .l_brace, .identifier, .r_brace, .l_bracket, .number_literal, .r_bracket },
+        &.{ .lambda, .identifier, .expr_block, .number_literal, .apply_unary },
+    );
+    try testAst(
+        "{x+y}[1;a]",
+        &.{
+            .l_brace,   .identifier,     .plus,      .identifier, .r_brace,
+            .l_bracket, .number_literal, .semicolon, .identifier, .r_bracket,
+        },
+        &.{
+            .lambda,     .identifier,     .plus,       .identifier,  .apply_binary,
+            .expr_block, .number_literal, .identifier, .apply_unary,
+        },
+    );
+    try testAst(
+        "{1}[]-1",
+        &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+        &.{
+            .lambda, .number_literal, .expr_block, .apply_unary, .minus, .number_literal, .apply_binary,
+        },
     );
 }
