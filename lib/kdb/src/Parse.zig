@@ -541,24 +541,61 @@ fn parseLambda(p: *Parse) !Node.Index {
     const lambda_index = try p.reserveNode(.lambda);
     errdefer p.unreserveNode(lambda_index);
 
-    const params = try p.parseLambdaParams();
+    var l_bracket: Token.Index = null_token;
+    var r_bracket: Token.Index = null_token;
+    const params: Node.SubRange = if (p.eatToken(.l_bracket)) |token| params: {
+        l_bracket = token;
+
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+        if (p.peekTag() != .r_bracket) {
+            while (true) {
+                const param = try p.expectToken(.identifier);
+                const node = try p.addNode(.{
+                    .tag = .identifier,
+                    .main_token = param,
+                    .data = .{
+                        .lhs = undefined,
+                        .rhs = undefined,
+                    },
+                });
+                try p.scratch.append(p.gpa, node);
+                _ = p.eatToken(.semicolon) orelse break;
+            }
+        }
+
+        r_bracket = try p.expectToken(.r_bracket);
+
+        break :params try p.listToSpan(p.scratch.items[scratch_top..]);
+    } else .{ .start = 0, .end = 0 };
 
     // Check for negative number after params
-    if (p.mode == .q and params != null_node and p.peekTag() == .number_literal) {
+    if (p.mode == .q and params.end > params.start and p.peekTag() == .number_literal) {
         const loc = p.peekLoc();
         if (p.source[loc.start] == '-' and p.prevLoc().end == loc.start) {
             try p.warn(.expected_whitespace);
         }
     }
 
-    const body = try p.parseLambdaBody();
+    const body = try p.parseExprs();
+    const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_semicolon else .lambda;
+    const r_brace = try p.expectToken(.r_brace);
 
+    const lambda = try p.addExtra(Node.Lambda{
+        .l_bracket = l_bracket,
+        .r_bracket = r_bracket,
+        .params_start = params.start,
+        .params_end = params.end,
+        .body_start = body.start,
+        .body_end = body.end,
+    });
     return p.setNode(lambda_index, .{
-        .tag = .lambda,
+        .tag = tag,
         .main_token = l_brace,
         .data = .{
-            .lhs = params,
-            .rhs = body,
+            .lhs = lambda,
+            .rhs = r_brace,
         },
     });
 }
