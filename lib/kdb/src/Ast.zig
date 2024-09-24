@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
+const AnyWriter = std.io.AnyWriter;
 
 const kdb = @import("root.zig");
 const Token = kdb.Token;
@@ -316,6 +317,27 @@ pub fn tokensOnSameLine(tree: Ast, token1: Token.Index, token2: Token.Index) boo
     const token_locs = tree.tokens.items(.loc);
     const source = tree.source[token_locs[token1].start..token_locs[token2].start];
     return mem.indexOfScalar(u8, source, '\n') == null;
+}
+
+pub fn renderError(tree: Ast, parse_error: Error, writer: AnyWriter) !void {
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    switch (parse_error.tag) {
+        .expected_expr => try writer.writeAll("expected expr"),
+        .expected_prefix_expr => try writer.writeAll("expected prefix expr"),
+        .cannot_project_operator_without_lhs => try writer.writeAll("cannot project operator without lhs"),
+        .cannot_apply_operator_directly => try writer.writeAll("cannot apply operator directly"),
+        .cannot_apply_iterator_directly => try writer.writeAll("cannot apply iterator directly"),
+        .expected_whitespace => try writer.writeAll("expected whitespace"),
+
+        .expected_token => {
+            const found_tag = token_tags[parse_error.token];
+            const expected_symbol = parse_error.extra.expected_tag.symbol();
+            switch (found_tag) {
+                .invalid => return writer.print("expected '{s}', found invalid bytes", .{expected_symbol}),
+                else => return writer.print("expected '{s}', found '{s}'", .{ expected_symbol, found_tag.symbol() }),
+            }
+        },
+    }
 }
 
 pub const Error = struct {
@@ -1328,18 +1350,11 @@ test "operators" {
         &.{ .l_paren, .plus, .number_literal, .r_paren },
         &.{.cannot_project_operator_without_lhs},
     );
-
-    try testAst("(+)1", &.{
-        .l_paren,
-        .plus,
-        .r_paren,
-        .number_literal,
-    }, &.{
-        .grouped_expression,
-        .add,
-        .number_literal,
-        .apply_unary,
-    });
+    try testAst(
+        "(+)1",
+        &.{ .l_paren, .plus, .r_paren, .number_literal },
+        &.{ .grouped_expression, .add, .number_literal, .apply_unary },
+    );
 }
 
 test "iterators" {

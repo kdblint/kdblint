@@ -11,11 +11,15 @@ pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 
 pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
-    _ = tree; // autofix
     _ = path; // autofix
     var wip_errors: std.zig.ErrorBundle.Wip = undefined;
     try wip_errors.init(gpa);
     defer wip_errors.deinit();
+
+    const writer = std.io.getStdErr().writer().any();
+    for (tree.errors) |err| {
+        tree.renderError(err, writer) catch {};
+    }
 
     // try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
 
