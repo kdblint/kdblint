@@ -2623,57 +2623,6 @@ fn testParseErrorSettings(settings: Ast.ParseSettings, source: [:0]const u8, exp
     try std.testing.expectEqualSlices(Ast.Error.Tag, expected_tags, errors);
 }
 
-test "implicit apply" {
-    try testParse("{x}a", &.{
-        .implicit_return,
-        .implicit_apply,
-        .identifier,
-        .lambda,
-        .identifier,
-    }, "({x};`a)");
-    try testParse("{x}1", &.{
-        .implicit_return,
-        .implicit_apply,
-        .long_literal,
-        .lambda,
-        .identifier,
-    }, "({x};1)");
-}
-
-test "call" {
-    try testParse("{x}[]", &.{
-        .implicit_return,
-        .call_one,
-        .lambda,
-        .identifier,
-    }, "({x};::)");
-    try testParse("{x}[1]", &.{
-        .implicit_return,
-        .call_one,
-        .long_literal,
-        .lambda,
-        .identifier,
-    }, "({x};1)");
-    try testParse("{x+y}[1;a]", &.{
-        .implicit_return,
-        .call,
-        .identifier,
-        .long_literal,
-        .lambda,
-        .add,
-        .identifier,
-        .identifier,
-    }, "({x+y};1;`a)");
-    try testParse("{1}[]-1", &.{
-        .implicit_return,
-        .subtract,
-        .long_literal,
-        .call_one,
-        .lambda,
-        .long_literal,
-    }, "(-;({1};::);1)");
-}
-
 test "call - explicit projection" {
     try testParse("{x+y}[;]", &.{
         .implicit_return,

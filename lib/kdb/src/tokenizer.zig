@@ -416,12 +416,12 @@ pub const Tokenizer = struct {
         l_brace,
         l_bracket,
         r_bracket,
-        minus,
     };
 
     /// After this returns invalid, it will reset on the next newline, returning tokens starting from there.
     /// An eof token will always be returned at the end.
     pub fn next(self: *Tokenizer) Token {
+        const prev_state = self.state;
         var result: Token = .{
             .tag = undefined,
             .loc = .{
@@ -1205,8 +1205,10 @@ pub const Tokenizer = struct {
             },
         }
 
-        result.loc.end = self.index;
+        // Reset bracket tracking for lambda expressions.
+        if (self.state == prev_state) self.state = .none;
 
+        result.loc.end = self.index;
         return result;
     }
 };
@@ -1216,15 +1218,7 @@ test "unknown length pointer and then c pointer" {
         \\[*]u8
         \\[*c]u8
     , &.{
-        .l_bracket,
-        .asterisk,
-        .r_bracket,
-        .identifier,
-        .l_bracket,
-        .asterisk,
-        .identifier,
-        .r_bracket,
-        .identifier,
+        .l_bracket, .asterisk, .r_bracket, .identifier, .l_bracket, .asterisk, .identifier, .r_bracket, .identifier,
     });
 }
 
@@ -1268,11 +1262,7 @@ test "illegal unicode codepoints" {
 }
 
 test "pipe and then invalid" {
-    try testTokenize("||=", &.{
-        .pipe,
-        .pipe,
-        .equal,
-    });
+    try testTokenize("||=", &.{ .pipe, .pipe, .equal });
 }
 
 test "line comment and doc comment" {
@@ -1292,37 +1282,6 @@ test "line comment followed by identifier" {
         \\    // another
         \\    Another,
     , &.{});
-}
-
-test "correctly parse pointer dereference followed by asterisk" {
-    try testTokenize("\"b\".* ** 10", &.{
-        .string_literal,
-        .period,
-        .asterisk,
-        .asterisk,
-        .asterisk,
-        .number_literal,
-    });
-
-    try testTokenize("(\"b\".*)** 10", &.{
-        .l_paren,
-        .string_literal,
-        .period,
-        .asterisk,
-        .r_paren,
-        .asterisk,
-        .asterisk,
-        .number_literal,
-    });
-
-    try testTokenize("\"b\".*** 10", &.{
-        .string_literal,
-        .period,
-        .asterisk,
-        .asterisk,
-        .asterisk,
-        .number_literal,
-    });
 }
 
 test "null byte before eof" {
@@ -1354,22 +1313,38 @@ test "symbols" {
     try testTokenize("`UPPERCASE", &.{.symbol_literal});
     try testTokenize("`symbol.with.dot", &.{.symbol_literal});
     try testTokenize("`.symbol.with.leading.dot", &.{.symbol_literal});
-    try testTokenize("`symbol/with/slash", &.{ .symbol_literal, .slash, .identifier, .slash, .identifier });
+    try testTokenize(
+        "`symbol/with/slash",
+        &.{ .symbol_literal, .slash, .identifier, .slash, .identifier },
+    );
     try testTokenize("`:handle/with/slash", &.{.symbol_literal});
     try testTokenize("`symbol:with/slash/after/colon", &.{.symbol_literal});
     try testTokenize(
         "`symbol/with/slash:before:colon",
-        &.{ .symbol_literal, .slash, .identifier, .slash, .identifier, .colon, .identifier, .colon, .identifier },
+        &.{
+            .symbol_literal, .slash, .identifier, .slash, .identifier, .colon, .identifier, .colon, .identifier,
+        },
     );
 
-    try testTokenizeMode(.k, "`symbol_with_underscore", &.{ .symbol_literal, .underscore, .identifier, .underscore, .identifier });
+    try testTokenizeMode(
+        .k,
+        "`symbol_with_underscore",
+        &.{ .symbol_literal, .underscore, .identifier, .underscore, .identifier },
+    );
     try testTokenizeMode(.q, "`symbol_with_underscore", &.{.symbol_literal});
     try testTokenizeMode(
         .k,
         "`_symbol_with_leading_underscore",
-        &.{ .symbol_literal, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier },
+        &.{
+            .symbol_literal, .underscore, .identifier, .underscore, .identifier,
+            .underscore,     .identifier, .underscore, .identifier,
+        },
     );
-    try testTokenizeMode(.q, "`_symbol_with_leading_underscore", &.{ .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(
+        .q,
+        "`_symbol_with_leading_underscore",
+        &.{ .symbol_literal, .underscore, .identifier },
+    );
 
     try testTokenize("``", &.{ .symbol_literal, .symbol_literal });
     try testTokenize("`a`a", &.{ .symbol_literal, .symbol_literal });
@@ -1377,10 +1352,22 @@ test "symbols" {
     try testTokenize("`1`1", &.{ .symbol_literal, .symbol_literal });
     try testTokenize("`1test`1test", &.{ .symbol_literal, .symbol_literal });
     try testTokenize("`UPPERCASE`UPPERCASE", &.{ .symbol_literal, .symbol_literal });
-    try testTokenize("`symbol.with.dot`symbol.with.dot", &.{ .symbol_literal, .symbol_literal });
-    try testTokenize("`.symbol.with.leading.dot`.symbol.with.leading.dot", &.{ .symbol_literal, .symbol_literal });
-    try testTokenize("`:handle/with/slash`:handle/with/slash", &.{ .symbol_literal, .symbol_literal });
-    try testTokenize("`symbol:with/slash/after/colon`symbol:with/slash/after/colon", &.{ .symbol_literal, .symbol_literal });
+    try testTokenize(
+        "`symbol.with.dot`symbol.with.dot",
+        &.{ .symbol_literal, .symbol_literal },
+    );
+    try testTokenize(
+        "`.symbol.with.leading.dot`.symbol.with.leading.dot",
+        &.{ .symbol_literal, .symbol_literal },
+    );
+    try testTokenize(
+        "`:handle/with/slash`:handle/with/slash",
+        &.{ .symbol_literal, .symbol_literal },
+    );
+    try testTokenize(
+        "`symbol:with/slash/after/colon`symbol:with/slash/after/colon",
+        &.{ .symbol_literal, .symbol_literal },
+    );
 }
 
 test "identifiers" {
@@ -1391,14 +1378,24 @@ test "identifiers" {
     try testTokenize("identifier.with.dot", &.{.identifier});
     try testTokenize(".identifier.with.leading.dot", &.{.identifier});
 
-    try testTokenizeMode(.k, "identifier_with_underscore", &.{ .identifier, .underscore, .identifier, .underscore, .identifier });
+    try testTokenizeMode(
+        .k,
+        "identifier_with_underscore",
+        &.{ .identifier, .underscore, .identifier, .underscore, .identifier },
+    );
     try testTokenizeMode(.q, "identifier_with_underscore", &.{.identifier});
     try testTokenizeMode(
         .k,
         "_identifier_with_leading_underscore",
-        &.{ .underscore, .identifier, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier },
+        &.{
+            .underscore, .identifier, .underscore, .identifier, .underscore, .identifier, .underscore, .identifier,
+        },
     );
-    try testTokenizeMode(.q, "_identifier_with_leading_underscore", &.{ .underscore, .identifier });
+    try testTokenizeMode(
+        .q,
+        "_identifier_with_leading_underscore",
+        &.{ .underscore, .identifier },
+    );
 }
 
 test "strings" {

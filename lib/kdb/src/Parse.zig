@@ -270,7 +270,7 @@ fn parseBlock(p: *Parse) !Node.Index {
 }
 
 fn parseExpr(p: *Parse) Error!Node.Index {
-    return p.parseExprPrecedence();
+    return p.parseExprPrecedence(0);
 }
 
 fn expectExpr(p: *Parse) !Node.Index {
@@ -282,66 +282,71 @@ fn expectExpr(p: *Parse) !Node.Index {
     }
 }
 
+const OperInfo = struct {
+    prec: u8,
+    tag: Node.Tag,
+};
+
 // A table of binary operators.
-const operTable = std.enums.directEnumArray(Token.Tag, ?Node.Tag, 0, .{
+const operTable = std.enums.directEnumArray(Token.Tag, ?OperInfo, 0, .{
     // Punctuation
-    .l_paren = .apply_unary,
+    .l_paren = .{ .prec = 10, .tag = .apply_unary },
     .r_paren = null,
-    .l_brace = .apply_unary,
+    .l_brace = .{ .prec = 10, .tag = .apply_unary },
     .r_brace = null,
-    .l_bracket = .apply_unary,
+    .l_bracket = .{ .prec = 20, .tag = .apply_unary },
     .r_bracket = null,
     .semicolon = null,
 
     // Verbs
-    .colon = .assign,
+    .colon = .{ .prec = 10, .tag = .assign },
     .colon_colon = null,
-    .plus = .apply_binary,
+    .plus = .{ .prec = 10, .tag = .apply_binary },
     .plus_colon = null,
-    .minus = .apply_binary,
+    .minus = .{ .prec = 10, .tag = .apply_binary },
     .minus_colon = null,
-    .asterisk = .apply_binary,
+    .asterisk = .{ .prec = 10, .tag = .apply_binary },
     .asterisk_colon = null,
-    .percent = .apply_binary,
+    .percent = .{ .prec = 10, .tag = .apply_binary },
     .percent_colon = null,
-    .ampersand = .apply_binary,
+    .ampersand = .{ .prec = 10, .tag = .apply_binary },
     .ampersand_colon = null,
-    .pipe = .apply_binary,
+    .pipe = .{ .prec = 10, .tag = .apply_binary },
     .pipe_colon = null,
-    .caret = .apply_binary,
+    .caret = .{ .prec = 10, .tag = .apply_binary },
     .caret_colon = null,
-    .equal = .apply_binary,
+    .equal = .{ .prec = 10, .tag = .apply_binary },
     .equal_colon = null,
-    .angle_bracket_left = .apply_binary,
+    .angle_bracket_left = .{ .prec = 10, .tag = .apply_binary },
     .angle_bracket_left_colon = null,
-    .angle_bracket_left_equal = .apply_binary,
-    .angle_bracket_left_right = .apply_binary,
-    .angle_bracket_right = .apply_binary,
+    .angle_bracket_left_equal = .{ .prec = 10, .tag = .apply_binary },
+    .angle_bracket_left_right = .{ .prec = 10, .tag = .apply_binary },
+    .angle_bracket_right = .{ .prec = 10, .tag = .apply_binary },
     .angle_bracket_right_colon = null,
-    .angle_bracket_right_equal = .apply_binary,
-    .dollar = .apply_binary,
+    .angle_bracket_right_equal = .{ .prec = 10, .tag = .apply_binary },
+    .dollar = .{ .prec = 10, .tag = .apply_binary },
     .dollar_colon = null,
-    .comma = .apply_binary,
+    .comma = .{ .prec = 10, .tag = .apply_binary },
     .comma_colon = null,
-    .hash = .apply_binary,
+    .hash = .{ .prec = 10, .tag = .apply_binary },
     .hash_colon = null,
-    .underscore = .apply_binary,
+    .underscore = .{ .prec = 10, .tag = .apply_binary },
     .underscore_colon = null,
-    .tilde = .apply_binary,
+    .tilde = .{ .prec = 10, .tag = .apply_binary },
     .tilde_colon = null,
-    .bang = .apply_binary,
+    .bang = .{ .prec = 10, .tag = .apply_binary },
     .bang_colon = null,
-    .question_mark = .apply_binary,
+    .question_mark = .{ .prec = 10, .tag = .apply_binary },
     .question_mark_colon = null,
-    .at = .apply_binary,
+    .at = .{ .prec = 10, .tag = .apply_binary },
     .at_colon = null,
-    .period = .apply_binary,
+    .period = .{ .prec = 10, .tag = .apply_binary },
     .period_colon = null,
-    .zero_colon = .apply_binary,
+    .zero_colon = .{ .prec = 10, .tag = .apply_binary },
     .zero_colon_colon = null,
-    .one_colon = .apply_binary,
+    .one_colon = .{ .prec = 10, .tag = .apply_binary },
     .one_colon_colon = null,
-    .two_colon = .apply_binary,
+    .two_colon = .{ .prec = 10, .tag = .apply_binary },
 
     // Adverbs
     .apostrophe = null,
@@ -352,25 +357,28 @@ const operTable = std.enums.directEnumArray(Token.Tag, ?Node.Tag, 0, .{
     .backslash_colon = null,
 
     // Literals
-    .number_literal = .apply_unary,
-    .string_literal = .apply_unary,
-    .symbol_literal = .apply_unary,
-    .identifier = .apply_unary,
+    .number_literal = .{ .prec = 10, .tag = .apply_unary },
+    .string_literal = .{ .prec = 10, .tag = .apply_unary },
+    .symbol_literal = .{ .prec = 10, .tag = .apply_unary },
+    .identifier = .{ .prec = 10, .tag = .apply_unary },
 
     // Miscellaneous
     .invalid = null,
     .eof = null,
 });
 
-fn parseExprPrecedence(p: *Parse) !Node.Index {
+fn parseExprPrecedence(p: *Parse, min_prec: u8) !Node.Index {
     var node = try p.parsePrefixExpr();
     if (node == null_node) {
         return null_node;
     }
 
     while (!p.eob) {
-        const tag = operTable[@intCast(@intFromEnum(p.peekTag()))] orelse break;
-        const main_token: Token.Index = switch (tag) {
+        const next_tag = p.peekTag();
+        const info = operTable[@intFromEnum(next_tag)] orelse break;
+        if (info.prec < min_prec) break;
+
+        const main_token: Token.Index = switch (info.tag) {
             .apply_unary => blk: {
                 try p.validateUnaryApplication(node);
                 break :blk null_token;
@@ -378,9 +386,9 @@ fn parseExprPrecedence(p: *Parse) !Node.Index {
             .apply_binary => try p.parsePrefixExpr(),
             else => try p.nextToken(),
         };
-        const rhs = try p.parseExprPrecedence();
+        const rhs = try p.parseExprPrecedence(info.prec);
         node = try p.addNode(.{
-            .tag = tag,
+            .tag = info.tag,
             .main_token = main_token,
             .data = .{
                 .lhs = node,
@@ -627,12 +635,12 @@ fn parseLambda(p: *Parse) !Node.Index {
 /// ExprBlock <- LBRACKET Exprs? RBRACKET
 fn parseExprBlock(p: *Parse) !Node.Index {
     const l_bracket = try p.assertToken(.l_bracket);
-    if (try p.eatToken(.r_paren)) |r_bracket| {
+    if (try p.eatToken(.r_bracket)) |r_bracket| {
         return p.addNode(.{
             .tag = .expr_block,
             .main_token = l_bracket,
             .data = .{
-                .lhs = undefined,
+                .lhs = null_node,
                 .rhs = r_bracket,
             },
         });
