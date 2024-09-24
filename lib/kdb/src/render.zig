@@ -187,12 +187,12 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .two_colon,
         => return renderToken(r, main_tokens[node], space),
 
-        .each,
-        .each_prior,
-        .over,
-        .each_right,
-        .scan,
-        .each_left,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
         => {
             const op = datas[node].lhs;
             if (op > 0) try renderExpression(r, op, .none);
@@ -466,6 +466,8 @@ const Comment = struct {
 /// Assumes that start is the first byte past the previous token and
 /// that end is the last byte before the next token.
 fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
+    if (start == end) return false;
+
     const tree = r.tree;
     const ais = r.ais;
 

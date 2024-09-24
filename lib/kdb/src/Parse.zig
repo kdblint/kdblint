@@ -135,34 +135,34 @@ fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
     return error.ParseError;
 }
 
-fn validateUnaryApplication(p: *Parse, node: Node.Index) !void {
+fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     const tags: []Node.Tag = p.nodes.items(.tag);
     const datas: []Node.Data = p.nodes.items(.data);
     const main_tokens: []Token.Index = p.nodes.items(.main_token);
 
-    const tag = tags[node];
+    const tag = tags[lhs];
     switch (tag.getType()) {
         // Fail if we are applying a unary operator directly in q.
         .unary_operator => if (p.mode == .q) {
             return p.failMsg(.{
                 .tag = .cannot_apply_operator_directly,
-                .token = main_tokens[node],
+                .token = main_tokens[lhs],
             });
         },
 
         // Fail if we are projecting an operator with no lhs.
-        .binary_operator => if (datas[node].lhs == null_node) {
+        .binary_operator => if (datas[lhs].lhs == null_node) {
             return p.failMsg(.{
                 .tag = .cannot_project_operator_without_lhs,
-                .token = main_tokens[node],
+                .token = main_tokens[lhs],
             });
         },
 
         // Fail if we are applying an iterator directly in q.
-        .iterator => if (p.mode == .q) {
+        .iterator => if (p.mode == .q and tags[rhs] != .expr_block) {
             return p.failMsg(.{
                 .tag = .cannot_apply_iterator_directly,
-                .token = main_tokens[node],
+                .token = main_tokens[lhs],
             });
         },
 
@@ -205,17 +205,12 @@ fn parseBlocks(p: *Parse) Allocator.Error!Blocks {
             error.ParseError,
             error.EndOfBlock,
             => blk: {
-                p.eob = false;
-                while (true) {
-                    std.log.debug("{s}: {s} '{s}'", .{
-                        @errorName(err),
-                        @tagName(p.tokens.items(.tag)[p.tok_i]),
-                        slice: {
-                            const loc = p.tokens.items(.loc)[p.tok_i];
-                            break :slice p.source[loc.start..loc.end];
-                        },
-                    });
-                    _ = p.nextToken() catch break;
+                std.log.debug("{s}", .{@errorName(err)});
+                if (p.peekTag() != .eof) {
+                    p.eob = false;
+                    while (true) {
+                        _ = p.nextToken() catch break;
+                    }
                 }
                 break :blk null_node;
             },
@@ -349,12 +344,12 @@ const operTable = std.enums.directEnumArray(Token.Tag, ?OperInfo, 0, .{
     .two_colon = .{ .prec = 10, .tag = .apply_binary },
 
     // Adverbs
-    .apostrophe = null,
-    .apostrophe_colon = null,
-    .slash = null,
-    .slash_colon = null,
-    .backslash = null,
-    .backslash_colon = null,
+    .apostrophe = .{ .prec = 20, .tag = .apostrophe },
+    .apostrophe_colon = .{ .prec = 20, .tag = .apostrophe_colon },
+    .slash = .{ .prec = 20, .tag = .slash },
+    .slash_colon = .{ .prec = 20, .tag = .slash_colon },
+    .backslash = .{ .prec = 20, .tag = .backslash },
+    .backslash_colon = .{ .prec = 20, .tag = .backslash_colon },
 
     // Literals
     .number_literal = .{ .prec = 10, .tag = .apply_unary },
@@ -374,27 +369,78 @@ fn parseExprPrecedence(p: *Parse, min_prec: u8) !Node.Index {
     }
 
     while (!p.eob) {
-        const next_tag = p.peekTag();
+        // TODO: l_paren/l_brace/l_bracket
+        // Convert some tokens which are followed by an iterator into a binary application.
+        const next_tag = next_tag: {
+            const tag = p.peekTag();
+            switch (tag) {
+                .string_literal,
+                .symbol_literal,
+                .identifier,
+                => switch (p.peekNextTag()) {
+                    .apostrophe,
+                    .apostrophe_colon,
+                    .slash,
+                    .slash_colon,
+                    .backslash,
+                    .backslash_colon,
+                    => break :next_tag .plus,
+                    else => {},
+                },
+                else => {},
+            }
+            break :next_tag tag;
+        };
         const info = operTable[@intFromEnum(next_tag)] orelse break;
         if (info.prec < min_prec) break;
 
-        const main_token: Token.Index = switch (info.tag) {
-            .apply_unary => blk: {
-                try p.validateUnaryApplication(node);
-                break :blk null_token;
+        std.log.debug("{s}", .{@tagName(info.tag)});
+
+        switch (info.tag) {
+            .apply_unary => {
+                const rhs = try p.parseExprPrecedence(info.prec);
+                try p.validateUnaryApplication(node, rhs);
+                node = try p.addNode(.{
+                    .tag = info.tag,
+                    .main_token = null_token,
+                    .data = .{
+                        .lhs = node,
+                        .rhs = rhs,
+                    },
+                });
             },
-            .apply_binary => try p.parsePrefixExpr(),
-            else => try p.nextToken(),
-        };
-        const rhs = try p.parseExprPrecedence(info.prec);
-        node = try p.addNode(.{
-            .tag = info.tag,
-            .main_token = main_token,
-            .data = .{
-                .lhs = node,
-                .rhs = rhs,
+            .apply_binary => {
+                const main_token = try p.parseExprPrecedence(info.prec + 1);
+                const rhs = try p.parseExprPrecedence(info.prec);
+                node = try p.addNode(.{
+                    .tag = info.tag,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = node,
+                        .rhs = rhs,
+                    },
+                });
             },
-        });
+            else => if (info.tag.getType() == .iterator) {
+                const main_token = try p.nextToken();
+                node = try p.addNode(.{
+                    .tag = info.tag,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = node,
+                        .rhs = undefined,
+                    },
+                });
+            } else {
+                const main_token = try p.nextToken();
+                const rhs = try p.parseExprPrecedence(info.prec);
+                node = try p.addNode(.{
+                    .tag = info.tag,
+                    .main_token = main_token,
+                    .data = .{ .lhs = node, .rhs = rhs },
+                });
+            },
+        }
     }
 
     return node;
@@ -463,7 +509,7 @@ fn parsePrefixExpr(p: *Parse) !Node.Index {
         .slash_colon,
         .backslash,
         .backslash_colon,
-        => return p.parseIterator(null_node),
+        => return p.parseIterator(),
 
         .number_literal => return p.parseNumberLiteral(),
         .string_literal => return p.addNode(.{
@@ -731,11 +777,6 @@ fn parseOperator(p: *Parse) !Node.Index {
         },
     });
 
-    const iterator = try p.parseIterator(node);
-    if (iterator != null_node) {
-        return iterator;
-    }
-
     return node;
 }
 
@@ -746,21 +787,21 @@ fn parseOperator(p: *Parse) !Node.Index {
 ///      / SLASH_COLON
 ///      / BACKSLASH
 ///      / BACKSLASH_COLON
-fn parseIterator(p: *Parse, lhs: Node.Index) !Node.Index {
+fn parseIterator(p: *Parse) !Node.Index {
     const tag: Node.Tag = switch (p.peekTag()) {
-        .apostrophe => .each,
-        .ampersand_colon => .each_prior,
-        .slash => .over,
-        .slash_colon => .each_right,
-        .backslash => .scan,
-        .backslash_colon => .each_left,
-        else => return null_node,
+        .apostrophe => .apostrophe,
+        .apostrophe_colon => .apostrophe_colon,
+        .slash => .slash,
+        .slash_colon => .slash_colon,
+        .backslash => .backslash,
+        .backslash_colon => .backslash_colon,
+        else => unreachable,
     };
     return p.addNode(.{
         .tag = tag,
         .main_token = try p.nextToken(),
         .data = .{
-            .lhs = lhs,
+            .lhs = null_node,
             .rhs = undefined,
         },
     });
@@ -938,6 +979,11 @@ fn prevLoc(p: *Parse) Token.Loc {
 
 fn peekTag(p: *Parse) Token.Tag {
     const tag = p.tokens.items(.tag)[p.tok_i];
+    return tag;
+}
+
+fn peekNextTag(p: *Parse) Token.Tag {
+    const tag = p.tokens.items(.tag)[p.tok_i + 1];
     return tag;
 }
 
