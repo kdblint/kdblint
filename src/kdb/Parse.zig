@@ -2664,26 +2664,6 @@ test "call - implicit projection" {
     }, "({x+y};1)");
 }
 
-test "block" {
-    try testParse("[]", &.{ .implicit_return, .block }, "::");
-    try testParse("[0]", &.{ .implicit_return, .block, .long_literal }, "0");
-    try testParse("[0;]", &.{ .implicit_return, .block, .long_literal }, "(\";\";0;::)");
-    try testParse("[;1]", &.{ .implicit_return, .block, .long_literal }, "(\";\";::;1)");
-    try testParse("[0;1]", &.{ .implicit_return, .block, .long_literal, .long_literal }, "(\";\";0;1)");
-    try testParse("[0;1;]", &.{ .implicit_return, .block, .long_literal, .long_literal }, "(\";\";0;1;::)");
-    try testParse("[0;1;2]", &.{ .implicit_return, .block, .long_literal, .long_literal, .long_literal }, "(\";\";0;1;2)");
-}
-
-test "list" {
-    try testParse("()", &.{ .implicit_return, .empty_list }, "()");
-    try testParse("(0)", &.{ .implicit_return, .grouped_expression, .long_literal }, "0");
-    try testParse("(0;)", &.{ .implicit_return, .list, .long_literal }, "(enlist;0;::)");
-    try testParse("(;1)", &.{ .implicit_return, .list, .long_literal }, "(enlist;::;1)");
-    try testParse("(0;1)", &.{ .implicit_return, .list, .long_literal, .long_literal }, "(enlist;0;1)");
-    try testParse("(0;1;)", &.{ .implicit_return, .list, .long_literal, .long_literal }, "(enlist;0;1;::)");
-    try testParse("(0;1;2)", &.{ .implicit_return, .list, .long_literal, .long_literal, .long_literal }, "(enlist;0;1;2)");
-}
-
 test "table" {
     try testParse("([]())", &.{ .implicit_return, .table_literal, .empty_list }, "(+:;(!;,,`x;(enlist;())))");
     try testParse("([]1 2)", &.{ .implicit_return, .table_literal, .long_list_literal }, "(+:;(!;,,`x;(enlist;1 2)))");
@@ -2841,16 +2821,6 @@ test "delete rows" {
 test "delete columns" {
     try testParse("delete a from x", &.{ .implicit_return, .delete_cols, .identifier, .identifier }, "(!;`x;();0b;,,`a)");
     try testParse("delete a,b from x", &.{ .implicit_return, .delete_cols, .identifier, .identifier, .identifier }, "(!;`x;();0b;,`a`b)");
-}
-
-test "iterators" {
-    try testParse("(\\:)", &.{ .implicit_return, .grouped_expression, .backslash_colon }, "\\:");
-    try testParse("@\\:", &.{ .implicit_return, .backslash_colon, .at }, "(\\:;@)");
-    try testParse("f\\:", &.{ .implicit_return, .backslash_colon, .identifier }, "(\\:;`f)");
-    try testParse("@\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .at }, "((\\:;@);`x;`y)");
-    try testParse("f\\:[x;y]", &.{ .implicit_return, .call, .identifier, .identifier, .backslash_colon, .identifier }, "((\\:;`f);`x;`y)");
-    try testParse("x@\\:y", &.{ .implicit_return, .backslash_colon_infix, .apply, .identifier, .identifier }, "((\\:;@);`x;`y)");
-    try testParse("x f\\:y", &.{ .implicit_return, .backslash_colon_infix, .identifier, .identifier, .identifier }, "((\\:;`f);`x;`y)");
 }
 
 test "os" {

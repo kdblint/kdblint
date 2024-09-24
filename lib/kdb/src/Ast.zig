@@ -206,12 +206,12 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .two_colon,
         => return main_tokens[n] - end_offset,
 
-        .each,
-        .each_prior,
-        .over,
-        .each_right,
-        .scan,
-        .each_left,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
         => {
             if (datas[n].lhs == 0) {
                 return main_tokens[n] - end_offset;
@@ -287,12 +287,12 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .two_colon,
         => return main_tokens[n] + end_offset,
 
-        .each,
-        .each_prior,
-        .over,
-        .each_right,
-        .scan,
-        .each_left,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
         => return main_tokens[n] + end_offset,
 
         .apply_unary,
@@ -458,17 +458,17 @@ pub const Node = struct {
         two_colon,
 
         /// `lhs'`. lhs can be omitted. rhs unused. main_token is the `'`.
-        each,
+        apostrophe,
         /// `lhs':`. lhs can be omitted. rhs unused. main_token is the `':`.
-        each_prior,
+        apostrophe_colon,
         /// `lhs/`. lhs can be omitted. rhs unused. main_token is the `/`.
-        over,
+        slash,
         /// `lhs/:`. lhs can be omitted. rhs unused. main_token is the `/:`.
-        each_right,
+        slash_colon,
         /// `lhs\`. lhs can be omitted. rhs unused. main_token is the `\`.
-        scan,
+        backslash,
         /// `lhs\:`. lhs can be omitted. rhs unused. main_token is the `\:`.
-        each_left,
+        backslash_colon,
 
         /// `lhs rhs`. main_token is unused.
         apply_unary,
@@ -542,12 +542,12 @@ pub const Node = struct {
                 .two_colon,
                 => .binary_operator,
 
-                .each,
-                .each_prior,
-                .over,
-                .each_right,
-                .scan,
-                .each_left,
+                .apostrophe,
+                .apostrophe_colon,
+                .slash,
+                .slash_colon,
+                .backslash,
+                .backslash_colon,
                 => .iterator,
 
                 .apply_unary,
@@ -1343,23 +1343,23 @@ test "operators" {
     );
 }
 
-test "iterators" {
+test "iterators1" {
     try testAst(
         "(/)",
         &.{ .l_paren, .slash, .r_paren },
-        &.{ .grouped_expression, .over },
+        &.{ .grouped_expression, .slash },
     );
-    try testAst("+/", &.{ .plus, .slash }, &.{ .plus, .over });
+    try testAst("+/", &.{ .plus, .slash }, &.{ .plus, .slash });
     try testAst(
         "1+/",
         &.{ .number_literal, .plus, .slash },
-        &.{ .number_literal, .plus, .over, .apply_binary },
+        &.{ .number_literal, .plus, .slash, .apply_binary },
     );
     try testAstMode(
         .k,
         "+/1",
         &.{ .plus, .slash, .number_literal },
-        &.{ .plus, .over, .number_literal, .apply_unary },
+        &.{ .plus, .slash, .number_literal, .apply_unary },
     );
     try failAstMode(
         .q,
@@ -1370,7 +1370,53 @@ test "iterators" {
     try testAst(
         "1+/1",
         &.{ .number_literal, .plus, .slash, .number_literal },
-        &.{ .number_literal, .plus, .over, .number_literal, .apply_binary },
+        &.{ .number_literal, .plus, .slash, .number_literal, .apply_binary },
+    );
+
+    try testAst(
+        \\(\:)
+    ,
+        &.{ .l_paren, .backslash_colon, .r_paren },
+        &.{ .grouped_expression, .backslash_colon },
+    );
+    try testAst(
+        \\@\:
+    ,
+        &.{ .at, .backslash_colon },
+        &.{ .at, .backslash_colon },
+    );
+    try testAst(
+        \\f\:
+    ,
+        &.{ .identifier, .backslash_colon },
+        &.{ .identifier, .backslash_colon },
+    );
+    try testAst(
+        "@\\:[x;y]",
+        &.{ .at, .backslash_colon, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .at, .backslash_colon, .expr_block, .identifier, .identifier, .apply_unary },
+    );
+    try testAst(
+        "f\\:[x;y]",
+        &.{
+            .identifier, .backslash_colon, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket,
+        },
+        &.{ .identifier, .backslash_colon, .expr_block, .identifier, .identifier, .apply_unary },
+    );
+    try testAst(
+        "x@\\:y",
+        &.{ .identifier, .at, .backslash_colon, .identifier },
+        &.{ .identifier, .at, .backslash_colon, .identifier, .apply_binary },
+    );
+    try testAst(
+        "1+\\:1",
+        &.{ .number_literal, .plus, .backslash_colon, .number_literal },
+        &.{ .number_literal, .plus, .backslash_colon, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "x f\\:y",
+        &.{ .identifier, .identifier, .backslash_colon, .identifier },
+        &.{ .identifier, .identifier, .backslash_colon, .identifier, .apply_binary },
     );
 }
 
