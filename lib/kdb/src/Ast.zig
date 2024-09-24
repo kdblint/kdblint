@@ -179,31 +179,31 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .assign,
         => n = datas[n].lhs,
 
-        .add,
-        .sub,
-        .mul,
-        .div,
-        .@"and",
-        .@"or",
-        .fill,
+        .plus,
+        .minus,
+        .asterisk,
+        .percent,
+        .ampersand,
+        .pipe,
+        .caret,
         .equal,
-        .less_than,
-        .less_or_equal,
-        .not_equal,
-        .greater_than,
-        .greater_or_equal,
-        .cast,
-        .join,
-        .take,
-        .drop,
-        .match,
-        .dict,
-        .find,
-        .apply_at,
-        .apply,
-        .file_text,
-        .file_binary,
-        .dynamic_load,
+        .angle_bracket_left,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_equal,
+        .dollar,
+        .comma,
+        .hash,
+        .underscore,
+        .tilde,
+        .bang,
+        .question_mark,
+        .at,
+        .period,
+        .zero_colon,
+        .one_colon,
+        .two_colon,
         => return main_tokens[n] - end_offset,
 
         .each,
@@ -260,31 +260,31 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .assign,
         => n = datas[n].rhs,
 
-        .add,
-        .sub,
-        .mul,
-        .div,
-        .@"and",
-        .@"or",
-        .fill,
+        .plus,
+        .minus,
+        .asterisk,
+        .percent,
+        .ampersand,
+        .pipe,
+        .caret,
         .equal,
-        .less_than,
-        .less_or_equal,
-        .not_equal,
-        .greater_than,
-        .greater_or_equal,
-        .cast,
-        .join,
-        .take,
-        .drop,
-        .match,
-        .dict,
-        .find,
-        .apply_at,
-        .apply,
-        .file_text,
-        .file_binary,
-        .dynamic_load,
+        .angle_bracket_left,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_equal,
+        .dollar,
+        .comma,
+        .hash,
+        .underscore,
+        .tilde,
+        .bang,
+        .question_mark,
+        .at,
+        .period,
+        .zero_colon,
+        .one_colon,
+        .two_colon,
         => return main_tokens[n] + end_offset,
 
         .each,
@@ -298,6 +298,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .apply_unary,
         => n = datas[n].rhs,
 
+        // TODO: Test this.
         .apply_binary,
         => n = if (datas[n].rhs > 0) datas[n].rhs else main_tokens[n],
 
@@ -385,7 +386,7 @@ pub const Node = struct {
     }
 
     pub const Tag = enum {
-        /// sub_list[lhs...rhs]
+        /// extra_data[lhs...rhs]
         root,
 
         /// `(lhs)`. main_token is the `(`. rhs is the token index of the `)`.
@@ -407,55 +408,55 @@ pub const Node = struct {
         assign,
 
         /// Both lhs and rhs unused. main_token is the `+`.
-        add,
+        plus,
         /// Both lhs and rhs unused. main_token is the `-`.
-        sub,
+        minus,
         /// Both lhs and rhs unused. main_token is the `*`.
-        mul,
+        asterisk,
         /// Both lhs and rhs unused. main_token is the `%`.
-        div,
+        percent,
         /// Both lhs and rhs unused. main_token is the `&`.
-        @"and",
+        ampersand,
         /// Both lhs and rhs unused. main_token is the `|`.
-        @"or",
+        pipe,
         /// Both lhs and rhs unused. main_token is the `^`.
-        fill,
+        caret,
         /// Both lhs and rhs unused. main_token is the `=`.
         equal,
         /// Both lhs and rhs unused. main_token is the `<`.
-        less_than,
+        angle_bracket_left,
         /// Both lhs and rhs unused. main_token is the `<=`.
-        less_or_equal,
+        angle_bracket_left_equal,
         /// Both lhs and rhs unused. main_token is the `<>`.
-        not_equal,
+        angle_bracket_left_right,
         /// Both lhs and rhs unused. main_token is the `>`.
-        greater_than,
+        angle_bracket_right,
         /// Both lhs and rhs unused. main_token is the `>=`.
-        greater_or_equal,
+        angle_bracket_right_equal,
         /// Both lhs and rhs unused. main_token is the `$`.
-        cast,
+        dollar,
         /// Both lhs and rhs unused. main_token is the `,`.
-        join,
+        comma,
         /// Both lhs and rhs unused. main_token is the `#`.
-        take,
+        hash,
         /// Both lhs and rhs unused. main_token is the `_`.
-        drop,
+        underscore,
         /// Both lhs and rhs unused. main_token is the `~`.
-        match,
+        tilde,
         /// Both lhs and rhs unused. main_token is the `!`.
-        dict,
+        bang,
         /// Both lhs and rhs unused. main_token is the `?`.
-        find,
+        question_mark,
         /// Both lhs and rhs unused. main_token is the `@`.
-        apply_at,
+        at,
         /// Both lhs and rhs unused. main_token is the `.`.
-        apply,
+        period,
         /// Both lhs and rhs unused. main_token is the `0:`.
-        file_text,
+        zero_colon,
         /// Both lhs and rhs unused. main_token is the `1:`.
-        file_binary,
+        one_colon,
         /// Both lhs and rhs unused. main_token is the `2:`.
-        dynamic_load,
+        two_colon,
 
         /// `lhs'`. lhs can be omitted. rhs unused. main_token is the `'`.
         each,
@@ -515,31 +516,31 @@ pub const Node = struct {
                 .assign,
                 => @panic("NYI"),
 
-                .add,
-                .sub,
-                .mul,
-                .div,
-                .@"and",
-                .@"or",
-                .fill,
+                .plus,
+                .minus,
+                .asterisk,
+                .percent,
+                .ampersand,
+                .pipe,
+                .caret,
                 .equal,
-                .less_than,
-                .less_or_equal,
-                .not_equal,
-                .greater_than,
-                .greater_or_equal,
-                .cast,
-                .join,
-                .take,
-                .drop,
-                .match,
-                .dict,
-                .find,
-                .apply_at,
-                .apply,
-                .file_text,
-                .file_binary,
-                .dynamic_load,
+                .angle_bracket_left,
+                .angle_bracket_left_equal,
+                .angle_bracket_left_right,
+                .angle_bracket_right,
+                .angle_bracket_right_equal,
+                .dollar,
+                .comma,
+                .hash,
+                .underscore,
+                .tilde,
+                .bang,
+                .question_mark,
+                .at,
+                .period,
+                .zero_colon,
+                .one_colon,
+                .two_colon,
                 => .binary_operator,
 
                 .each,
@@ -734,7 +735,7 @@ test "tokenize number" {
     try testAst(
         "-.",
         &.{ .minus, .period },
-        &.{ .sub, .apply, .apply_binary },
+        &.{ .minus, .period, .apply_binary },
     );
 }
 
@@ -752,12 +753,12 @@ test "tokenize negative number" {
     try testAst(
         "()-1",
         &.{ .l_paren, .r_paren, .minus, .number_literal },
-        &.{ .empty_list, .sub, .number_literal, .apply_binary },
+        &.{ .empty_list, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "()-.1",
         &.{ .l_paren, .r_paren, .minus, .number_literal },
-        &.{ .empty_list, .sub, .number_literal, .apply_binary },
+        &.{ .empty_list, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "() -1",
@@ -782,12 +783,12 @@ test "tokenize negative number" {
     try testAst(
         "{}-1",
         &.{ .l_brace, .r_brace, .minus, .number_literal },
-        &.{ .lambda, .sub, .number_literal, .apply_binary },
+        &.{ .lambda, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "{}-.1",
         &.{ .l_brace, .r_brace, .minus, .number_literal },
-        &.{ .lambda, .sub, .number_literal, .apply_binary },
+        &.{ .lambda, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "{} -1",
@@ -812,12 +813,12 @@ test "tokenize negative number" {
     try testAst(
         "[]-1",
         &.{ .l_bracket, .r_bracket, .minus, .number_literal },
-        &.{ .expr_block, .sub, .number_literal, .apply_binary },
+        &.{ .expr_block, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "[]-.1",
         &.{ .l_bracket, .r_bracket, .minus, .number_literal },
-        &.{ .expr_block, .sub, .number_literal, .apply_binary },
+        &.{ .expr_block, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "[] -1",
@@ -844,12 +845,12 @@ test "tokenize negative number" {
     try testAst(
         "1-1",
         &.{ .number_literal, .minus, .number_literal },
-        &.{ .number_literal, .sub, .number_literal, .apply_binary },
+        &.{ .number_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "1-.1",
         &.{ .number_literal, .minus, .number_literal },
-        &.{ .number_literal, .sub, .number_literal, .apply_binary },
+        &.{ .number_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "1 -1",
@@ -864,42 +865,42 @@ test "tokenize negative number" {
     try testAst(
         "\"string\"-1",
         &.{ .string_literal, .minus, .number_literal },
-        &.{ .string_literal, .sub, .number_literal, .apply_binary },
+        &.{ .string_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "\"string\"-.1",
         &.{ .string_literal, .minus, .number_literal },
-        &.{ .string_literal, .sub, .number_literal, .apply_binary },
+        &.{ .string_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "`symbol-1",
         &.{ .symbol_literal, .minus, .number_literal },
-        &.{ .symbol_literal, .sub, .number_literal, .apply_binary },
+        &.{ .symbol_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "`symbol-.1",
         &.{ .symbol_literal, .minus, .number_literal },
-        &.{ .symbol_literal, .sub, .number_literal, .apply_binary },
+        &.{ .symbol_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "`symbol`list-1",
         &.{ .symbol_literal, .symbol_literal, .minus, .number_literal },
-        &.{ .symbol_list_literal, .sub, .number_literal, .apply_binary },
+        &.{ .symbol_list_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "`symbol`list-.1",
         &.{ .symbol_literal, .symbol_literal, .minus, .number_literal },
-        &.{ .symbol_list_literal, .sub, .number_literal, .apply_binary },
+        &.{ .symbol_list_literal, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "identifier-1",
         &.{ .identifier, .minus, .number_literal },
-        &.{ .identifier, .sub, .number_literal, .apply_binary },
+        &.{ .identifier, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "identifier-.1",
         &.{ .identifier, .minus, .number_literal },
-        &.{ .identifier, .sub, .number_literal, .apply_binary },
+        &.{ .identifier, .minus, .number_literal, .apply_binary },
     );
 }
 
@@ -1250,7 +1251,7 @@ test "precedence" {
         "2*3+4",
         &.{ .number_literal, .asterisk, .number_literal, .plus, .number_literal },
         &.{
-            .number_literal, .mul, .number_literal, .add, .number_literal, .apply_binary, .apply_binary,
+            .number_literal, .asterisk, .number_literal, .plus, .number_literal, .apply_binary, .apply_binary,
         },
     );
     try testAst(
@@ -1259,8 +1260,8 @@ test "precedence" {
             .l_paren, .number_literal, .asterisk, .number_literal, .r_paren, .plus, .number_literal,
         },
         &.{
-            .grouped_expression, .number_literal, .mul,            .number_literal,
-            .apply_binary,       .add,            .number_literal, .apply_binary,
+            .grouped_expression, .number_literal, .asterisk,       .number_literal,
+            .apply_binary,       .plus,           .number_literal, .apply_binary,
         },
     );
 }
@@ -1284,26 +1285,12 @@ test "number literals" {
     try testAst(
         "1 2 3+4 5 6+7 8 9",
         &.{
-            .number_literal,
-            .number_literal,
-            .number_literal,
-            .plus,
-            .number_literal,
-            .number_literal,
-            .number_literal,
-            .plus,
-            .number_literal,
-            .number_literal,
-            .number_literal,
+            .number_literal, .number_literal, .number_literal, .plus,           .number_literal, .number_literal,
+            .number_literal, .plus,           .number_literal, .number_literal, .number_literal,
         },
         &.{
-            .number_list_literal,
-            .add,
-            .number_list_literal,
-            .add,
-            .number_list_literal,
-            .apply_binary,
-            .apply_binary,
+            .number_list_literal, .plus,         .number_list_literal, .plus,
+            .number_list_literal, .apply_binary, .apply_binary,
         },
     );
 }
@@ -1319,11 +1306,11 @@ test "symbol literals" {
 }
 
 test "operators" {
-    try testAst("+", &.{.plus}, &.{.add});
+    try testAst("+", &.{.plus}, &.{.plus});
     try testAst(
         "1+",
         &.{ .number_literal, .plus },
-        &.{ .number_literal, .add, .apply_binary },
+        &.{ .number_literal, .plus, .apply_binary },
     );
     try failAst(
         "+1",
@@ -1333,17 +1320,17 @@ test "operators" {
     try testAst(
         "1+2",
         &.{ .number_literal, .plus, .number_literal },
-        &.{ .number_literal, .add, .number_literal, .apply_binary },
+        &.{ .number_literal, .plus, .number_literal, .apply_binary },
     );
     try testAst(
         "(+)",
         &.{ .l_paren, .plus, .r_paren },
-        &.{ .grouped_expression, .add },
+        &.{ .grouped_expression, .plus },
     );
     try testAst(
         "(1+)",
         &.{ .l_paren, .number_literal, .plus, .r_paren },
-        &.{ .grouped_expression, .number_literal, .add, .apply_binary },
+        &.{ .grouped_expression, .number_literal, .plus, .apply_binary },
     );
     try failAst(
         "(+1)",
@@ -1353,7 +1340,7 @@ test "operators" {
     try testAst(
         "(+)1",
         &.{ .l_paren, .plus, .r_paren, .number_literal },
-        &.{ .grouped_expression, .add, .number_literal, .apply_unary },
+        &.{ .grouped_expression, .plus, .number_literal, .apply_unary },
     );
 }
 
@@ -1363,17 +1350,17 @@ test "iterators" {
         &.{ .l_paren, .slash, .r_paren },
         &.{ .grouped_expression, .over },
     );
-    try testAst("+/", &.{ .plus, .slash }, &.{ .add, .over });
+    try testAst("+/", &.{ .plus, .slash }, &.{ .plus, .over });
     try testAst(
         "1+/",
         &.{ .number_literal, .plus, .slash },
-        &.{ .number_literal, .add, .over, .apply_binary },
+        &.{ .number_literal, .plus, .over, .apply_binary },
     );
     try testAstMode(
         .k,
         "+/1",
         &.{ .plus, .slash, .number_literal },
-        &.{ .add, .over, .number_literal, .apply_unary },
+        &.{ .plus, .over, .number_literal, .apply_unary },
     );
     try failAstMode(
         .q,
@@ -1384,7 +1371,7 @@ test "iterators" {
     try testAst(
         "1+/1",
         &.{ .number_literal, .plus, .slash, .number_literal },
-        &.{ .number_literal, .add, .over, .number_literal, .apply_binary },
+        &.{ .number_literal, .plus, .over, .number_literal, .apply_binary },
     );
 }
 
@@ -1690,8 +1677,8 @@ test "render comments" {
     ,
         &.{ .number_literal, .plus, .number_literal, .number_literal, .plus, .number_literal },
         &.{
-            .number_literal, .add, .number_literal, .apply_binary,
-            .number_literal, .add, .number_literal, .apply_binary,
+            .number_literal, .plus, .number_literal, .apply_binary,
+            .number_literal, .plus, .number_literal, .apply_binary,
         },
     );
 
@@ -1736,8 +1723,8 @@ test "render comments" {
             .number_literal, .plus, .number_literal, .semicolon, .number_literal, .plus, .number_literal, .semicolon,
         },
         &.{
-            .number_literal, .add, .number_literal, .apply_binary,
-            .number_literal, .add, .number_literal, .apply_binary,
+            .number_literal, .plus, .number_literal, .apply_binary,
+            .number_literal, .plus, .number_literal, .apply_binary,
         },
     );
 
@@ -1759,7 +1746,7 @@ test "render comments" {
         \\  not change
     ,
         &.{ .number_literal, .plus, .number_literal, .semicolon },
-        &.{ .number_literal, .add, .number_literal, .apply_binary },
+        &.{ .number_literal, .plus, .number_literal, .apply_binary },
     );
 }
 
@@ -1946,18 +1933,18 @@ test "symbol literals whitespace" {
     try testAst(
         "`_`",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAst(
         "`_`a",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstMode(
         .k,
         "`a_`",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstMode(
         .q,
@@ -1969,7 +1956,7 @@ test "symbol literals whitespace" {
         .k,
         "`a_`a",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstMode(
         .q,
@@ -1982,7 +1969,7 @@ test "symbol literals whitespace" {
         "`a_ `",
         "`a_`",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstMode(
         .q,
@@ -1995,7 +1982,7 @@ test "symbol literals whitespace" {
         "`a_ `a",
         "`a_`a",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstMode(
         .q,
@@ -2008,26 +1995,26 @@ test "symbol literals whitespace" {
         "`a _`",
         "`a_`",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstMode(
         .q,
         "`a _`",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstModeRender(
         .k,
         "`a _`a",
         "`a_`a",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
     try testAstMode(
         .q,
         "`a _`a",
         &.{ .symbol_literal, .underscore, .symbol_literal },
-        &.{ .symbol_literal, .drop, .symbol_literal, .apply_binary },
+        &.{ .symbol_literal, .underscore, .symbol_literal, .apply_binary },
     );
 }
 
