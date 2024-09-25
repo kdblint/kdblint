@@ -3,10 +3,10 @@ const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
 const Allocator = std.mem.Allocator;
-const Color = std.zig.Color;
 
 const kdb = @import("kdb");
 const Ast = kdb.Ast;
+const Color = kdb.Color;
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.err(format, args);

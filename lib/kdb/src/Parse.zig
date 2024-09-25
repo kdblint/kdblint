@@ -10,7 +10,7 @@ const Node = Ast.Node;
 
 const Parse = @This();
 
-pub const Error = error{ ParseError, EndOfBlock } || Allocator.Error;
+pub const Error = error{ParseError} || Allocator.Error;
 
 gpa: Allocator,
 mode: Ast.Mode,
@@ -171,7 +171,7 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
 }
 
 /// Root <- Blocks EOF
-pub fn parseRoot(p: *Parse) !void {
+pub fn parseRoot(p: *Parse) Allocator.Error!void {
     // Root node must be index 0.
     const root_index = try p.reserveNode(.root);
     errdefer p.unreserveNode(root_index);
@@ -193,30 +193,18 @@ pub fn parseRoot(p: *Parse) !void {
 }
 
 /// Blocks <- Block*
-fn parseBlocks(p: *Parse) Allocator.Error!Blocks {
+fn parseBlocks(p: *Parse) !Blocks {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (p.peekTag() != .eof) {
-        const block_node = p.parseBlock() catch |err| switch (err) {
-            error.OutOfMemory,
-            => return error.OutOfMemory,
-
-            error.ParseError,
-            error.EndOfBlock,
-            => blk: {
-                std.log.debug("{s}", .{@errorName(err)});
-                if (p.peekTag() != .eof) {
-                    p.eob = false;
-                    while (true) {
-                        _ = p.nextToken();
-                    }
-                }
-                break :blk null_node;
-            },
-        };
+        const block_node = try p.parseBlock();
         if (block_node != null_node) {
             try p.scratch.append(p.gpa, block_node);
+        }
+        if (!p.eob) {
+            try p.warn(.expected_expr);
+            p.skipBlock();
         }
         assert(p.eob);
         p.eob = false;
@@ -255,7 +243,13 @@ fn parseBlock(p: *Parse) !Node.Index {
     assert(p.ends_expr.items.len == 0);
     if (p.peekTag() == .eof) return null_node;
 
-    const expr = try p.parsePrecedence(.none);
+    const expr = p.parsePrecedence(.none) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => blk: {
+            p.skipBlock();
+            break :blk null_node;
+        },
+    };
 
     // TODO: Use trailing.
     _ = p.eatToken(.semicolon);
@@ -930,6 +924,17 @@ fn nextToken(p: *Parse) Token.Index {
     });
     p.tok_i += 1;
     return result;
+}
+
+// TODO: Test
+fn skipBlock(p: *Parse) void {
+    if (p.eob) {
+        _ = p.nextToken();
+    } else {
+        while (!p.eob) {
+            _ = p.nextToken();
+        }
+    }
 }
 
 fn isEob(p: *Parse, token_index: Token.Index) bool {

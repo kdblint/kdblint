@@ -2,10 +2,9 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
-const AnyWriter = std.io.AnyWriter;
 
 const kdb = @import("root.zig");
-const Token = kdb.Token;
+pub const Token = kdb.Token;
 const Tokenizer = kdb.Tokenizer;
 const Parse = kdb.Parse;
 
@@ -115,6 +114,15 @@ pub const Fixups = kdb.render.Fixups;
 
 pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
     return kdb.render.renderTree(buffer, tree, fixups);
+}
+
+/// Returns an extra offset for column and byte offset of errors that
+/// should point after the token in the error message.
+pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
+    return if (parse_error.token_is_prev)
+        @as(u32, @intCast(tree.tokenSlice(parse_error.token).len))
+    else
+        0;
 }
 
 pub fn tokenSlice(tree: Ast, token_index: Token.Index) []const u8 {
@@ -319,10 +327,12 @@ pub fn tokensOnSameLine(tree: Ast, token1: Token.Index, token2: Token.Index) boo
     return mem.indexOfScalar(u8, source, '\n') == null;
 }
 
-pub fn renderError(tree: Ast, parse_error: Error, writer: AnyWriter) !void {
+pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     switch (parse_error.tag) {
-        .expected_expr => try writer.writeAll("expected expr"),
+        .expected_expr => try writer.print("expected expression, found '{s}'", .{
+            token_tags[parse_error.token].symbol(),
+        }),
         .expected_prefix_expr => try writer.writeAll("expected prefix expr"),
         .cannot_project_operator_without_lhs => try writer.writeAll("cannot project operator without lhs"),
         .cannot_apply_operator_directly => try writer.writeAll("cannot apply operator directly"),
@@ -333,8 +343,12 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: AnyWriter) !void {
             const found_tag = token_tags[parse_error.token];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
             switch (found_tag) {
-                .invalid => return writer.print("expected '{s}', found invalid bytes", .{expected_symbol}),
-                else => return writer.print("expected '{s}', found '{s}'", .{ expected_symbol, found_tag.symbol() }),
+                .invalid => return writer.print("expected '{s}', found invalid bytes", .{
+                    expected_symbol,
+                }),
+                else => return writer.print("expected '{s}', found '{s}'", .{
+                    expected_symbol, found_tag.symbol(),
+                }),
             }
         },
     }
@@ -590,6 +604,39 @@ pub const Node = struct {
         body_end: Index,
     };
 };
+
+pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
+    return tokensToSpan(
+        tree,
+        tree.firstToken(node),
+        tree.lastToken(node),
+        tree.nodes.items(.main_token)[node],
+    );
+}
+
+pub fn tokensToSpan(tree: *const Ast, start: Ast.Token.Index, end: Ast.Token.Index, main: Ast.Token.Index) Span {
+    const token_locs = tree.tokens.items(.loc);
+    var start_tok = start;
+    var end_tok = end;
+
+    if (tree.tokensOnSameLine(start, end)) {
+        // do nothing
+    } else if (tree.tokensOnSameLine(start, main)) {
+        end_tok = main;
+    } else if (tree.tokensOnSameLine(main, end)) {
+        start_tok = main;
+    } else {
+        start_tok = main;
+        end_tok = main;
+    }
+    const start_off = token_locs[start_tok].start;
+    const end_off = token_locs[end_tok].start + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
+    return Span{
+        .start = @intCast(start_off),
+        .end = @intCast(end_off),
+        .main = @intCast(token_locs[main].start),
+    };
+}
 
 fn testAstRender(
     source_code: [:0]const u8,
@@ -2289,4 +2336,10 @@ test "call" {
             .lambda, .number_literal, .expr_block, .apply_unary, .minus, .number_literal, .apply_binary,
         },
     );
+}
+
+test "mismatched parens/braces/brackets" {
+    try failAst(")", &.{.r_paren}, &.{.expected_expr});
+    try failAst("}", &.{.r_brace}, &.{.expected_expr});
+    try failAst("]", &.{.r_bracket}, &.{.expected_expr});
 }
