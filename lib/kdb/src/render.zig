@@ -88,6 +88,8 @@ fn renderBlock(r: *Render, block: Ast.Node.Index, space: Space) Error!void {
 }
 
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    if (node == 0) return renderOnlySpace(r, space);
+
     const tree = r.tree;
     const ais = r.ais;
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
@@ -133,15 +135,17 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 const sub_range = tree.extraData(datas[node].lhs, Ast.Node.SubRange);
                 const exprs = tree.extra_data[sub_range.start..sub_range.end];
                 if (exprs.len > 1) {
-                    if (tree.tokensOnSameLine(tree.firstToken(exprs[0]), tree.firstToken(exprs[1]))) {
-                        for (exprs) |expr| {
+                    if (tree.tokensOnSameLine(main_tokens[node], datas[node].rhs)) {
+                        for (exprs[0 .. exprs.len - 1]) |expr| {
                             try renderExpression(r, expr, .semicolon);
                         }
+                        try renderExpression(r, exprs[exprs.len - 1], .none);
                     } else {
-                        for (exprs) |expr| {
-                            try ais.maybeInsertNewline();
-                            try renderExpression(r, expr, .semicolon);
+                        try ais.maybeInsertNewline();
+                        for (exprs[0 .. exprs.len - 1]) |expr| {
+                            try renderExpression(r, expr, .semicolon_newline);
                         }
+                        try renderExpression(r, exprs[exprs.len - 1], .none);
                     }
                 } else {
                     for (exprs) |expr| {
@@ -149,7 +153,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                     }
                 }
             }
-            try renderToken(r, datas[node].rhs, space);
+            return renderToken(r, datas[node].rhs, space);
         },
 
         .assign,
@@ -445,6 +449,20 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
             try ais.insertNewline();
         },
 
+        .skip => unreachable,
+    }
+}
+
+fn renderOnlySpace(r: *Render, space: Space) Error!void {
+    const ais = r.ais;
+    switch (space) {
+        .none => {},
+        .space => try ais.writer().writeByte(' '),
+        .newline => try ais.insertNewline(),
+        .comma => try ais.writer().writeAll(",\n"),
+        .comma_space => try ais.writer().writeAll(", "),
+        .semicolon => try ais.writer().writeByte(';'),
+        .semicolon_newline => try ais.writer().writeAll(";\n"),
         .skip => unreachable,
     }
 }
