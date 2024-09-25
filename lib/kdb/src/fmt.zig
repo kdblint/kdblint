@@ -54,6 +54,7 @@ pub fn main() !void {
 
     var color: Color = .auto;
     var stdin_flag: bool = false;
+    var stdout_flag: bool = false;
     var check_flag: bool = false;
     var check_ast_flag: bool = false;
     _ = &check_ast_flag;
@@ -74,6 +75,8 @@ pub fn main() !void {
                     fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
             } else if (mem.eql(u8, arg, "--stdin")) {
                 stdin_flag = true;
+            } else if (mem.eql(u8, arg, "--stdout")) {
+                stdout_flag = true;
             } else if (mem.eql(u8, arg, "--check")) {
                 check_flag = true;
                 // } else if (mem.eql(u8, arg, "--ast-check")) {
@@ -121,6 +124,51 @@ pub fn main() !void {
             // }
         } else if (tree.errors.len != 0) {
             try kdb.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
+            process.exit(2);
+        }
+        const formatted = try tree.render(gpa);
+        defer gpa.free(formatted);
+
+        if (check_flag) {
+            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
+            process.exit(code);
+        }
+
+        return std.io.getStdOut().writeAll(formatted);
+    }
+
+    if (stdout_flag) {
+        if (input_files.items.len > 1) {
+            fatal("expected at most one source file argument", .{});
+        }
+
+        const file_path = input_files.items[0];
+        const source_file = try fs.cwd().openFile(file_path, .{});
+        var file_closed = false;
+        errdefer if (!file_closed) source_file.close();
+
+        const stat = try source_file.stat();
+
+        if (stat.kind == .directory)
+            return error.IsDir;
+
+        const source_code = try std.zig.readSourceFileToEndAlloc(
+            gpa,
+            source_file,
+            std.math.cast(usize, stat.size) orelse return error.FileTooBig,
+        );
+        defer gpa.free(source_code);
+
+        source_file.close();
+        file_closed = true;
+
+        var tree = Ast.parse(gpa, source_code, .q) catch |err| {
+            fatal("error parsing {s}: {}", .{ file_path, err });
+        };
+        defer tree.deinit(gpa);
+
+        if (tree.errors.len != 0) {
+            try kdb.printAstErrorsToStderr(gpa, tree, file_path, color);
             process.exit(2);
         }
         const formatted = try tree.render(gpa);

@@ -99,6 +99,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .root,
         => unreachable,
 
+        .empty,
+        => return renderOnlySpace(r, space),
+
         .grouped_expression,
         => {
             try renderToken(r, main_tokens[node], .none);
@@ -112,17 +115,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         // TODO: Complex formatting.
-        .list => {
-            try renderToken(r, main_tokens[node], .none);
-            const extra = tree.extraData(datas[node].lhs, Ast.Node.SubRange);
-            const exprs = tree.extra_data[extra.start..extra.end];
-            if (exprs[0] > 0) try renderExpression(r, exprs[0], .none);
-            for (exprs[1..]) |expr| {
-                try ais.writer().writeByte(';');
-                if (expr > 0) try renderExpression(r, expr, .none);
-            }
-            return renderToken(r, datas[node].rhs, space);
-        },
+        .list => return renderList(r, node, space),
 
         .lambda,
         .lambda_semicolon,
@@ -247,10 +240,219 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     }
 }
 
-fn renderLambda(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+fn renderList(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    _ = ais; // autofix
+    const gpa = r.gpa;
+    const tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
+    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+
+    const l_paren = main_tokens[node];
+    assert(token_tags[l_paren] == .l_paren);
+    const r_paren = datas[node].rhs;
+    assert(token_tags[r_paren] == .r_paren);
+    const extra = tree.extraData(datas[node].lhs, Ast.Node.SubRange);
+    const elements = tree.extra_data[extra.start..extra.end];
+    assert(elements.len > 1);
+
+    const contains_comment = hasComment(tree, l_paren, r_paren);
+
+    if (!contains_comment and tree.tokensOnSameLine(l_paren, r_paren)) {
+        // Render all on one line
+        try renderToken(r, l_paren, .none);
+
+        for (elements[0 .. elements.len - 1]) |expr| {
+            try renderExpression(r, expr, .semicolon);
+        }
+        try renderExpression(r, elements[elements.len - 1], .none);
+
+        return renderToken(r, r_paren, space);
+    }
+
+    const should_indent = ais.indent_count == 0;
+    if (should_indent) ais.pushIndentNextLine();
+    defer if (should_indent) ais.popIndent();
+    try renderToken(r, l_paren, .newline);
+
+    var expr_index: usize = 0;
+    while (true) {
+        const row_size = rowSize(tree, elements[expr_index..], r_paren);
+        const row_exprs = elements[expr_index..];
+        // A place to store the width of each expression and its column's maximum
+        const widths = try gpa.alloc(usize, row_exprs.len + row_size);
+        defer gpa.free(widths);
+        @memset(widths, 0);
+
+        const expr_newlines = try gpa.alloc(bool, row_exprs.len);
+        defer gpa.free(expr_newlines);
+        @memset(expr_newlines, false);
+
+        const expr_widths = widths[0..row_exprs.len];
+        const column_widths = widths[row_exprs.len..];
+
+        // TODO: Test with comments.
+        // Find next row with trailing comment (if any) to end the current section.
+        const section_end = sec_end: {
+            var this_line_first_expr: usize = 0;
+            var this_line_size = rowSize(tree, row_exprs, r_paren);
+            for (row_exprs, 0..) |expr, i| {
+                // Ignore comment on first line of this section.
+                if (i == 0) continue;
+                const expr_last_token = tree.lastToken(expr);
+                if (tree.tokensOnSameLine(tree.firstToken(row_exprs[0]), expr_last_token))
+                    continue;
+                // Track start of line containing comment.
+                if (!tree.tokensOnSameLine(tree.firstToken(row_exprs[this_line_first_expr]), expr_last_token)) {
+                    this_line_first_expr = i;
+                    this_line_size = rowSize(tree, row_exprs[this_line_first_expr..], r_paren);
+                }
+
+                const maybe_semicolon = if (tags[expr] == .empty)
+                    expr_last_token
+                else
+                    expr_last_token + 1;
+                if (token_tags[maybe_semicolon] == .semicolon) {
+                    if (hasSameLineComment(tree, maybe_semicolon))
+                        break :sec_end i - this_line_size + 1;
+                }
+            }
+            break :sec_end row_exprs.len;
+        };
+        expr_index += section_end;
+
+        const section_exprs = row_exprs[0..section_end];
+
+        var sub_expr_buffer = std.ArrayList(u8).init(gpa);
+        defer sub_expr_buffer.deinit();
+
+        const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
+        defer gpa.free(sub_expr_buffer_starts);
+
+        var auto_indenting_stream = Ais{
+            .indent_delta = indent_delta,
+            .underlying_writer = sub_expr_buffer.writer(),
+        };
+        var sub_render: Render = .{
+            .gpa = r.gpa,
+            .ais = &auto_indenting_stream,
+            .tree = r.tree,
+            .fixups = r.fixups,
+        };
+
+        // Calculate size of columns in current section
+        var column_counter: usize = 0;
+        var single_line = true;
+        var contains_newline = false;
+        for (section_exprs, 0..) |expr, i| {
+            const start = sub_expr_buffer.items.len;
+            sub_expr_buffer_starts[i] = start;
+
+            if (i + 1 < section_exprs.len) {
+                try renderExpression(&sub_render, expr, .none);
+                const width = sub_expr_buffer.items.len - start;
+                const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items[start..], '\n') != null;
+                contains_newline = contains_newline or this_contains_newline;
+                expr_widths[i] = width;
+                expr_newlines[i] = this_contains_newline;
+
+                if (!this_contains_newline) {
+                    const column = column_counter % row_size;
+                    column_widths[column] = @max(column_widths[column], width);
+
+                    const expr_last_token = if (tags[expr] == .empty)
+                        tree.lastToken(expr)
+                    else
+                        tree.lastToken(expr) + 1;
+                    const next_expr = section_exprs[i + 1];
+                    column_counter += 1;
+                    if (!tree.tokensOnSameLine(expr_last_token, tree.firstToken(next_expr))) single_line = false;
+                } else {
+                    single_line = false;
+                    column_counter = 0;
+                }
+            } else {
+                try renderExpression(&sub_render, expr, .none);
+                const width = sub_expr_buffer.items.len - start;
+                const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items[start..][0..width], '\n') != null;
+                contains_newline = contains_newline or this_contains_newline;
+                expr_widths[i] = width;
+                expr_newlines[i] = contains_newline;
+
+                if (!contains_newline) {
+                    const column = column_counter % row_size;
+                    column_widths[column] = @max(column_widths[column], width);
+                }
+            }
+        }
+        sub_expr_buffer_starts[section_exprs.len] = sub_expr_buffer.items.len;
+
+        // Render exprs in current section.
+        column_counter = 0;
+        for (section_exprs, 0..) |expr, i| {
+            const start = sub_expr_buffer_starts[i];
+            const end = sub_expr_buffer_starts[i + 1];
+            const expr_text = sub_expr_buffer.items[start..end];
+            if (!expr_newlines[i]) {
+                try ais.writer().writeAll(expr_text);
+            } else {
+                var by_line = std.mem.splitScalar(u8, expr_text, '\n');
+                var last_line_was_empty = false;
+                try ais.writer().writeAll(by_line.first());
+                while (by_line.next()) |line| {
+                    if (std.mem.startsWith(u8, line, "/") and last_line_was_empty) {
+                        try ais.insertNewline();
+                    } else {
+                        try ais.maybeInsertNewline();
+                    }
+                    last_line_was_empty = (line.len == 0);
+                    try ais.writer().writeAll(line);
+                }
+            }
+
+            if (i + 1 < section_exprs.len) {
+                const next_expr = section_exprs[i + 1];
+                const semicolon = if (tags[expr] == .empty)
+                    tree.lastToken(expr)
+                else
+                    tree.lastToken(expr) + 1;
+
+                if (column_counter != row_size - 1) {
+                    if (!expr_newlines[i] and !expr_newlines[i + 1]) {
+                        // Neither the current or next expression is multiline
+                        assert(column_widths[column_counter % row_size] >= expr_widths[i]);
+                        const padding = column_widths[column_counter % row_size] - expr_widths[i];
+                        try ais.writer().writeByteNTimes(' ', padding);
+                        try renderToken(r, semicolon, .none);
+
+                        column_counter += 1;
+                        continue;
+                    }
+                }
+
+                if (single_line and row_size != 1) {
+                    unreachable;
+                    // try renderToken(r, semicolon, .none);
+                    // continue;
+                }
+
+                column_counter = 0;
+                try renderToken(r, semicolon, .newline);
+                try renderExtraNewline(r, next_expr);
+            }
+        }
+
+        if (expr_index == elements.len)
+            break;
+    }
+
+    // ais.popIndent();
+    return renderToken(r, r_paren, space); // rbrace
+}
+
+fn renderLambda(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const tree = r.tree;
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
@@ -258,7 +460,9 @@ fn renderLambda(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
     const lambda = tree.extraData(datas[node].lhs, Ast.Node.Lambda);
     const l_brace = main_tokens[node];
+    assert(token_tags[l_brace] == .l_brace);
     const r_brace = datas[node].rhs;
+    assert(token_tags[r_brace] == .r_brace);
     const l_bracket = lambda.l_bracket;
     const r_bracket = lambda.r_bracket;
     const has_params = l_bracket > 0;
@@ -465,6 +669,23 @@ fn renderOnlySpace(r: *Render, space: Space) Error!void {
         .semicolon_newline => try ais.writer().writeAll(";\n"),
         .skip => unreachable,
     }
+}
+
+/// Returns true if there exists a line comment between any of the tokens from
+/// `start_token` to `end_token`. This is used to determine if e.g. a
+/// fn_proto should be wrapped and have a trailing comma inserted even if
+/// there is none in the source.
+fn hasComment(tree: Ast, start_token: Ast.Token.Index, end_token: Ast.Token.Index) bool {
+    const token_locs = tree.tokens.items(.loc);
+
+    var i = start_token;
+    while (i < end_token) : (i += 1) {
+        const start = token_locs[i].start + tree.tokenSlice(i).len;
+        const end = token_locs[i + 1].start;
+        if (mem.indexOf(u8, tree.source[start..end], "/") != null) return true;
+    }
+
+    return false;
 }
 
 const State = enum {
@@ -697,12 +918,45 @@ fn tokenSliceForRender(tree: Ast, token_index: Token.Index) []const u8 {
     return tree.tokenSlice(token_index);
 }
 
+fn hasSameLineComment(tree: Ast, token_index: Ast.Token.Index) bool {
+    const token_locs = tree.tokens.items(.loc);
+    const between_source = tree.source[token_locs[token_index].start..token_locs[token_index + 1].start];
+    for (between_source) |byte| switch (byte) {
+        '\n' => return false,
+        '/' => return true,
+        else => continue,
+    };
+    return false;
+}
+
 fn writeFixingWhitespace(writer: std.ArrayList(u8).Writer, slice: []const u8) Error!void {
     for (slice) |byte| switch (byte) {
         '\t' => try writer.writeAll(" " ** indent_delta),
         '\r' => {},
         else => try writer.writeByte(byte),
     };
+}
+
+// Returns the number of nodes in `exprs` that are on the same line as `rtoken`.
+fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.Token.Index) usize {
+    const first_token = tree.firstToken(exprs[0]);
+    if (tree.tokensOnSameLine(first_token, rtoken)) {
+        return exprs.len; // no newlines
+    }
+
+    var count: usize = 1;
+    for (exprs, 0..) |expr, i| {
+        if (i + 1 < exprs.len) {
+            const expr_last_token = tree.lastToken(expr);
+            const next_token = tree.firstToken(exprs[i + 1]);
+            if (next_token != rtoken and
+                !tree.tokensOnSameLine(expr_last_token, next_token)) return count;
+            count += 1;
+        } else {
+            return count;
+        }
+    }
+    unreachable;
 }
 
 /// Automatically inserts indentation of written data by keeping

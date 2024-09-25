@@ -172,6 +172,9 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .root,
         => return 0,
 
+        .empty,
+        => return main_tokens[n] - end_offset,
+
         .grouped_expression,
         .empty_list,
         .list,
@@ -179,7 +182,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
 
         .lambda,
         .lambda_semicolon,
-        => unreachable,
+        => return main_tokens[n] - end_offset,
 
         .expr_block,
         => return main_tokens[n] - end_offset,
@@ -252,6 +255,9 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
     while (true) switch (tags[n]) {
         .root,
         => return @intCast(tree.tokens.len - 1),
+
+        .empty,
+        => return main_tokens[n] + end_offset,
 
         .grouped_expression,
         .empty_list,
@@ -401,6 +407,8 @@ pub const Node = struct {
     pub const Tag = enum {
         /// extra_data[lhs...rhs]
         root,
+        /// main_token is the next token. Both lhs and rhs unused.
+        empty,
 
         /// `(lhs)`. main_token is the `(`. rhs is the token index of the `)`.
         grouped_expression,
@@ -513,6 +521,9 @@ pub const Node = struct {
             return switch (tag) {
                 .root,
                 => unreachable,
+
+                .empty,
+                => .other,
 
                 .grouped_expression,
                 .empty_list,
@@ -1501,19 +1512,24 @@ test "lists" {
         &.{ .grouped_expression, .number_literal },
     );
     try testAst(
+        "(;)",
+        &.{ .l_paren, .semicolon, .r_paren },
+        &.{ .list, .empty, .empty },
+    );
+    try testAst(
         "(;1)",
         &.{ .l_paren, .semicolon, .number_literal, .r_paren },
-        &.{ .list, .number_literal },
+        &.{ .list, .empty, .number_literal },
     );
     try testAst(
         "(1;)",
         &.{ .l_paren, .number_literal, .semicolon, .r_paren },
-        &.{ .list, .number_literal },
+        &.{ .list, .number_literal, .empty },
     );
     try testAst(
         "(;1)",
         &.{ .l_paren, .semicolon, .number_literal, .r_paren },
-        &.{ .list, .number_literal },
+        &.{ .list, .empty, .number_literal },
     );
     try testAst(
         "(1;2)",
@@ -1523,22 +1539,22 @@ test "lists" {
     try testAst(
         "(;;)",
         &.{ .l_paren, .semicolon, .semicolon, .r_paren },
-        &.{.list},
+        &.{ .list, .empty, .empty, .empty },
     );
     try testAst(
         "(1;;)",
         &.{ .l_paren, .number_literal, .semicolon, .semicolon, .r_paren },
-        &.{ .list, .number_literal },
+        &.{ .list, .number_literal, .empty, .empty },
     );
     try testAst(
         "(;2;)",
         &.{ .l_paren, .semicolon, .number_literal, .semicolon, .r_paren },
-        &.{ .list, .number_literal },
+        &.{ .list, .empty, .number_literal, .empty },
     );
     try testAst(
         "(;;3)",
         &.{ .l_paren, .semicolon, .semicolon, .number_literal, .r_paren },
-        &.{ .list, .number_literal },
+        &.{ .list, .empty, .empty, .number_literal },
     );
     try testAst(
         "(1;2;3)",
@@ -1894,7 +1910,9 @@ test "number literals whitespace" {
     try testAst(
         "1(1;)1",
         &.{ .number_literal, .l_paren, .number_literal, .semicolon, .r_paren, .number_literal },
-        &.{ .number_literal, .list, .number_literal, .number_literal, .apply_unary, .apply_unary },
+        &.{
+            .number_literal, .list, .number_literal, .empty, .number_literal, .apply_unary, .apply_unary,
+        },
     ); // l_paren/r_paren
     try testAst(
         "1{1}1",
@@ -1906,7 +1924,7 @@ test "number literals whitespace" {
     try testAst(
         "[1;]1",
         &.{ .l_bracket, .number_literal, .semicolon, .r_bracket, .number_literal },
-        &.{ .expr_block, .number_literal, .number_literal, .apply_unary },
+        &.{ .expr_block, .number_literal, .empty, .number_literal, .apply_unary },
     ); // r_bracket
     try testAst(
         "\"string\"1",
@@ -1938,7 +1956,7 @@ test "number list literals whitespace" {
             .number_literal, .semicolon,      .r_paren,        .number_literal, .number_literal, .number_literal,
         },
         &.{
-            .number_list_literal, .list, .number_list_literal, .number_list_literal, .apply_unary, .apply_unary,
+            .number_list_literal, .list, .number_list_literal, .empty, .number_list_literal, .apply_unary, .apply_unary,
         },
     ); // l_paren/r_paren
     try testAst(
@@ -1957,7 +1975,7 @@ test "number list literals whitespace" {
             .l_bracket, .number_literal, .number_literal, .number_literal, .semicolon,
             .r_bracket, .number_literal, .number_literal, .number_literal,
         },
-        &.{ .expr_block, .number_list_literal, .number_list_literal, .apply_unary },
+        &.{ .expr_block, .number_list_literal, .empty, .number_list_literal, .apply_unary },
     ); // r_bracket
     try testAst(
         "\"string\"1 2 3",
@@ -1985,7 +2003,9 @@ test "string literals whitespace" {
     try testAst(
         "\"string\"(\"string\";)\"string\"",
         &.{ .string_literal, .l_paren, .string_literal, .semicolon, .r_paren, .string_literal },
-        &.{ .string_literal, .list, .string_literal, .string_literal, .apply_unary, .apply_unary },
+        &.{
+            .string_literal, .list, .string_literal, .empty, .string_literal, .apply_unary, .apply_unary,
+        },
     ); // l_paren/r_paren
     try testAst(
         "\"string\"{\"string\"}\"string\"",
@@ -1997,7 +2017,7 @@ test "string literals whitespace" {
     try testAst(
         "[\"string\";]\"string\"",
         &.{ .l_bracket, .string_literal, .semicolon, .r_bracket, .string_literal },
-        &.{ .expr_block, .string_literal, .string_literal, .apply_unary },
+        &.{ .expr_block, .string_literal, .empty, .string_literal, .apply_unary },
     ); // r_bracket
     try testAst(
         "1\"string\"",
@@ -2030,7 +2050,9 @@ test "symbol literals whitespace" {
     try testAst(
         "`symbol(`symbol;)`symbol",
         &.{ .symbol_literal, .l_paren, .symbol_literal, .semicolon, .r_paren, .symbol_literal },
-        &.{ .symbol_literal, .list, .symbol_literal, .symbol_literal, .apply_unary, .apply_unary },
+        &.{
+            .symbol_literal, .list, .symbol_literal, .empty, .symbol_literal, .apply_unary, .apply_unary,
+        },
     ); // l_paren/r_paren
     try testAst(
         "`symbol{`symbol}`symbol",
@@ -2042,7 +2064,7 @@ test "symbol literals whitespace" {
     try testAst(
         "[`symbol;]`symbol",
         &.{ .l_bracket, .symbol_literal, .semicolon, .r_bracket, .symbol_literal },
-        &.{ .expr_block, .symbol_literal, .symbol_literal, .apply_unary },
+        &.{ .expr_block, .symbol_literal, .empty, .symbol_literal, .apply_unary },
     ); // r_bracket
     try testAst(
         "1`symbol",
@@ -2166,7 +2188,7 @@ test "symbol list literals whitespace" {
             .semicolon,      .r_paren,        .symbol_literal, .symbol_literal,
         },
         &.{
-            .symbol_list_literal, .list, .symbol_list_literal, .symbol_list_literal, .apply_unary, .apply_unary,
+            .symbol_list_literal, .list, .symbol_list_literal, .empty, .symbol_list_literal, .apply_unary, .apply_unary,
         },
     ); // l_paren/r_paren
     try testAst(
@@ -2184,7 +2206,7 @@ test "symbol list literals whitespace" {
         &.{
             .l_bracket, .symbol_literal, .symbol_literal, .semicolon, .r_bracket, .symbol_literal, .symbol_literal,
         },
-        &.{ .expr_block, .symbol_list_literal, .symbol_list_literal, .apply_unary },
+        &.{ .expr_block, .symbol_list_literal, .empty, .symbol_list_literal, .apply_unary },
     ); // r_bracket
     try testAst(
         "1`symbol`symbol",
@@ -2217,7 +2239,7 @@ test "identifiers whitespace" {
     try testAst(
         "x(x;)x",
         &.{ .identifier, .l_paren, .identifier, .semicolon, .r_paren, .identifier },
-        &.{ .identifier, .list, .identifier, .identifier, .apply_unary, .apply_unary },
+        &.{ .identifier, .list, .identifier, .empty, .identifier, .apply_unary, .apply_unary },
     ); // l_paren/r_paren
     try testAst(
         "x{x}x",
@@ -2227,7 +2249,7 @@ test "identifiers whitespace" {
     try testAst(
         "[x;]x",
         &.{ .l_bracket, .identifier, .semicolon, .r_bracket, .identifier },
-        &.{ .expr_block, .identifier, .identifier, .apply_unary },
+        &.{ .expr_block, .identifier, .empty, .identifier, .apply_unary },
     ); // r_bracket
     try testAst(
         "1 x",
@@ -2266,12 +2288,12 @@ test "expression blocks" {
     try testAst(
         "[;]",
         &.{ .l_bracket, .semicolon, .r_bracket },
-        &.{.expr_block},
+        &.{ .expr_block, .empty, .empty },
     );
     try testAst(
         "[1;]",
         &.{ .l_bracket, .number_literal, .semicolon, .r_bracket },
-        &.{ .expr_block, .number_literal },
+        &.{ .expr_block, .number_literal, .empty },
     );
     try testAst(
         "[1;2]",
@@ -2281,22 +2303,22 @@ test "expression blocks" {
     try testAst(
         "[;;]",
         &.{ .l_bracket, .semicolon, .semicolon, .r_bracket },
-        &.{.expr_block},
+        &.{ .expr_block, .empty, .empty, .empty },
     );
     try testAst(
         "[1;;]",
         &.{ .l_bracket, .number_literal, .semicolon, .semicolon, .r_bracket },
-        &.{ .expr_block, .number_literal },
+        &.{ .expr_block, .number_literal, .empty, .empty },
     );
     try testAst(
         "[;2;]",
         &.{ .l_bracket, .semicolon, .number_literal, .semicolon, .r_bracket },
-        &.{ .expr_block, .number_literal },
+        &.{ .expr_block, .empty, .number_literal, .empty },
     );
     try testAst(
         "[;;3]",
         &.{ .l_bracket, .semicolon, .semicolon, .number_literal, .r_bracket },
-        &.{ .expr_block, .number_literal },
+        &.{ .expr_block, .empty, .empty, .number_literal },
     );
     try testAst(
         "[1;2;3]",
@@ -2342,4 +2364,503 @@ test "mismatched parens/braces/brackets" {
     try failAst(")", &.{.r_paren}, &.{.expected_expr});
     try failAst("}", &.{.r_brace}, &.{.expected_expr});
     try failAst("]", &.{.r_bracket}, &.{.expected_expr});
+    try failAst("(\n)", &.{ .l_paren, .r_paren }, &.{.expected_token});
+    try failAst("{\n}", &.{ .l_brace, .r_brace }, &.{.expected_token});
+    try failAst(
+        "[\n]",
+        &.{ .l_bracket, .r_bracket },
+        &.{.expected_token},
+    );
+    try failAst(
+        ")\n1",
+        &.{ .r_paren, .number_literal },
+        &.{.expected_expr},
+    );
+    try failAst(
+        "}\n1",
+        &.{ .r_brace, .number_literal },
+        &.{.expected_expr},
+    );
+    try failAst(
+        "]\n1",
+        &.{ .r_bracket, .number_literal },
+        &.{.expected_expr},
+    );
+    try failAst(
+        "(\n)\n1",
+        &.{ .l_paren, .r_paren, .number_literal },
+        &.{.expected_token},
+    );
+    try failAst(
+        "{\n}\n1",
+        &.{ .l_brace, .r_brace, .number_literal },
+        &.{.expected_token},
+    );
+    try failAst(
+        "[\n]\n1",
+        &.{ .l_bracket, .r_bracket, .number_literal },
+        &.{.expected_token},
+    );
+}
+
+test "render lists" {
+    try testAstRender(
+        "( )",
+        "()",
+        &.{ .l_paren, .r_paren },
+        &.{.empty_list},
+    );
+    try testAstRender(
+        \\(
+        \\ )
+    , "()", &.{ .l_paren, .r_paren }, &.{.empty_list});
+
+    try testAstRender(
+        \\( item1 ;  ; testing123 ;  )
+    ,
+        \\(item1;;testing123;)
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ; foo ; testing123 ; identifier )
+    ,
+        \\(item1;foo;testing123;identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\(
+        \\ item1 ;  ; testing123 ;  )
+    ,
+        \\(
+        \\  item1;;testing123;)
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\(
+        \\ item1 ; foo ; testing123 ; identifier )
+    ,
+        \\(
+        \\  item1;foo;testing123;identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\(
+        \\ item1 ;  ; testing123 ;
+        \\ )
+    ,
+        \\(
+        \\  item1;;testing123;)
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ; foo ; testing123 ; identifier
+        \\ )
+    ,
+        \\(
+        \\  item1;foo;testing123;identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\( item1 ;  ; testing123
+        \\ ; )
+    ,
+        \\(
+        \\  item1;;testing123;)
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ; foo ; testing123 ;
+        \\ identifier )
+    ,
+        \\(
+        \\  item1     ;foo;testing123;
+        \\  identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\( item1 ;  ; testing123 ;
+        \\ )
+    ,
+        \\(
+        \\  item1;;testing123;)
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ; foo ; testing123 ;
+        \\ identifier
+        \\ )
+    ,
+        \\(
+        \\  item1     ;foo;testing123;
+        \\  identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\( item1 ;  ;
+        \\ testing123 ; )
+    ,
+        \\(
+        \\  item1     ;;
+        \\  testing123;)
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ; foo ;
+        \\ testing123 ; identifier )
+    ,
+        \\(
+        \\  item1     ;foo;
+        \\  testing123;identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\( item1 ;  ;
+        \\ testing123 ;
+        \\ )
+    ,
+        \\(
+        \\  item1     ;;
+        \\  testing123;)
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ; foo ;
+        \\ testing123 ; identifier
+        \\ )
+    ,
+        \\(
+        \\  item1     ;foo;
+        \\  testing123;identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\( item1 ;
+        \\  ; testing123 ; )
+    ,
+        \\(
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  )
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ;
+        \\ foo ; testing123 ; identifier )
+    ,
+        \\(
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\( item1 ;
+        \\  ; testing123 ;
+        \\ )
+    ,
+        \\(
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  )
+    ,
+        &.{ .l_paren, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_paren },
+        &.{ .list, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\( item1 ;
+        \\ foo ; testing123 ; identifier
+        \\ )
+    ,
+        \\(
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier)
+    ,
+        &.{
+            .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,
+        },
+        &.{ .list, .identifier, .identifier, .identifier, .identifier },
+    );
+}
+
+test "render indentation" {
+    try testAstRender(
+        \\( ( item1 ; testing123 ; foo ; bar ; baz ; item10 ) ; ( item1 ; item2 ; item3 ) )
+    ,
+        \\((item1;testing123;foo;bar;baz;item10);(item1;item2;item3))
+    , &.{
+        .l_paren,    .l_paren,   .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .semicolon,  .l_paren,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .r_paren,
+    }, &.{
+        .list,       .list,       .identifier, .identifier, .identifier, .identifier,
+        .identifier, .identifier, .list,       .identifier, .identifier, .identifier,
+    });
+
+    try testAstRender(
+        \\(
+        \\ ( item1 ; testing123 ; foo ; bar ; baz ; item10 ) ; ( item1 ; item2 ; item3 ) )
+    ,
+        \\(
+        \\  (item1;testing123;foo;bar;baz;item10);(item1;item2;item3))
+    , &.{
+        .l_paren,    .l_paren,   .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .semicolon,  .l_paren,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .r_paren,
+    }, &.{
+        .list,       .list,       .identifier, .identifier, .identifier, .identifier,
+        .identifier, .identifier, .list,       .identifier, .identifier, .identifier,
+    });
+
+    try testAstRender(
+        \\(
+        \\ ( item1 ; testing123 ; foo ; bar ; baz ; item10 ) ;
+        \\ ( item1 ; item2 ; item3 ) )
+    ,
+        \\(
+        \\  (item1;testing123;foo;bar;baz;item10);
+        \\  (item1;item2;item3))
+    , &.{
+        .l_paren,    .l_paren,   .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .semicolon,  .l_paren,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .r_paren,
+    }, &.{
+        .list,       .list,       .identifier, .identifier, .identifier, .identifier,
+        .identifier, .identifier, .list,       .identifier, .identifier, .identifier,
+    });
+
+    try testAstRender(
+        \\(
+        \\ ( item1 ;
+        \\ testing123 ; foo ; bar ; baz ; item10 ) ;
+        \\ ( item1 ; item2 ; item3 ) )
+    ,
+        \\(
+        \\  (
+        \\    item1;
+        \\    testing123;
+        \\    foo;
+        \\    bar;
+        \\    baz;
+        \\    item10);
+        \\  (item1;item2;item3))
+    , &.{
+        .l_paren,    .l_paren,   .identifier, .semicolon, .identifier, .semicolon, .identifier, .semicolon,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .semicolon,  .l_paren,
+        .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_paren,   .r_paren,
+    }, &.{
+        .list,       .list,       .identifier, .identifier, .identifier, .identifier,
+        .identifier, .identifier, .list,       .identifier, .identifier, .identifier,
+    });
+}
+
+test "render complex structure" {
+    if (true) return error.SkipZigTest;
+    try testAstRender(
+        \\.tca.linking.config:`assetClass`mode`sourceTable`destTable`linkName`sourceKey`destKey`destAggregation`destFilter!/:-1_(
+        \\ (`            ;`       ;`TCATrade                  ;`TCACustomColumns          ;`link_customColumns            ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`            ;`       ;`TCATrade                  ;`TCAListing                ;`link_listings                 ;`date`tcaListingId     ;`date`tcaListingId    ;last  ;()                               );
+        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_brokerOrderAnalytics     ;`brokerOrderKey        ;`orderKey             ;last  ;(=;`viewType;enlist`Broker)      );
+        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_decisionOrderAnalytics   ;`decisionOrderKey      ;`orderKey             ;last  ;(=;`viewType;enlist`Decision)    );
+        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_pmOrderAnalytics         ;`pmOrderKey            ;`orderKey             ;last  ;(=;`viewType;enlist`PM)          );
+        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_releaseOrderAnalytics    ;`releaseOrderKey       ;`orderKey             ;last  ;(=;`viewType;enlist`TradingDesk) );
+        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_traderOrderAnalytics     ;`traderOrderKey        ;`orderKey             ;last  ;(=;`viewType;enlist`Trader)      );
+        \\ (`            ;`legacy ;`TCATrade                  ;`CustomBenchmarks          ;`link_customBenchmarks         ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`eq`fi`fu`fx ;`native ;`TCATrade                  ;`TCACustomBenchmarks       ;`link_customBenchmarks         ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`            ;`native ;`TCATrade                  ;`TCADefaultBenchmarks      ;`link_defaultBenchmarks        ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`            ;`native ;`TCATrade                  ;`TCATradeStatus            ;`link_tradeStatus              ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`eq          ;`legacy ;`TCADefaultOrderBenchmarks ;`TCAOrderAnalytics         ;`link_orderAnalytics           ;`viewType`orderKey     ;`viewType`orderKey    ;last  ;()                               );
+        \\ (`eq          ;`legacy ;`TCAOrderAnalytics         ;`TCADefaultOrderBenchmarks ;`link_defaultOrderBenchmarks   ;`viewType`orderKey     ;`viewType`orderKey    ;last  ;()                               );
+        \\ (`eq          ;`legacy ;`TCATrade                  ;`TCADefaultTradeBenchmarks ;`link_defaultTradeBenchmarks   ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`eq          ;`legacy ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_peerBrokerOrderAnalytics ;`                      ;`                     ;last  ;()                               );
+        \\ (`eq          ;`legacy ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_peerOrderAnalytics       ;`                      ;`                     ;last  ;()                               );
+        \\ (`eq`fi`fu    ;`       ;`TCATrade                  ;`TCATradeAnalytics         ;`link_tradeAnalytics           ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`eq`fu       ;`       ;`TCATrade                  ;`TCASecMaster              ;`link_secMaster                ;`date`stockId          ;`date`stockId         ;last  ;()                               );
+        \\ (`fi          ;`       ;`TCATrade                  ;`TCASecMaster              ;`link_secMaster                ;`date`itgInstrumentId  ;`date`itgInstrumentId ;last  ;()                               );
+        \\ (`fi          ;`       ;`TCAQuote                  ;`TCATrade                  ;`link_trade                    ;`pmOrderId             ;`pmOrderId            ;last  ;.tca.quote.fiTrade               );
+        \\ (`fu          ;`native ;`TCATrade                  ;`TCAOrderMetrics           ;`link_brokerOrderMetrics       ;`brokerOrderKey        ;`orderKey             ;last  ;(=;`viewType;enlist`Broker)      );
+        \\ (`fu          ;`native ;`TCATrade                  ;`TCAOrderMetrics           ;`link_pmOrderMetrics           ;`pmOrderKey            ;`orderKey             ;last  ;(=;`viewType;enlist`PM)          );
+        \\ (`fu          ;`native ;`TCATrade                  ;`TCATradeMetrics           ;`link_tradeMetrics             ;`execKey               ;`execKey              ;last  ;()                               );
+        \\ (`fx          ;`       ;`TCATrade                  ;`TCASecMaster              ;`link_secMaster                ;`issueId               ;`issueId              ;first ;()                               );
+        \\ (`fx          ;`legacy ;`TCAQuote                  ;`TCATrade                  ;`link_trade                    ;`dealId                ;`dealId               ;last  ;.tca.quote.fxSingleLegTrade      );
+        \\ (`fx          ;`legacy ;`TCAQuote                  ;`TCATrade                  ;`link_trade                    ;.tca.quote.fxSourceKey ;.tca.quote.fxDestKey  ;last  ;.tca.quote.fxMultiLegTrade       );
+        \\ ::);
+    ,
+        \\.tca.linking.config:`assetClass`mode`sourceTable`destTable`linkName`sourceKey`destKey`destAggregation`destFilter!/:-1_(
+        \\  (`           ;`      ;`TCATrade                 ;`TCACustomColumns         ;`link_customColumns           ;`execKey              ;`execKey             ;last ;());
+        \\  (`           ;`      ;`TCATrade                 ;`TCAListing               ;`link_listings                ;`date`tcaListingId    ;`date`tcaListingId   ;last ;());
+        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_brokerOrderAnalytics    ;`brokerOrderKey       ;`orderKey            ;last ;(=;`viewType;enlist`Broker));
+        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_decisionOrderAnalytics  ;`decisionOrderKey     ;`orderKey            ;last ;(=;`viewType;enlist`Decision));
+        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_pmOrderAnalytics        ;`pmOrderKey           ;`orderKey            ;last ;(=;`viewType;enlist`PM));
+        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_releaseOrderAnalytics   ;`releaseOrderKey      ;`orderKey            ;last ;(=;`viewType;enlist`TradingDesk));
+        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_traderOrderAnalytics    ;`traderOrderKey       ;`orderKey            ;last ;(=;`viewType;enlist`Trader));
+        \\  (`           ;`legacy;`TCATrade                 ;`CustomBenchmarks         ;`link_customBenchmarks        ;`execKey              ;`execKey             ;last ;());
+        \\  (`eq`fi`fu`fx;`native;`TCATrade                 ;`TCACustomBenchmarks      ;`link_customBenchmarks        ;`execKey              ;`execKey             ;last ;());
+        \\  (`           ;`native;`TCATrade                 ;`TCADefaultBenchmarks     ;`link_defaultBenchmarks       ;`execKey              ;`execKey             ;last ;());
+        \\  (`           ;`native;`TCATrade                 ;`TCATradeStatus           ;`link_tradeStatus             ;`execKey              ;`execKey             ;last ;());
+        \\  (`eq         ;`legacy;`TCADefaultOrderBenchmarks;`TCAOrderAnalytics        ;`link_orderAnalytics          ;`viewType`orderKey    ;`viewType`orderKey   ;last ;());
+        \\  (`eq         ;`legacy;`TCAOrderAnalytics        ;`TCADefaultOrderBenchmarks;`link_defaultOrderBenchmarks  ;`viewType`orderKey    ;`viewType`orderKey   ;last ;());
+        \\  (`eq         ;`legacy;`TCATrade                 ;`TCADefaultTradeBenchmarks;`link_defaultTradeBenchmarks  ;`execKey              ;`execKey             ;last ;());
+        \\  (`eq         ;`legacy;`TCATrade                 ;`TCAOrderAnalytics        ;`link_peerBrokerOrderAnalytics;`                     ;`                    ;last ;());
+        \\  (`eq         ;`legacy;`TCATrade                 ;`TCAOrderAnalytics        ;`link_peerOrderAnalytics      ;`                     ;`                    ;last ;());
+        \\  (`eq`fi`fu   ;`      ;`TCATrade                 ;`TCATradeAnalytics        ;`link_tradeAnalytics          ;`execKey              ;`execKey             ;last ;());
+        \\  (`eq`fu      ;`      ;`TCATrade                 ;`TCASecMaster             ;`link_secMaster               ;`date`stockId         ;`date`stockId        ;last ;());
+        \\  (`fi         ;`      ;`TCATrade                 ;`TCASecMaster             ;`link_secMaster               ;`date`itgInstrumentId ;`date`itgInstrumentId;last ;());
+        \\  (`fi         ;`      ;`TCAQuote                 ;`TCATrade                 ;`link_trade                   ;`pmOrderId            ;`pmOrderId           ;last ;.tca.quote.fiTrade);
+        \\  (`fu         ;`native;`TCATrade                 ;`TCAOrderMetrics          ;`link_brokerOrderMetrics      ;`brokerOrderKey       ;`orderKey            ;last ;(=;`viewType;enlist`Broker));
+        \\  (`fu         ;`native;`TCATrade                 ;`TCAOrderMetrics          ;`link_pmOrderMetrics          ;`pmOrderKey           ;`orderKey            ;last ;(=;`viewType;enlist`PM));
+        \\  (`fu         ;`native;`TCATrade                 ;`TCATradeMetrics          ;`link_tradeMetrics            ;`execKey              ;`execKey             ;last ;());
+        \\  (`fx         ;`      ;`TCATrade                 ;`TCASecMaster             ;`link_secMaster               ;`issueId              ;`issueId             ;first;());
+        \\  (`fx         ;`legacy;`TCAQuote                 ;`TCATrade                 ;`link_trade                   ;`dealId               ;`dealId              ;last ;.tca.quote.fxSingleLegTrade);
+        \\  (`fx         ;`legacy;`TCAQuote                 ;`TCATrade                 ;`link_trade                   ;.tca.quote.fxSourceKey;.tca.quote.fxDestKey ;last ;.tca.quote.fxMultiLegTrade);
+        \\  ::);
+    , &.{
+        .identifier,     .colon,          .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal,
+        .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal, .bang,
+        .slash_colon,    .number_literal, .underscore,     .l_paren,        .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
+        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
+        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
+        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
+        .semicolon,      .colon_colon,    .r_paren,        .semicolon,
+    }, &.{});
 }
