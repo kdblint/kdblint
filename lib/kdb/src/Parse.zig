@@ -170,7 +170,7 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     }
 }
 
-/// Root <- Blocks eof
+/// Root <- Blocks EOF
 pub fn parseRoot(p: *Parse) !void {
     // Root node must be index 0.
     const root_index = try p.reserveNode(.root);
@@ -184,7 +184,7 @@ pub fn parseRoot(p: *Parse) !void {
     const root_decls = try blocks.toSpan(p);
     _ = p.setNode(root_index, .{
         .tag = .root,
-        .main_token = null_token,
+        .main_token = undefined,
         .data = .{
             .lhs = root_decls.start,
             .rhs = root_decls.end,
@@ -209,7 +209,7 @@ fn parseBlocks(p: *Parse) Allocator.Error!Blocks {
                 if (p.peekTag() != .eof) {
                     p.eob = false;
                     while (true) {
-                        _ = p.nextToken() catch break;
+                        _ = p.nextToken();
                     }
                 }
                 break :blk null_node;
@@ -255,225 +255,180 @@ fn parseBlock(p: *Parse) !Node.Index {
     assert(p.ends_expr.items.len == 0);
     if (p.peekTag() == .eof) return null_node;
 
-    const expr = try p.parseExpr();
-    if (expr == null_node) return error.ParseError;
+    const expr = try p.parsePrecedence(.none);
 
     // TODO: Use trailing.
-    _ = p.eatToken(.semicolon) catch {};
+    _ = p.eatToken(.semicolon);
 
     return expr;
 }
 
-fn parseExpr(p: *Parse) Error!Node.Index {
-    return p.parseExprPrecedence(0);
-}
+const Precedence = enum(u8) {
+    stop,
+    none,
+    iterator,
+    call,
 
-fn expectExpr(p: *Parse) !Node.Index {
-    const node = try p.parseExpr();
-    if (node == null_node) {
-        return p.fail(.expected_expr);
-    } else {
-        return node;
-    }
-}
-
-const OperInfo = struct {
-    prec: u8,
-    tag: Node.Tag,
+    _,
 };
 
-// A table of binary operators.
-const operTable = std.enums.directEnumArray(Token.Tag, ?OperInfo, 0, .{
-    // Punctuation
-    .l_paren = .{ .prec = 10, .tag = .apply_unary },
-    .r_paren = null,
-    .l_brace = .{ .prec = 10, .tag = .apply_unary },
-    .r_brace = null,
-    .l_bracket = .{ .prec = 20, .tag = .apply_unary },
-    .r_bracket = null,
-    .semicolon = null,
+const operTable = std.enums.directEnumArrayDefault(Token.Tag, Precedence, .none, 0, .{
+    .l_bracket = .call,
 
-    // Verbs
-    .colon = .{ .prec = 10, .tag = .assign },
-    .colon_colon = null,
-    .plus = .{ .prec = 10, .tag = .apply_binary },
-    .plus_colon = null,
-    .minus = .{ .prec = 10, .tag = .apply_binary },
-    .minus_colon = null,
-    .asterisk = .{ .prec = 10, .tag = .apply_binary },
-    .asterisk_colon = null,
-    .percent = .{ .prec = 10, .tag = .apply_binary },
-    .percent_colon = null,
-    .ampersand = .{ .prec = 10, .tag = .apply_binary },
-    .ampersand_colon = null,
-    .pipe = .{ .prec = 10, .tag = .apply_binary },
-    .pipe_colon = null,
-    .caret = .{ .prec = 10, .tag = .apply_binary },
-    .caret_colon = null,
-    .equal = .{ .prec = 10, .tag = .apply_binary },
-    .equal_colon = null,
-    .angle_bracket_left = .{ .prec = 10, .tag = .apply_binary },
-    .angle_bracket_left_colon = null,
-    .angle_bracket_left_equal = .{ .prec = 10, .tag = .apply_binary },
-    .angle_bracket_left_right = .{ .prec = 10, .tag = .apply_binary },
-    .angle_bracket_right = .{ .prec = 10, .tag = .apply_binary },
-    .angle_bracket_right_colon = null,
-    .angle_bracket_right_equal = .{ .prec = 10, .tag = .apply_binary },
-    .dollar = .{ .prec = 10, .tag = .apply_binary },
-    .dollar_colon = null,
-    .comma = .{ .prec = 10, .tag = .apply_binary },
-    .comma_colon = null,
-    .hash = .{ .prec = 10, .tag = .apply_binary },
-    .hash_colon = null,
-    .underscore = .{ .prec = 10, .tag = .apply_binary },
-    .underscore_colon = null,
-    .tilde = .{ .prec = 10, .tag = .apply_binary },
-    .tilde_colon = null,
-    .bang = .{ .prec = 10, .tag = .apply_binary },
-    .bang_colon = null,
-    .question_mark = .{ .prec = 10, .tag = .apply_binary },
-    .question_mark_colon = null,
-    .at = .{ .prec = 10, .tag = .apply_binary },
-    .at_colon = null,
-    .period = .{ .prec = 10, .tag = .apply_binary },
-    .period_colon = null,
-    .zero_colon = .{ .prec = 10, .tag = .apply_binary },
-    .zero_colon_colon = null,
-    .one_colon = .{ .prec = 10, .tag = .apply_binary },
-    .one_colon_colon = null,
-    .two_colon = .{ .prec = 10, .tag = .apply_binary },
+    .apostrophe = .iterator,
+    .apostrophe_colon = .iterator,
+    .slash = .iterator,
+    .slash_colon = .iterator,
+    .backslash = .iterator,
+    .backslash_colon = .iterator,
 
-    // Adverbs
-    .apostrophe = .{ .prec = 20, .tag = .apostrophe },
-    .apostrophe_colon = .{ .prec = 20, .tag = .apostrophe_colon },
-    .slash = .{ .prec = 20, .tag = .slash },
-    .slash_colon = .{ .prec = 20, .tag = .slash_colon },
-    .backslash = .{ .prec = 20, .tag = .backslash },
-    .backslash_colon = .{ .prec = 20, .tag = .backslash_colon },
-
-    // Literals
-    .number_literal = .{ .prec = 10, .tag = .apply_unary },
-    .string_literal = .{ .prec = 10, .tag = .apply_unary },
-    .symbol_literal = .{ .prec = 10, .tag = .apply_unary },
-    .identifier = .{ .prec = 10, .tag = .apply_unary },
-
-    // Miscellaneous
-    .invalid = null,
-    .eof = null,
+    .r_paren = .stop,
+    .r_brace = .stop,
+    .r_bracket = .stop,
+    .semicolon = .stop,
+    .eob = .stop,
+    .eof = .stop,
 });
 
-fn parseExprPrecedence(p: *Parse, min_prec: u8) !Node.Index {
-    var node = try p.parsePrefixExpr();
+/// Expr <- Noun Verb*
+fn parseExpr(p: *Parse) !Node.Index {
+    return p.parsePrecedence(.none);
+}
+
+fn parsePrecedence(p: *Parse, min_prec: Precedence) Error!Node.Index {
+    std.log.debug("parsePrecedence: {s} {s} '{s}'", .{
+        @tagName(min_prec),
+        @tagName(p.peekTag()),
+        p.source[p.peekLoc().start..p.peekLoc().end],
+    });
+    var node = try p.parseNoun();
     if (node == null_node) {
         return null_node;
     }
 
-    while (!p.eob) {
-        // TODO: l_paren/l_brace/l_bracket
-        // Convert some tokens which are followed by an iterator into a binary application.
-        const next_tag = next_tag: {
-            const tag = p.peekTag();
-            switch (tag) {
-                .string_literal,
-                .symbol_literal,
-                .identifier,
-                => switch (p.peekNextTag()) {
-                    .apostrophe,
-                    .apostrophe_colon,
-                    .slash,
-                    .slash_colon,
-                    .backslash,
-                    .backslash_colon,
-                    => break :next_tag .plus,
-                    else => {},
-                },
-                else => {},
-            }
-            break :next_tag tag;
-        };
-        const info = operTable[@intFromEnum(next_tag)] orelse break;
-        if (info.prec < min_prec) break;
-
-        std.log.debug("{s}", .{@tagName(info.tag)});
-
-        switch (info.tag) {
-            .apply_unary => {
-                const rhs = try p.parseExprPrecedence(info.prec);
-                try p.validateUnaryApplication(node, rhs);
-                node = try p.addNode(.{
-                    .tag = info.tag,
-                    .main_token = null_token,
-                    .data = .{
-                        .lhs = node,
-                        .rhs = rhs,
-                    },
-                });
-            },
-            .apply_binary => {
-                const main_token = try p.parseExprPrecedence(info.prec + 1);
-                const rhs = try p.parseExprPrecedence(info.prec);
-                node = try p.addNode(.{
-                    .tag = info.tag,
-                    .main_token = main_token,
-                    .data = .{
-                        .lhs = node,
-                        .rhs = rhs,
-                    },
-                });
-            },
-            else => if (info.tag.getType() == .iterator) {
-                const main_token = try p.nextToken();
-                node = try p.addNode(.{
-                    .tag = info.tag,
-                    .main_token = main_token,
-                    .data = .{
-                        .lhs = node,
-                        .rhs = undefined,
-                    },
-                });
-            } else {
-                const main_token = try p.nextToken();
-                const rhs = try p.parseExprPrecedence(info.prec);
-                node = try p.addNode(.{
-                    .tag = info.tag,
-                    .main_token = main_token,
-                    .data = .{ .lhs = node, .rhs = rhs },
-                });
-            },
-        }
+    while (true) {
+        const prec = operTable[@intFromEnum(p.peekTag())];
+        if (@intFromEnum(min_prec) > @intFromEnum(prec)) break;
+        node = try p.parseVerb(node);
     }
+
+    std.log.debug("return {s} {s}", .{
+        @tagName(min_prec),
+        @tagName(p.nodes.items(.tag)[node]),
+    });
 
     return node;
 }
 
-/// PrefixExpr
-///     <- Group
+/// Noun
+///     <- (Group
 ///      / Lambda
+///      / ExprBlock
 ///      / Operator
 ///      / NumberLiteral
 ///      / STRING_LITERAL
-///      / SYMBOL_LITERAL
-///      / IDENTIFIER
-fn parsePrefixExpr(p: *Parse) !Node.Index {
+///      / SymbolLiteral
+///      / IDENTIFIER) Iterator*
+fn parseNoun(p: *Parse) !Node.Index {
+    const tag = p.peekTag();
+    const noun = switch (tag) {
+        .l_paren,
+        => try p.parseGroup(),
+
+        .l_brace,
+        => try p.parseLambda(),
+
+        .l_bracket,
+        => try p.parseExprBlock(),
+
+        .plus,
+        .minus,
+        .asterisk,
+        .percent,
+        .ampersand,
+        .pipe,
+        .caret,
+        .equal,
+        .angle_bracket_left,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_equal,
+        .dollar,
+        .comma,
+        .hash,
+        .underscore,
+        .tilde,
+        .bang,
+        .question_mark,
+        .at,
+        .period,
+        .zero_colon,
+        .one_colon,
+        .two_colon,
+        => try p.parseOperator(),
+
+        .number_literal,
+        => try p.parseNumberLiteral(),
+
+        .string_literal,
+        => try p.parseToken(.string_literal, .string_literal),
+
+        .symbol_literal,
+        => try p.parseSymbolLiteral(),
+
+        .identifier,
+        => try p.parseToken(.identifier, .identifier),
+
+        else => null_node,
+    };
+    return p.parseIterator(noun);
+}
+
+/// Verb <- Expr*
+fn parseVerb(p: *Parse, lhs: Node.Index) !Node.Index {
+    assert(lhs != null_node);
+
     const tag = p.peekTag();
     switch (tag) {
-        .l_paren => {
-            return p.parseGroup() catch |err| switch (err) {
-                error.EndOfBlock => return p.failExpected(.r_paren),
-                inline else => |e| return e,
-            };
+        .l_paren,
+        .l_brace,
+        => {
+            const rhs = try p.parsePrecedence(.iterator);
+            if (p.isIterator(rhs)) {
+                return p.addNode(.{
+                    .tag = .apply_binary,
+                    .main_token = rhs,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try p.parsePrecedence(.none),
+                    },
+                });
+            } else {
+                return p.addNode(.{
+                    .tag = .apply_unary,
+                    .main_token = undefined,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try p.parseVerb(rhs),
+                    },
+                });
+            }
         },
-        .l_brace => {
-            return p.parseLambda() catch |err| switch (err) {
-                error.EndOfBlock => return p.failExpected(.r_brace),
-                inline else => |e| return e,
-            };
-        },
-        .l_bracket => {
-            return p.parseExprBlock() catch |err| switch (err) {
-                error.EndOfBlock => return p.failExpected(.r_bracket),
-                inline else => |e| return e,
-            };
+
+        .l_bracket,
+        => {
+            const rhs = try p.parsePrecedence(.call);
+            const apply_unary = try p.addNode(.{
+                .tag = .apply_unary,
+                .main_token = undefined,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                },
+            });
+
+            return p.parseVerb(apply_unary);
         },
 
         .plus,
@@ -501,44 +456,70 @@ fn parsePrefixExpr(p: *Parse) !Node.Index {
         .zero_colon,
         .one_colon,
         .two_colon,
-        => return p.parseOperator(),
+        => {
+            const op = try p.parsePrecedence(.iterator);
+            assert(op != null_node);
 
-        .apostrophe,
-        .apostrophe_colon,
-        .slash,
-        .slash_colon,
-        .backslash,
-        .backslash_colon,
-        => return p.parseIterator(),
+            return p.addNode(.{
+                .tag = .apply_binary,
+                .main_token = op,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = try p.parsePrecedence(.none),
+                },
+            });
+        },
 
-        .number_literal => return p.parseNumberLiteral(),
-        .string_literal => return p.addNode(.{
-            .tag = .string_literal,
-            .main_token = try p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
-        .symbol_literal => return p.parseSymbolLiteral(),
-        .identifier => return p.addNode(.{
-            .tag = .identifier,
-            .main_token = try p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
-        else => return null_node,
+        .number_literal,
+        .string_literal,
+        .symbol_literal,
+        .identifier,
+        => {
+            const rhs = try p.parsePrecedence(.iterator);
+            if (p.isIterator(rhs)) {
+                return p.addNode(.{
+                    .tag = .apply_binary,
+                    .main_token = rhs,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try p.parsePrecedence(.none),
+                    },
+                });
+            } else {
+                return p.addNode(.{
+                    .tag = .apply_unary,
+                    .main_token = undefined,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try p.parseVerb(rhs),
+                    },
+                });
+            }
+        },
+
+        else => return lhs,
     }
+}
+
+fn parseToken(p: *Parse, token_tag: Token.Tag, node_tag: Node.Tag) !Node.Index {
+    std.log.debug("parseToken: {s}", .{@tagName(token_tag)});
+    const main_token = p.assertToken(token_tag);
+    return p.addNode(.{
+        .tag = node_tag,
+        .main_token = main_token,
+        .data = .{
+            .lhs = undefined,
+            .rhs = undefined,
+        },
+    });
 }
 
 /// Group
 ///     <- Table
 ///      | LPAREN Expr* RPAREN
 fn parseGroup(p: *Parse) !Node.Index {
-    const l_paren = try p.assertToken(.l_paren);
-    if (try p.eatToken(.r_paren)) |r_paren| {
+    const l_paren = p.assertToken(.l_paren);
+    if (p.eatToken(.r_paren)) |r_paren| {
         return p.addNode(.{
             .tag = .empty_list,
             .main_token = l_paren,
@@ -560,19 +541,19 @@ fn parseGroup(p: *Parse) !Node.Index {
         return table;
     }
 
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
     const list_index = try p.reserveNode(.list);
     errdefer p.unreserveNode(list_index);
 
-    const r_paren = while (true) {
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    while (true) {
         const expr = try p.parseExpr();
         try p.scratch.append(p.gpa, expr);
-        if (try p.eatToken(.r_paren)) |r_paren| break r_paren;
-        if (try p.eatToken(.semicolon)) |_| continue;
-        if (p.eob or p.peekTag() == .eof) return p.failExpected(.r_paren);
-    };
+        if (p.eatToken(.semicolon)) |_| continue;
+        break;
+    }
+    const r_paren = try p.expectToken(.r_paren);
 
     const list = p.scratch.items[scratch_top..];
     switch (list.len) {
@@ -598,7 +579,7 @@ fn parseGroup(p: *Parse) !Node.Index {
 /// Table <- TODO
 fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
     _ = l_paren; // autofix
-    if (try p.eatToken(.l_bracket)) |l_bracket| {
+    if (p.eatToken(.l_bracket)) |l_bracket| {
         _ = l_bracket; // autofix
         @panic("NYI");
     }
@@ -606,9 +587,11 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
     return null_node;
 }
 
-/// Lambda <- LBRACE ParamList? Exprs? RBRACE
+/// Lambda <- LBRACE ParamList? (Expr (SEMICOLON Expr)*)? RBRACE
+///
+/// ParamList <- LBRACKET (IDENTIFIER (SEMICOLON IDENTIFIER)*)? RBRACKET
 fn parseLambda(p: *Parse) !Node.Index {
-    const l_brace = try p.assertToken(.l_brace);
+    const l_brace = p.assertToken(.l_brace);
 
     try p.ends_expr.append(p.gpa, .r_brace);
     defer {
@@ -619,9 +602,9 @@ fn parseLambda(p: *Parse) !Node.Index {
     const lambda_index = try p.reserveNode(.lambda);
     errdefer p.unreserveNode(lambda_index);
 
-    var l_bracket: Token.Index = null_token;
-    var r_bracket: Token.Index = null_token;
-    const params: Node.SubRange = if (try p.eatToken(.l_bracket)) |token| params: {
+    var l_bracket: Token.Index = 0;
+    var r_bracket: Token.Index = 0;
+    const params: Node.SubRange = if (p.eatToken(.l_bracket)) |token| params: {
         l_bracket = token;
 
         const scratch_top = p.scratch.items.len;
@@ -629,17 +612,9 @@ fn parseLambda(p: *Parse) !Node.Index {
 
         if (p.peekTag() != .r_bracket) {
             while (true) {
-                const param = try p.expectToken(.identifier);
-                const node = try p.addNode(.{
-                    .tag = .identifier,
-                    .main_token = param,
-                    .data = .{
-                        .lhs = undefined,
-                        .rhs = undefined,
-                    },
-                });
+                const node = try p.parseToken(.identifier, .identifier);
                 try p.scratch.append(p.gpa, node);
-                _ = try p.eatToken(.semicolon) orelse break;
+                _ = p.eatToken(.semicolon) orelse break;
             }
         }
 
@@ -656,7 +631,21 @@ fn parseLambda(p: *Parse) !Node.Index {
         }
     }
 
-    const body = try p.parseExprs();
+    const body: Node.SubRange = body: {
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+        while (true) {
+            const expr = try p.parseExpr();
+            if (expr != null_node) {
+                try p.scratch.append(p.gpa, expr);
+            }
+            if (p.eatToken(.semicolon)) |_| continue;
+            break;
+        }
+
+        break :body try p.listToSpan(p.scratch.items[scratch_top..]);
+    };
     const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_semicolon else .lambda;
     const r_brace = try p.expectToken(.r_brace);
 
@@ -680,8 +669,8 @@ fn parseLambda(p: *Parse) !Node.Index {
 
 /// ExprBlock <- LBRACKET Exprs? RBRACKET
 fn parseExprBlock(p: *Parse) !Node.Index {
-    const l_bracket = try p.assertToken(.l_bracket);
-    if (try p.eatToken(.r_bracket)) |r_bracket| {
+    const l_bracket = p.assertToken(.l_bracket);
+    if (p.eatToken(.r_bracket)) |r_bracket| {
         return p.addNode(.{
             .tag = .expr_block,
             .main_token = l_bracket,
@@ -701,13 +690,26 @@ fn parseExprBlock(p: *Parse) !Node.Index {
     const expr_block_index = try p.reserveNode(.expr_block);
     errdefer p.unreserveNode(expr_block_index);
 
-    const span = try p.parseExprs();
+    const exprs: Node.SubRange = exprs: {
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+        while (true) {
+            const expr = try p.parseExpr();
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.semicolon)) |_| continue;
+            break;
+        }
+
+        break :exprs try p.listToSpan(p.scratch.items[scratch_top..]);
+    };
     const r_bracket = try p.expectToken(.r_bracket);
+
     return p.setNode(expr_block_index, .{
         .tag = .expr_block,
         .main_token = l_bracket,
         .data = .{
-            .lhs = try p.addExtra(span),
+            .lhs = try p.addExtra(exprs),
             .rhs = r_bracket,
         },
     });
@@ -740,7 +742,9 @@ fn parseExprBlock(p: *Parse) !Node.Index {
 ///      / ONE_COLON
 ///      / TWO_COLON
 fn parseOperator(p: *Parse) !Node.Index {
-    const tag: Node.Tag = switch (p.peekTag()) {
+    const token_tag: Token.Tag = p.peekTag();
+    std.log.debug("parseOperator: {s}", .{@tagName(token_tag)});
+    const node_tag: Node.Tag = switch (token_tag) {
         .plus => .plus,
         .minus => .minus,
         .asterisk => .asterisk,
@@ -768,43 +772,37 @@ fn parseOperator(p: *Parse) !Node.Index {
         .two_colon => .two_colon,
         else => unreachable,
     };
-    const node = try p.addNode(.{
-        .tag = tag,
-        .main_token = try p.nextToken(),
-        .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
-        },
-    });
-
-    return node;
+    return p.parseToken(token_tag, node_tag);
 }
 
 /// Iterator
-///     <- APOSTROPHE
+///     <- (APOSTROPHE
 ///      / APOSTROPHE_COLON
 ///      / SLASH
 ///      / SLASH_COLON
 ///      / BACKSLASH
-///      / BACKSLASH_COLON
-fn parseIterator(p: *Parse) !Node.Index {
-    const tag: Node.Tag = switch (p.peekTag()) {
+///      / BACKSLASH_COLON)*
+fn parseIterator(p: *Parse, lhs: Node.Index) !Node.Index {
+    const token_tag = p.peekTag();
+    std.log.debug("parseIterator: {s}", .{@tagName(token_tag)});
+    const node_tag: Node.Tag = switch (token_tag) {
         .apostrophe => .apostrophe,
         .apostrophe_colon => .apostrophe_colon,
         .slash => .slash,
         .slash_colon => .slash_colon,
         .backslash => .backslash,
         .backslash_colon => .backslash_colon,
-        else => unreachable,
+        else => return lhs,
     };
-    return p.addNode(.{
-        .tag = tag,
-        .main_token = try p.nextToken(),
+    const iterator = try p.addNode(.{
+        .tag = node_tag,
+        .main_token = p.assertToken(token_tag),
         .data = .{
-            .lhs = null_node,
+            .lhs = lhs,
             .rhs = undefined,
         },
     });
+    return p.parseIterator(iterator);
 }
 
 /// NumberLiteral <- NUMBER_LITERAL+
@@ -814,7 +812,7 @@ fn parseNumberLiteral(p: *Parse) !Node.Index {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (p.peekTag() == .number_literal) {
-        const number_literal = try p.assertToken(.number_literal);
+        const number_literal = p.assertToken(.number_literal);
         try p.scratch.append(p.gpa, number_literal);
         if (p.eob) break;
     }
@@ -841,12 +839,13 @@ fn parseNumberLiteral(p: *Parse) !Node.Index {
     }
 }
 
+/// SymbolLiteral <- SYMBOL_LITERAL+
 fn parseSymbolLiteral(p: *Parse) !Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (p.peekTag() == .symbol_literal) {
-        const symbol_literal = try p.assertToken(.symbol_literal);
+        const symbol_literal = p.assertToken(.symbol_literal);
         try p.scratch.append(p.gpa, symbol_literal);
         if (p.eob) break;
         if (p.prevLoc().end != p.peekLoc().start) break;
@@ -874,127 +873,51 @@ fn parseSymbolLiteral(p: *Parse) !Node.Index {
     }
 }
 
-fn parseLambdaParams(p: *Parse) !Node.Index {
-    const l_bracket = try p.eatToken(.l_bracket) orelse return null_node;
-
-    const lambda_params_index = try p.reserveNode(.lambda_params);
-    errdefer p.unreserveNode(lambda_params_index);
-
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-    if (p.peekTag() != .r_bracket) {
-        while (true) {
-            const param = try p.expectToken(.identifier);
-            const node = try p.addNode(.{
-                .tag = .identifier,
-                .main_token = param,
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            });
-            try p.scratch.append(p.gpa, node);
-            _ = try p.eatToken(.semicolon) orelse break;
-        }
-    }
-
-    _ = try p.expectToken(.r_bracket);
-
-    const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-    return p.setNode(lambda_params_index, .{
-        .tag = .lambda_params,
-        .main_token = l_bracket,
-        .data = .{
-            .lhs = span.start,
-            .rhs = span.end,
-        },
-    });
+fn isIterator(p: *Parse, node: Node.Index) bool {
+    const tag: Node.Tag = p.nodes.items(.tag)[node];
+    return tag.getType() == .iterator;
 }
 
-/// Exprs <- Expr (SEMICOLON Expr?)*
-fn parseExprs(p: *Parse) !Node.SubRange {
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-    const ends_expr = p.ends_expr.getLast();
-    while (p.peekTag() != ends_expr) {
-        const expr = try p.parseExpr();
-        if (expr != null_node) {
-            try p.scratch.append(p.gpa, expr);
-        }
-        if (try p.eatToken(.semicolon)) |_| continue;
-    }
-
-    return p.listToSpan(p.scratch.items[scratch_top..]);
+fn eatToken(p: *Parse, tag: Token.Tag) ?Token.Index {
+    return if (p.peekTag() == tag) p.nextToken() else null;
 }
 
-fn parseLambdaBody(p: *Parse) !Node.Index {
-    const lambda_body_index = try p.reserveNode(.lambda_body);
-    errdefer p.unreserveNode(lambda_body_index);
-
-    const span = try p.parseExprs();
-    const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_body_semicolon else .lambda_body;
-    const r_brace = try p.expectToken(.r_brace);
-
-    return p.setNode(lambda_body_index, .{
-        .tag = tag,
-        .main_token = r_brace,
-        .data = .{
-            .lhs = span.start,
-            .rhs = span.end,
-        },
-    });
-}
-
-fn eatToken(p: *Parse, tag: Token.Tag) !?Token.Index {
-    return if (p.peekTag() == tag) try p.nextToken() else null;
-}
-
-fn assertToken(p: *Parse, tag: Token.Tag) !Token.Index {
+fn assertToken(p: *Parse, tag: Token.Tag) Token.Index {
     assert(p.peekTag() == tag);
     return p.nextToken();
 }
 
 fn expectToken(p: *Parse, tag: Token.Tag) !Token.Index {
-    if (p.peekTag() != tag) {
-        return p.failMsg(.{
-            .tag = .expected_token,
-            .token = p.tok_i,
-            .extra = .{ .expected_tag = tag },
-        });
-    }
-    return p.nextToken();
+    if (p.eatToken(tag)) |token| return token;
+    return p.failMsg(.{
+        .tag = .expected_token,
+        .token = p.tok_i,
+        .extra = .{ .expected_tag = tag },
+    });
 }
 
 fn prevTag(p: *Parse) Token.Tag {
-    const tag = p.tokens.items(.tag)[p.tok_i - 1];
+    const tag: Token.Tag = p.tokens.items(.tag)[p.tok_i - 1];
     return tag;
 }
 
 fn prevLoc(p: *Parse) Token.Loc {
-    const loc = p.tokens.items(.loc)[p.tok_i - 1];
+    const loc: Token.Loc = p.tokens.items(.loc)[p.tok_i - 1];
     return loc;
 }
 
 fn peekTag(p: *Parse) Token.Tag {
-    const tag = p.tokens.items(.tag)[p.tok_i];
-    return tag;
-}
-
-fn peekNextTag(p: *Parse) Token.Tag {
-    const tag = p.tokens.items(.tag)[p.tok_i + 1];
+    if (p.eob) return .eob;
+    const tag: Token.Tag = p.tokens.items(.tag)[p.tok_i];
     return tag;
 }
 
 fn peekLoc(p: *Parse) Token.Loc {
-    const loc = p.tokens.items(.loc)[p.tok_i];
+    const loc: Token.Loc = p.tokens.items(.loc)[p.tok_i];
     return loc;
 }
 
-fn nextToken(p: *Parse) error{EndOfBlock}!Token.Index {
-    if (p.eob) return error.EndOfBlock;
-
+fn nextToken(p: *Parse) Token.Index {
     const result = p.tok_i;
     p.eob = p.isEob(result);
     std.log.debug("nextToken: {s} '{s}' {}", .{
@@ -1026,4 +949,3 @@ fn isEob(p: *Parse, token_index: Token.Index) bool {
 }
 
 const null_node: Node.Index = 0;
-const null_token: Token.Index = 0;

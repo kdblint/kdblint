@@ -3,8 +3,6 @@ const std = @import("std");
 const kdb = @import("root.zig");
 const Mode = kdb.Ast.Mode;
 
-/// The root token is assumed to be index 0. Since there can be no
-/// references to the root token, this means 0 is available to indicate null.
 pub const Token = struct {
     tag: Tag,
     loc: Loc,
@@ -103,6 +101,7 @@ pub const Token = struct {
 
         // Miscellaneous
         invalid,
+        eob,
         eof,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
@@ -183,6 +182,7 @@ pub const Token = struct {
 
                 // Miscellaneous
                 .invalid,
+                .eob,
                 .eof,
                 => null,
             };

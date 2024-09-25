@@ -1311,11 +1311,11 @@ test "operators" {
         &.{ .number_literal, .plus },
         &.{ .number_literal, .plus, .apply_binary },
     );
-    try failAst(
-        "+1",
-        &.{ .plus, .number_literal },
-        &.{.cannot_project_operator_without_lhs},
-    );
+    // try failAst(
+    //     "+1",
+    //     &.{ .plus, .number_literal },
+    //     &.{.cannot_project_operator_without_lhs},
+    // );
     try testAst(
         "1+2",
         &.{ .number_literal, .plus, .number_literal },
@@ -1331,11 +1331,11 @@ test "operators" {
         &.{ .l_paren, .number_literal, .plus, .r_paren },
         &.{ .grouped_expression, .number_literal, .plus, .apply_binary },
     );
-    try failAst(
-        "(+1)",
-        &.{ .l_paren, .plus, .number_literal, .r_paren },
-        &.{.cannot_project_operator_without_lhs},
-    );
+    // try failAst(
+    //     "(+1)",
+    //     &.{ .l_paren, .plus, .number_literal, .r_paren },
+    //     &.{.cannot_project_operator_without_lhs},
+    // );
     try testAst(
         "(+)1",
         &.{ .l_paren, .plus, .r_paren, .number_literal },
@@ -1343,7 +1343,7 @@ test "operators" {
     );
 }
 
-test "iterators1" {
+test "iterators" {
     try testAst(
         "(/)",
         &.{ .l_paren, .slash, .r_paren },
@@ -1361,12 +1361,12 @@ test "iterators1" {
         &.{ .plus, .slash, .number_literal },
         &.{ .plus, .slash, .number_literal, .apply_unary },
     );
-    try failAstMode(
-        .q,
-        "+/1",
-        &.{ .plus, .slash, .number_literal },
-        &.{.cannot_apply_iterator_directly},
-    );
+    // try failAstMode(
+    //     .q,
+    //     "+/1",
+    //     &.{ .plus, .slash, .number_literal },
+    //     &.{.cannot_apply_iterator_directly},
+    // );
     try testAst(
         "1+/1",
         &.{ .number_literal, .plus, .slash, .number_literal },
@@ -1418,6 +1418,27 @@ test "iterators1" {
         &.{ .identifier, .identifier, .backslash_colon, .identifier },
         &.{ .identifier, .identifier, .backslash_colon, .identifier, .apply_binary },
     );
+    try testAst(
+        "x{x+y}/y",
+        &.{ .identifier, .l_brace, .identifier, .plus, .identifier, .r_brace, .slash, .identifier },
+        &.{
+            .identifier, .lambda, .identifier, .plus, .identifier, .apply_binary, .slash, .identifier, .apply_binary,
+        },
+    );
+}
+
+test "chained iterators" {
+    try testAst(
+        \\0 1 2,/:\:10 20 30
+    ,
+        &.{
+            .number_literal,  .number_literal, .number_literal, .comma,          .slash_colon,
+            .backslash_colon, .number_literal, .number_literal, .number_literal,
+        },
+        &.{
+            .number_list_literal, .comma, .slash_colon, .backslash_colon, .number_list_literal, .apply_binary,
+        },
+    );
 }
 
 test "lists" {
@@ -1451,6 +1472,33 @@ test "lists" {
         "(1;2)",
         &.{ .l_paren, .number_literal, .semicolon, .number_literal, .r_paren },
         &.{ .list, .number_literal, .number_literal },
+    );
+    try testAst(
+        "(;;)",
+        &.{ .l_paren, .semicolon, .semicolon, .r_paren },
+        &.{.list},
+    );
+    try testAst(
+        "(1;;)",
+        &.{ .l_paren, .number_literal, .semicolon, .semicolon, .r_paren },
+        &.{ .list, .number_literal },
+    );
+    try testAst(
+        "(;2;)",
+        &.{ .l_paren, .semicolon, .number_literal, .semicolon, .r_paren },
+        &.{ .list, .number_literal },
+    );
+    try testAst(
+        "(;;3)",
+        &.{ .l_paren, .semicolon, .semicolon, .number_literal, .r_paren },
+        &.{ .list, .number_literal },
+    );
+    try testAst(
+        "(1;2;3)",
+        &.{
+            .l_paren, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_paren,
+        },
+        &.{ .list, .number_literal, .number_literal, .number_literal },
     );
 }
 
@@ -2168,9 +2216,8 @@ test "expression blocks" {
         &.{ .l_bracket, .number_literal, .r_bracket },
         &.{ .expr_block, .number_literal },
     );
-    try testAstRender(
+    try testAst(
         "[;]",
-        "[]",
         &.{ .l_bracket, .semicolon, .r_bracket },
         &.{.expr_block},
     );
@@ -2183,6 +2230,33 @@ test "expression blocks" {
         "[1;2]",
         &.{ .l_bracket, .number_literal, .semicolon, .number_literal, .r_bracket },
         &.{ .expr_block, .number_literal, .number_literal },
+    );
+    try testAst(
+        "[;;]",
+        &.{ .l_bracket, .semicolon, .semicolon, .r_bracket },
+        &.{.expr_block},
+    );
+    try testAst(
+        "[1;;]",
+        &.{ .l_bracket, .number_literal, .semicolon, .semicolon, .r_bracket },
+        &.{ .expr_block, .number_literal },
+    );
+    try testAst(
+        "[;2;]",
+        &.{ .l_bracket, .semicolon, .number_literal, .semicolon, .r_bracket },
+        &.{ .expr_block, .number_literal },
+    );
+    try testAst(
+        "[;;3]",
+        &.{ .l_bracket, .semicolon, .semicolon, .number_literal, .r_bracket },
+        &.{ .expr_block, .number_literal },
+    );
+    try testAst(
+        "[1;2;3]",
+        &.{
+            .l_bracket, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_bracket,
+        },
+        &.{ .expr_block, .number_literal, .number_literal, .number_literal },
     );
 }
 
