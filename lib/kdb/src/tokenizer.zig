@@ -206,9 +206,6 @@ pub const Tokenizer = struct {
     buffer: [:0]const u8,
     mode: Mode,
     index: usize,
-    parens_count: u32 = 0,
-    braces_count: u32 = 0,
-    brackets_count: u32 = 0,
     state: TrackingState = .none,
 
     /// For debugging purposes.
@@ -460,34 +457,28 @@ pub const Tokenizer = struct {
                 '(' => {
                     result.tag = .l_paren;
                     self.index += 1;
-                    self.parens_count += 1;
                 },
                 ')' => {
                     result.tag = .r_paren;
                     self.index += 1;
-                    self.parens_count -= 1;
                 },
                 '{' => {
                     result.tag = .l_brace;
                     self.index += 1;
-                    self.braces_count += 1;
                     self.state = .l_brace;
                 },
                 '}' => {
                     result.tag = .r_brace;
                     self.index += 1;
-                    self.braces_count -= 1;
                 },
                 '[' => {
                     result.tag = .l_bracket;
                     self.index += 1;
-                    self.brackets_count += 1;
                     if (self.state == .l_brace) self.state = .l_bracket;
                 },
                 ']' => {
                     result.tag = .r_bracket;
                     self.index += 1;
-                    self.brackets_count -= 1;
                     if (self.state == .l_bracket) self.state = .r_bracket;
                 },
                 ';' => {
