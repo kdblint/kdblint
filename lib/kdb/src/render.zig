@@ -114,8 +114,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderToken(r, datas[node].rhs, space);
         },
 
-        // TODO: Complex formatting.
         .list => return renderList(r, node, space),
+
+        .table_literal => return renderTable(r, node, space),
 
         .lambda,
         .lambda_semicolon,
@@ -449,6 +450,51 @@ fn renderList(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
     // ais.popIndent();
     return renderToken(r, r_paren, space); // rbrace
+}
+
+// TODO: Render multiline table expression
+fn renderTable(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    _ = ais; // autofix
+    const gpa = r.gpa;
+    _ = gpa; // autofix
+    const tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    _ = tags; // autofix
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
+    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+
+    const l_paren = main_tokens[node];
+    assert(token_tags[l_paren] == .l_paren);
+    const r_paren = datas[node].rhs;
+    assert(token_tags[r_paren] == .r_paren);
+    const table: Ast.Node.Table = tree.extraData(datas[node].lhs, Ast.Node.Table);
+    const keys = tree.extra_data[table.keys_start..table.keys_end];
+    const columns = tree.extra_data[table.columns_start..table.columns_end];
+    assert(columns.len > 0);
+
+    const contains_comment = hasComment(tree, l_paren, r_paren);
+
+    if (!contains_comment and tree.tokensOnSameLine(l_paren, r_paren)) {
+        // Render all on one line
+        try renderToken(r, l_paren, .none);
+
+        try renderToken(r, l_paren + 1, .none);
+        for (keys) |key| {
+            try renderExpression(r, key, .semicolon);
+        }
+        const last_key_token = if (keys.len > 0) tree.lastToken(keys[keys.len - 1]) else l_paren + 1;
+        try renderToken(r, last_key_token + 1, .none);
+
+        for (columns) |column| {
+            try renderExpression(r, column, .semicolon);
+        }
+
+        return renderToken(r, r_paren, space);
+    }
+
+    unreachable;
 }
 
 fn renderLambda(r: *Render, node: Ast.Node.Index, space: Space) Error!void {

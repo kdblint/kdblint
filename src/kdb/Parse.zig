@@ -2664,36 +2664,6 @@ test "call - implicit projection" {
     }, "({x+y};1)");
 }
 
-test "table" {
-    try testParse("([]())", &.{ .implicit_return, .table_literal, .empty_list }, "(+:;(!;,,`x;(enlist;())))");
-    try testParse("([]1 2)", &.{ .implicit_return, .table_literal, .long_list_literal }, "(+:;(!;,,`x;(enlist;1 2)))");
-    try testParse("([]a:1 2)", &.{ .implicit_return, .table_literal, .long_list_literal }, "(+:;(!;,,`a;(enlist;1 2)))");
-    try testParse("([]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .long_list_literal, .identifier }, "(+:;(!;,,`x;(enlist;(::;`a;1 2))))");
-    try testParse("([]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .long_literal, .long_list_literal }, "(+:;(!;,`a`b;(enlist;1 2;2)))");
-    try testParse("([]a)", &.{ .implicit_return, .table_literal, .identifier }, "(+:;(!;,,`a;(enlist;`a)))");
-    try testParse("([]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier }, "(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))))");
-    try testParse("([]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum }, "(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))))");
-    try testParse("([](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier }, "(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))))");
-    try testParseLanguage(.k, "([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .long_literal, .long_literal, .implicit_apply, .long_literal, .identifier }, "(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)))");
-    try testParseLanguage(.q, "([]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .long_literal, .long_literal, .implicit_apply, .long_literal, .til }, "(+:;(!;,`x`x1`x1;(enlist;(til;10);1;2)))");
-    try testParseLanguage(.k, "([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .long_literal, .identifier, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))))");
-    try testParseLanguage(.q, "([]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .long_literal, .til, .identifier, .identifier }, "(+:;(!;,`a`x;(enlist;`a;(::;`a;(til;10)))))");
-
-    try testParse("([()]())", &.{ .implicit_return, .table_literal, .empty_list, .empty_list }, "(!;(+:;(!;,,`x;(enlist;())));(+:;(!;,,`x;(enlist;()))))");
-    try testParse("([1 2]1 2)", &.{ .implicit_return, .table_literal, .long_list_literal, .long_list_literal }, "(!;(+:;(!;,,`x;(enlist;1 2)));(+:;(!;,,`x;(enlist;1 2))))");
-    try testParse("([a:1 2]a:1 2)", &.{ .implicit_return, .table_literal, .long_list_literal, .long_list_literal }, "(!;(+:;(!;,,`a;(enlist;1 2)));(+:;(!;,,`a;(enlist;1 2))))");
-    try testParse("([a::1 2]a::1 2)", &.{ .implicit_return, .table_literal, .global_assign, .long_list_literal, .identifier, .global_assign, .long_list_literal, .identifier }, "(!;(+:;(!;,,`x;(enlist;(::;`a;1 2))));(+:;(!;,,`x;(enlist;(::;`a;1 2)))))");
-    try testParse("([a:1 2;b:2]a:1 2;b:2)", &.{ .implicit_return, .table_literal, .long_literal, .long_list_literal, .long_literal, .long_list_literal }, "(!;(+:;(!;,`a`b;(enlist;1 2;2)));(+:;(!;,`a`b;(enlist;1 2;2))))");
-    try testParse("([a]a)", &.{ .implicit_return, .table_literal, .identifier, .identifier }, "(!;(+:;(!;,,`a;(enlist;`a)));(+:;(!;,,`a;(enlist;`a))))");
-    try testParse("([b+sum a]b+sum a)", &.{ .implicit_return, .table_literal, .add, .implicit_apply, .identifier, .sum, .identifier, .add, .implicit_apply, .identifier, .sum, .identifier }, "(!;(+:;(!;,,`a;(enlist;(+;`b;(sum;`a)))));(+:;(!;,,`a;(enlist;(+;`b;(sum;`a))))))");
-    try testParse("([sum[a]+b]sum[a]+b)", &.{ .implicit_return, .table_literal, .add, .identifier, .call_one, .identifier, .sum, .add, .identifier, .call_one, .identifier, .sum }, "(!;(+:;(!;,,`b;(enlist;(+;(sum;`a);`b))));(+:;(!;,,`b;(enlist;(+;(sum;`a);`b)))))");
-    try testParse("([(a;b;c)](a;b;c))", &.{ .implicit_return, .table_literal, .list, .identifier, .identifier, .identifier, .list, .identifier, .identifier, .identifier }, "(!;(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c))));(+:;(!;,,`c;(enlist;(enlist;`a;`b;`c)))))");
-    try testParseLanguage(.k, "([til 10;x1:1;2]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .long_literal, .long_literal, .implicit_apply, .long_literal, .identifier, .long_literal, .long_literal, .implicit_apply, .long_literal, .identifier }, "(!;(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2)));(+:;(!;,`x`x1`x1;(enlist;(`til;10);1;2))))");
-    try testParseLanguage(.q, "([til 10;x1:1;2]til 10;x1:1;2)", &.{ .implicit_return, .table_literal, .long_literal, .long_literal, .implicit_apply, .long_literal, .til, .long_literal, .long_literal, .implicit_apply, .long_literal, .til }, "(!;(+:;(!;,`x`x1`x1;(enlist;(til;10);1;2)));(+:;(!;,`x`x1`x1;(enlist;(til;10);1;2))))");
-    try testParseLanguage(.k, "([a;a::til 10]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .long_literal, .identifier, .identifier, .identifier, .global_assign, .implicit_apply, .long_literal, .identifier, .identifier, .identifier }, "(!;(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10)))));(+:;(!;,`a`x;(enlist;`a;(::;`a;(`til;10))))))");
-    try testParseLanguage(.q, "([a;a::til 10]a;a::til 10)", &.{ .implicit_return, .table_literal, .global_assign, .implicit_apply, .long_literal, .til, .identifier, .identifier, .global_assign, .implicit_apply, .long_literal, .til, .identifier, .identifier }, "(!;(+:;(!;,`a`x;(enlist;`a;(::;`a;(til;10)))));(+:;(!;,`a`x;(enlist;`a;(::;`a;(til;10))))))");
-}
-
 test "select" {
     try testParse("select from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();0b;())");
     try testParse("select a from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;(,`a)!,`a)");

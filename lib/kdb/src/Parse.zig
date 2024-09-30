@@ -288,6 +288,12 @@ fn parseExpr(p: *Parse) !Node.Index {
     return p.parsePrecedence(.none);
 }
 
+fn expectExpr(p: *Parse) !Token.Index {
+    const expr = try p.parseExpr();
+    if (expr != null_node) return expr;
+    return p.fail(.expected_expr);
+}
+
 fn parsePrecedence(p: *Parse, min_prec: Precedence) Error!Node.Index {
     var node = try p.parseNoun();
     if (node == null_node) {
@@ -558,15 +564,59 @@ fn parseGroup(p: *Parse) !Node.Index {
     }
 }
 
-/// Table <- TODO
+/// Table <- LPAREN LBRACKET (Expr (SEMICOLON Expr)*)* RBRACKET Expr (SEMICOLON Expr)* RPAREN
 fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
-    _ = l_paren; // autofix
-    if (p.eatToken(.l_bracket)) |l_bracket| {
-        _ = l_bracket; // autofix
-        @panic("NYI");
-    }
+    _ = p.eatToken(.l_bracket) orelse return null_node;
 
-    return null_node;
+    const table_index = try p.reserveNode(.table_literal);
+    errdefer p.unreserveNode(table_index);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    const keys_top = p.scratch.items.len;
+    if (p.peekTag() != .r_bracket) {
+        try p.ends_expr.append(p.gpa, .r_bracket);
+        defer {
+            const ends_expr = p.ends_expr.pop();
+            assert(ends_expr == .r_bracket);
+        }
+
+        while (true) {
+            const expr = try p.expectExpr();
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.semicolon)) |_| continue;
+            break;
+        }
+    }
+    _ = try p.expectToken(.r_bracket);
+
+    const columns_top = p.scratch.items.len;
+
+    while (true) {
+        const expr = try p.expectExpr();
+        try p.scratch.append(p.gpa, expr);
+        if (p.eatToken(.semicolon)) |_| continue;
+        break;
+    }
+    const r_paren = try p.expectToken(.r_paren);
+
+    const keys = try p.listToSpan(p.scratch.items[keys_top..columns_top]);
+    const columns = try p.listToSpan(p.scratch.items[columns_top..]);
+    const table: Node.Table = .{
+        .keys_start = keys.start,
+        .keys_end = keys.end,
+        .columns_start = columns.start,
+        .columns_end = columns.end,
+    };
+    return p.setNode(table_index, .{
+        .tag = .table_literal,
+        .main_token = l_paren,
+        .data = .{
+            .lhs = try p.addExtra(table),
+            .rhs = r_paren,
+        },
+    });
 }
 
 /// Lambda <- LBRACE ParamList? (Expr (SEMICOLON Expr)*)? RBRACE
