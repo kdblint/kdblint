@@ -151,6 +151,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .assign,
+        .global_assign,
         => {
             const args = datas[node];
             try renderExpression(r, args.lhs, .none);
