@@ -191,6 +191,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] - end_offset,
 
         .assign,
+        .global_assign,
         => n = datas[n].lhs,
 
         .plus,
@@ -278,6 +279,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => return datas[n].rhs + end_offset,
 
         .assign,
+        .global_assign,
         => n = datas[n].rhs,
 
         .plus,
@@ -435,6 +437,8 @@ pub const Node = struct {
 
         /// `lhs : rhs`. main_token is the `:`.
         assign,
+        /// `lhs :: rhs`. main_token is the `::`.
+        global_assign,
 
         /// Both lhs and rhs unused. main_token is the `+`.
         plus,
@@ -549,7 +553,8 @@ pub const Node = struct {
                 => .other,
 
                 .assign,
-                => @panic("NYI"),
+                .global_assign,
+                => .other,
 
                 .plus,
                 .minus,
@@ -1345,6 +1350,30 @@ test "precedence" {
     );
 }
 
+test "assign" {
+    try testAst(
+        "a:1",
+        &.{ .identifier, .colon, .number_literal },
+        &.{ .identifier, .assign, .number_literal },
+    );
+    try testAst(
+        "3:1",
+        &.{ .number_literal, .colon, .number_literal },
+        &.{ .number_literal, .assign, .number_literal },
+    );
+
+    try testAst(
+        "a::1",
+        &.{ .identifier, .colon_colon, .number_literal },
+        &.{ .identifier, .global_assign, .number_literal },
+    );
+    try testAst(
+        "3::1",
+        &.{ .number_literal, .colon_colon, .number_literal },
+        &.{ .number_literal, .global_assign, .number_literal },
+    );
+}
+
 test "table literals" {
     try testAst(
         "([]())",
@@ -1361,22 +1390,24 @@ test "table literals" {
         &.{
             .l_paren, .l_bracket, .r_bracket, .identifier, .colon, .number_literal, .number_literal, .r_paren,
         },
-        &.{ .table_literal, .number_list_literal },
+        &.{ .table_literal, .identifier, .assign, .number_list_literal },
     );
-    // try testAst(
-    //     "([]a::1 2)",
-    //     &.{
-    //         .l_paren, .l_bracket, .r_bracket, .identifier, .colon_colon, .number_literal, .number_literal, .r_paren,
-    //     },
-    //     &.{ .table_literal, .colon_colon, .number_list_literal, .identifier },
-    // );
+    try testAst(
+        "([]a::1 2)",
+        &.{
+            .l_paren, .l_bracket, .r_bracket, .identifier, .colon_colon, .number_literal, .number_literal, .r_paren,
+        },
+        &.{ .table_literal, .identifier, .global_assign, .number_list_literal },
+    );
     try testAst(
         "([]a:1 2;b:2)",
         &.{
             .l_paren,        .l_bracket, .r_bracket,  .identifier, .colon,          .number_literal,
             .number_literal, .semicolon, .identifier, .colon,      .number_literal, .r_paren,
         },
-        &.{ .table_literal, .number_literal, .number_list_literal },
+        &.{
+            .table_literal, .identifier, .assign, .number_list_literal, .identifier, .assign, .number_literal,
+        },
     );
     try testAst(
         "([]a)",
@@ -1385,146 +1416,160 @@ test "table literals" {
     );
     try testAst(
         "([]b+sum a)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-        &.{ .table_literal, .plus, .apply_unary, .identifier, .identifier, .identifier },
+        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .plus, .identifier, .identifier, .r_paren },
+        &.{ .table_literal, .identifier, .plus, .identifier, .identifier, .apply_unary, .apply_binary },
     );
     try testAst(
         "([]sum[a]+b)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-        &.{ .table_literal, .plus, .identifier, .apply_unary, .expr_block, .identifier, .identifier },
+        &.{
+            .l_paren,    .l_bracket, .r_bracket, .identifier, .l_bracket,
+            .identifier, .r_bracket, .plus,      .identifier, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier, .expr_block, .identifier, .apply_unary, .plus, .identifier, .apply_binary,
+        },
     );
     try testAst(
         "([](a;b;c))",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
+        &.{
+            .l_paren,    .l_bracket, .r_bracket,  .l_paren, .identifier, .semicolon,
+            .identifier, .semicolon, .identifier, .r_paren, .r_paren,
+        },
         &.{ .table_literal, .list, .identifier, .identifier, .identifier },
     );
-    try testAstMode(
-        .k,
+    try testAst(
         "([]til 10;x1:1;2)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
         &.{
-            .table_literal, .number_literal, .number_literal, .apply_unary, .number_literal, .identifier,
+            .l_paren,    .l_bracket, .r_bracket,      .identifier, .number_literal, .semicolon,
+            .identifier, .colon,     .number_literal, .semicolon,  .number_literal, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier, .number_literal, .apply_unary,
+            .identifier,    .assign,     .number_literal, .number_literal,
         },
     );
-    try testAstMode(
-        .q,
-        "([]til 10;x1:1;2)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
+    try testAst(
+        "([]a;a::til 10)",
         &.{
-            .table_literal, .number_literal, .number_literal, .apply_unary, .number_literal, .identifier,
+            .l_paren,    .l_bracket,   .r_bracket,  .identifier,     .semicolon,
+            .identifier, .colon_colon, .identifier, .number_literal, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier, .identifier, .global_assign, .identifier, .number_literal, .apply_unary,
         },
     );
-    // try testAstMode(
-    //     .k,
-    //     "([]a;a::til 10)",
-    //     &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-    //     &.{
-    //         .table_literal, .colon_colon, .apply_unary, .number_literal, .identifier, .identifier, .identifier,
-    //     },
-    // );
-    // try testAstMode(
-    //     .q,
-    //     "([]a;a::til 10)",
-    //     &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-    //     &.{
-    //         .table_literal, .colon_colon, .apply_unary, .number_literal, .identifier, .identifier, .identifier,
-    //     },
-    // );
 
     try testAst(
         "([()]())",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
+        &.{ .l_paren, .l_bracket, .l_paren, .r_paren, .r_bracket, .l_paren, .r_paren, .r_paren },
         &.{ .table_literal, .empty_list, .empty_list },
     );
     try testAst(
         "([1 2]1 2)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
+        &.{
+            .l_paren,   .l_bracket,      .number_literal, .number_literal,
+            .r_bracket, .number_literal, .number_literal, .r_paren,
+        },
         &.{ .table_literal, .number_list_literal, .number_list_literal },
     );
     try testAst(
         "([a:1 2]a:1 2)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-        &.{ .table_literal, .number_list_literal, .number_list_literal },
+        &.{
+            .l_paren,   .l_bracket,  .identifier, .colon,          .number_literal, .number_literal,
+            .r_bracket, .identifier, .colon,      .number_literal, .number_literal, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier, .assign, .number_list_literal, .identifier, .assign, .number_list_literal,
+        },
     );
-    // try testAst(
-    //     "([a::1 2]a::1 2)",
-    //     &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-    //     &.{
-    //         .table_literal, .colon_colon,         .number_list_literal, .identifier,
-    //         .colon_colon,   .number_list_literal, .identifier,
-    //     },
-    // );
+    try testAst(
+        "([a::1 2]a::1 2)",
+        &.{
+            .l_paren,   .l_bracket,  .identifier,  .colon_colon,    .number_literal, .number_literal,
+            .r_bracket, .identifier, .colon_colon, .number_literal, .number_literal, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier,    .global_assign,       .number_list_literal,
+            .identifier,    .global_assign, .number_list_literal,
+        },
+    );
     try testAst(
         "([a:1 2;b:2]a:1 2;b:2)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
         &.{
-            .table_literal, .number_literal, .number_list_literal, .number_literal, .number_list_literal,
+            .l_paren,        .l_bracket, .identifier,     .colon,     .number_literal, .number_literal, .semicolon,
+            .identifier,     .colon,     .number_literal, .r_bracket, .identifier,     .colon,          .number_literal,
+            .number_literal, .semicolon, .identifier,     .colon,     .number_literal, .r_paren,
+        },
+        &.{
+            .table_literal,  .identifier, .assign, .number_list_literal, .identifier, .assign,
+            .number_literal, .identifier, .assign, .number_list_literal, .identifier, .assign,
+            .number_literal,
         },
     );
     try testAst(
         "([a]a)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
+        &.{ .l_paren, .l_bracket, .identifier, .r_bracket, .identifier, .r_paren },
         &.{ .table_literal, .identifier, .identifier },
     );
     try testAst(
         "([b+sum a]b+sum a)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
         &.{
-            .table_literal, .plus,        .apply_unary, .identifier, .identifier, .identifier,
-            .plus,          .apply_unary, .identifier,  .identifier, .identifier,
+            .l_paren,   .l_bracket,  .identifier, .plus,       .identifier, .identifier,
+            .r_bracket, .identifier, .plus,       .identifier, .identifier, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier, .plus,       .identifier, .identifier,  .apply_unary,  .apply_binary,
+            .identifier,    .plus,       .identifier, .identifier, .apply_unary, .apply_binary,
         },
     );
     try testAst(
         "([sum[a]+b]sum[a]+b)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
         &.{
-            .table_literal, .plus,       .identifier,  .apply_unary, .identifier, .identifier,
-            .plus,          .identifier, .apply_unary, .identifier,  .identifier,
+            .l_paren,   .l_bracket,  .identifier, .l_bracket,  .identifier, .r_bracket, .plus,       .identifier,
+            .r_bracket, .identifier, .l_bracket,  .identifier, .r_bracket,  .plus,      .identifier, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier, .expr_block, .identifier, .apply_unary, .plus, .identifier,
+            .apply_binary,  .identifier, .expr_block, .identifier, .apply_unary, .plus, .identifier,
+            .apply_binary,
         },
     );
     try testAst(
         "([(a;b;c)](a;b;c))",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
+        &.{
+            .l_paren, .l_bracket, .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier,
+            .r_paren, .r_bracket, .l_paren, .identifier, .semicolon, .identifier, .semicolon, .identifier,
+            .r_paren, .r_paren,
+        },
         &.{
             .table_literal, .list, .identifier, .identifier, .identifier, .list, .identifier, .identifier, .identifier,
         },
     );
-    try testAstMode(
-        .k,
+    try testAst(
         "([til 10;x1:1;2]til 10;x1:1;2)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
         &.{
-            .table_literal,  .number_literal, .number_literal, .apply_unary,    .number_literal, .identifier,
-            .number_literal, .number_literal, .apply_unary,    .number_literal, .identifier,
+            .l_paren,        .l_bracket, .identifier,     .number_literal, .semicolon,      .identifier,     .colon,
+            .number_literal, .semicolon, .number_literal, .r_bracket,      .identifier,     .number_literal, .semicolon,
+            .identifier,     .colon,     .number_literal, .semicolon,      .number_literal, .r_paren,
+        },
+        &.{
+            .table_literal,  .identifier,     .number_literal, .apply_unary,    .identifier,  .assign,
+            .number_literal, .number_literal, .identifier,     .number_literal, .apply_unary, .identifier,
+            .assign,         .number_literal, .number_literal,
         },
     );
-    try testAstMode(
-        .q,
-        "([til 10;x1:1;2]til 10;x1:1;2)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
+    try testAst(
+        "([a;a::til 10]a;a::til 10)",
         &.{
-            .table_literal,  .number_literal, .number_literal, .apply_unary,    .number_literal, .identifier,
-            .number_literal, .number_literal, .apply_unary,    .number_literal, .identifier,
+            .l_paren,        .l_bracket, .identifier, .semicolon, .identifier, .colon_colon, .identifier,
+            .number_literal, .r_bracket, .identifier, .semicolon, .identifier, .colon_colon, .identifier,
+            .number_literal, .r_paren,
+        },
+        &.{
+            .table_literal, .identifier, .identifier,    .global_assign, .identifier,     .number_literal, .apply_unary,
+            .identifier,    .identifier, .global_assign, .identifier,    .number_literal, .apply_unary,
         },
     );
-    // try testAstMode(
-    //     .k,
-    //     "([a;a::til 10]a;a::til 10)",
-    //     &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-    //     &.{
-    //         .table_literal, .colon_colon, .apply_unary,    .number_literal, .identifier, .identifier, .identifier,
-    //         .colon_colon,   .apply_unary, .number_literal, .identifier,     .identifier, .identifier,
-    //     },
-    // );
-    // try testAstMode(
-    //     .q,
-    //     "([a;a::til 10]a;a::til 10)",
-    //     &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .r_paren },
-    //     &.{
-    //         .table_literal, .colon_colon, .apply_unary,    .number_literal, .identifier, .identifier, .identifier,
-    //         .colon_colon,   .apply_unary, .number_literal, .identifier,     .identifier, .identifier,
-    //     },
-    // );
 }
 
 test "number literals" {

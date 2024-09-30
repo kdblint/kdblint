@@ -428,6 +428,27 @@ fn parseVerb(p: *Parse, lhs: Node.Index) !Node.Index {
             return p.parseVerb(apply_unary);
         },
 
+        inline .colon,
+        .colon_colon,
+        => |t| {
+            const main_token = p.assertToken(t);
+
+            const assign_tag: Node.Tag = comptime if (t == .colon) .assign else .global_assign;
+            const assign_index = try p.reserveNode(assign_tag);
+            errdefer p.unreserveNode(assign_index);
+
+            const rhs = try p.parseExpr();
+
+            return p.setNode(assign_index, .{
+                .tag = assign_tag,
+                .main_token = main_token,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                },
+            });
+        },
+
         .plus,
         .minus,
         .asterisk,
