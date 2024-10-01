@@ -2963,3 +2963,278 @@ test "render indentation" {
         .identifier, .identifier, .list,       .identifier, .identifier, .identifier,
     });
 }
+
+test "render expression blocks" {
+    try testAstRender(
+        "[ ]",
+        "[]",
+        &.{ .l_bracket, .r_bracket },
+        &.{.expr_block},
+    );
+    try testAstRender(
+        \\[
+        \\ ]
+    , "[]", &.{ .l_bracket, .r_bracket }, &.{.expr_block});
+
+    try testAstRender(
+        \\[ item1 ;  ; testing123 ;  ]
+    ,
+        \\[item1;;testing123;]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ; foo ; testing123 ; identifier ]
+    ,
+        \\[item1;foo;testing123;identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\[
+        \\ item1 ;  ; testing123 ;  ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[
+        \\ item1 ; foo ; testing123 ; identifier ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\[
+        \\ item1 ;  ; testing123 ;
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ; foo ; testing123 ; identifier
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\[ item1 ;  ; testing123
+        \\ ; ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ; foo ; testing123 ;
+        \\ identifier ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\[ item1 ;  ; testing123 ;
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ; foo ; testing123 ;
+        \\ identifier
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\[ item1 ;  ;
+        \\ testing123 ; ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ; foo ;
+        \\ testing123 ; identifier ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\[ item1 ;  ;
+        \\ testing123 ;
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ; foo ;
+        \\ testing123 ; identifier
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAstRender(
+        \\[ item1 ;
+        \\  ; testing123 ; ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ;
+        \\ foo ; testing123 ; identifier ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAstRender(
+        \\[ item1 ;
+        \\  ; testing123 ;
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  ;
+        \\  testing123;
+        \\  ]
+    ,
+        &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .expr_block, .identifier, .empty, .identifier, .empty },
+    );
+    try testAstRender(
+        \\[ item1 ;
+        \\ foo ; testing123 ; identifier
+        \\ ]
+    ,
+        \\[
+        \\  item1;
+        \\  foo;
+        \\  testing123;
+        \\  identifier]
+    ,
+        &.{
+            .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
+            .identifier, .semicolon,  .identifier, .r_bracket,
+        },
+        &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+}
