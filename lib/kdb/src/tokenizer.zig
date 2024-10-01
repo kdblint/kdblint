@@ -490,7 +490,7 @@ pub const Tokenizer = struct {
                 '-' => {
                     if (self.index == 0 or self.state == .r_bracket) continue :state .negative;
                     switch (self.buffer[self.index - 1]) {
-                        ';', '(', '{', '[', ' ', '\t' => continue :state .negative,
+                        ':', ';', '(', '{', '[', ' ', '\t' => continue :state .negative,
                         else => continue :state .minus,
                     }
                 },

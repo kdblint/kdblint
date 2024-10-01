@@ -173,6 +173,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => return 0,
 
         .empty,
+        .null,
         => return main_tokens[n] - end_offset,
 
         .grouped_expression,
@@ -261,6 +262,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => return @intCast(tree.tokens.len - 1),
 
         .empty,
+        .null,
         => return main_tokens[n] + end_offset,
 
         .grouped_expression,
@@ -417,6 +419,8 @@ pub const Node = struct {
         root,
         /// main_token is the next token. Both lhs and rhs unused.
         empty,
+        /// main_token is the `::`. Both lhs and rhs unused.
+        null,
 
         /// `(lhs)`. main_token is the `(`. rhs is the token index of the `)`.
         grouped_expression,
@@ -535,6 +539,7 @@ pub const Node = struct {
                 => unreachable,
 
                 .empty,
+                .null,
                 => .other,
 
                 .grouped_expression,
@@ -2957,159 +2962,4 @@ test "render indentation" {
         .list,       .list,       .identifier, .identifier, .identifier, .identifier,
         .identifier, .identifier, .list,       .identifier, .identifier, .identifier,
     });
-}
-
-test "render complex structure" {
-    if (true) return error.SkipZigTest;
-    try testAstRender(
-        \\.tca.linking.config:`assetClass`mode`sourceTable`destTable`linkName`sourceKey`destKey`destAggregation`destFilter!/:-1_(
-        \\ (`            ;`       ;`TCATrade                  ;`TCACustomColumns          ;`link_customColumns            ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`            ;`       ;`TCATrade                  ;`TCAListing                ;`link_listings                 ;`date`tcaListingId     ;`date`tcaListingId    ;last  ;()                               );
-        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_brokerOrderAnalytics     ;`brokerOrderKey        ;`orderKey             ;last  ;(=;`viewType;enlist`Broker)      );
-        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_decisionOrderAnalytics   ;`decisionOrderKey      ;`orderKey             ;last  ;(=;`viewType;enlist`Decision)    );
-        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_pmOrderAnalytics         ;`pmOrderKey            ;`orderKey             ;last  ;(=;`viewType;enlist`PM)          );
-        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_releaseOrderAnalytics    ;`releaseOrderKey       ;`orderKey             ;last  ;(=;`viewType;enlist`TradingDesk) );
-        \\ (`            ;`       ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_traderOrderAnalytics     ;`traderOrderKey        ;`orderKey             ;last  ;(=;`viewType;enlist`Trader)      );
-        \\ (`            ;`legacy ;`TCATrade                  ;`CustomBenchmarks          ;`link_customBenchmarks         ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`eq`fi`fu`fx ;`native ;`TCATrade                  ;`TCACustomBenchmarks       ;`link_customBenchmarks         ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`            ;`native ;`TCATrade                  ;`TCADefaultBenchmarks      ;`link_defaultBenchmarks        ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`            ;`native ;`TCATrade                  ;`TCATradeStatus            ;`link_tradeStatus              ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`eq          ;`legacy ;`TCADefaultOrderBenchmarks ;`TCAOrderAnalytics         ;`link_orderAnalytics           ;`viewType`orderKey     ;`viewType`orderKey    ;last  ;()                               );
-        \\ (`eq          ;`legacy ;`TCAOrderAnalytics         ;`TCADefaultOrderBenchmarks ;`link_defaultOrderBenchmarks   ;`viewType`orderKey     ;`viewType`orderKey    ;last  ;()                               );
-        \\ (`eq          ;`legacy ;`TCATrade                  ;`TCADefaultTradeBenchmarks ;`link_defaultTradeBenchmarks   ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`eq          ;`legacy ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_peerBrokerOrderAnalytics ;`                      ;`                     ;last  ;()                               );
-        \\ (`eq          ;`legacy ;`TCATrade                  ;`TCAOrderAnalytics         ;`link_peerOrderAnalytics       ;`                      ;`                     ;last  ;()                               );
-        \\ (`eq`fi`fu    ;`       ;`TCATrade                  ;`TCATradeAnalytics         ;`link_tradeAnalytics           ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`eq`fu       ;`       ;`TCATrade                  ;`TCASecMaster              ;`link_secMaster                ;`date`stockId          ;`date`stockId         ;last  ;()                               );
-        \\ (`fi          ;`       ;`TCATrade                  ;`TCASecMaster              ;`link_secMaster                ;`date`itgInstrumentId  ;`date`itgInstrumentId ;last  ;()                               );
-        \\ (`fi          ;`       ;`TCAQuote                  ;`TCATrade                  ;`link_trade                    ;`pmOrderId             ;`pmOrderId            ;last  ;.tca.quote.fiTrade               );
-        \\ (`fu          ;`native ;`TCATrade                  ;`TCAOrderMetrics           ;`link_brokerOrderMetrics       ;`brokerOrderKey        ;`orderKey             ;last  ;(=;`viewType;enlist`Broker)      );
-        \\ (`fu          ;`native ;`TCATrade                  ;`TCAOrderMetrics           ;`link_pmOrderMetrics           ;`pmOrderKey            ;`orderKey             ;last  ;(=;`viewType;enlist`PM)          );
-        \\ (`fu          ;`native ;`TCATrade                  ;`TCATradeMetrics           ;`link_tradeMetrics             ;`execKey               ;`execKey              ;last  ;()                               );
-        \\ (`fx          ;`       ;`TCATrade                  ;`TCASecMaster              ;`link_secMaster                ;`issueId               ;`issueId              ;first ;()                               );
-        \\ (`fx          ;`legacy ;`TCAQuote                  ;`TCATrade                  ;`link_trade                    ;`dealId                ;`dealId               ;last  ;.tca.quote.fxSingleLegTrade      );
-        \\ (`fx          ;`legacy ;`TCAQuote                  ;`TCATrade                  ;`link_trade                    ;.tca.quote.fxSourceKey ;.tca.quote.fxDestKey  ;last  ;.tca.quote.fxMultiLegTrade       );
-        \\ ::);
-    ,
-        \\.tca.linking.config:`assetClass`mode`sourceTable`destTable`linkName`sourceKey`destKey`destAggregation`destFilter!/:-1_(
-        \\  (`           ;`      ;`TCATrade                 ;`TCACustomColumns         ;`link_customColumns           ;`execKey              ;`execKey             ;last ;());
-        \\  (`           ;`      ;`TCATrade                 ;`TCAListing               ;`link_listings                ;`date`tcaListingId    ;`date`tcaListingId   ;last ;());
-        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_brokerOrderAnalytics    ;`brokerOrderKey       ;`orderKey            ;last ;(=;`viewType;enlist`Broker));
-        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_decisionOrderAnalytics  ;`decisionOrderKey     ;`orderKey            ;last ;(=;`viewType;enlist`Decision));
-        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_pmOrderAnalytics        ;`pmOrderKey           ;`orderKey            ;last ;(=;`viewType;enlist`PM));
-        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_releaseOrderAnalytics   ;`releaseOrderKey      ;`orderKey            ;last ;(=;`viewType;enlist`TradingDesk));
-        \\  (`           ;`      ;`TCATrade                 ;`TCAOrderAnalytics        ;`link_traderOrderAnalytics    ;`traderOrderKey       ;`orderKey            ;last ;(=;`viewType;enlist`Trader));
-        \\  (`           ;`legacy;`TCATrade                 ;`CustomBenchmarks         ;`link_customBenchmarks        ;`execKey              ;`execKey             ;last ;());
-        \\  (`eq`fi`fu`fx;`native;`TCATrade                 ;`TCACustomBenchmarks      ;`link_customBenchmarks        ;`execKey              ;`execKey             ;last ;());
-        \\  (`           ;`native;`TCATrade                 ;`TCADefaultBenchmarks     ;`link_defaultBenchmarks       ;`execKey              ;`execKey             ;last ;());
-        \\  (`           ;`native;`TCATrade                 ;`TCATradeStatus           ;`link_tradeStatus             ;`execKey              ;`execKey             ;last ;());
-        \\  (`eq         ;`legacy;`TCADefaultOrderBenchmarks;`TCAOrderAnalytics        ;`link_orderAnalytics          ;`viewType`orderKey    ;`viewType`orderKey   ;last ;());
-        \\  (`eq         ;`legacy;`TCAOrderAnalytics        ;`TCADefaultOrderBenchmarks;`link_defaultOrderBenchmarks  ;`viewType`orderKey    ;`viewType`orderKey   ;last ;());
-        \\  (`eq         ;`legacy;`TCATrade                 ;`TCADefaultTradeBenchmarks;`link_defaultTradeBenchmarks  ;`execKey              ;`execKey             ;last ;());
-        \\  (`eq         ;`legacy;`TCATrade                 ;`TCAOrderAnalytics        ;`link_peerBrokerOrderAnalytics;`                     ;`                    ;last ;());
-        \\  (`eq         ;`legacy;`TCATrade                 ;`TCAOrderAnalytics        ;`link_peerOrderAnalytics      ;`                     ;`                    ;last ;());
-        \\  (`eq`fi`fu   ;`      ;`TCATrade                 ;`TCATradeAnalytics        ;`link_tradeAnalytics          ;`execKey              ;`execKey             ;last ;());
-        \\  (`eq`fu      ;`      ;`TCATrade                 ;`TCASecMaster             ;`link_secMaster               ;`date`stockId         ;`date`stockId        ;last ;());
-        \\  (`fi         ;`      ;`TCATrade                 ;`TCASecMaster             ;`link_secMaster               ;`date`itgInstrumentId ;`date`itgInstrumentId;last ;());
-        \\  (`fi         ;`      ;`TCAQuote                 ;`TCATrade                 ;`link_trade                   ;`pmOrderId            ;`pmOrderId           ;last ;.tca.quote.fiTrade);
-        \\  (`fu         ;`native;`TCATrade                 ;`TCAOrderMetrics          ;`link_brokerOrderMetrics      ;`brokerOrderKey       ;`orderKey            ;last ;(=;`viewType;enlist`Broker));
-        \\  (`fu         ;`native;`TCATrade                 ;`TCAOrderMetrics          ;`link_pmOrderMetrics          ;`pmOrderKey           ;`orderKey            ;last ;(=;`viewType;enlist`PM));
-        \\  (`fu         ;`native;`TCATrade                 ;`TCATradeMetrics          ;`link_tradeMetrics            ;`execKey              ;`execKey             ;last ;());
-        \\  (`fx         ;`      ;`TCATrade                 ;`TCASecMaster             ;`link_secMaster               ;`issueId              ;`issueId             ;first;());
-        \\  (`fx         ;`legacy;`TCAQuote                 ;`TCATrade                 ;`link_trade                   ;`dealId               ;`dealId              ;last ;.tca.quote.fxSingleLegTrade);
-        \\  (`fx         ;`legacy;`TCAQuote                 ;`TCATrade                 ;`link_trade                   ;.tca.quote.fxSourceKey;.tca.quote.fxDestKey ;last ;.tca.quote.fxMultiLegTrade);
-        \\  ::);
-    , &.{
-        .identifier,     .colon,          .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal,
-        .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal, .bang,
-        .slash_colon,    .number_literal, .underscore,     .l_paren,        .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .l_paren,        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,
-        .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .identifier,     .semicolon,
-        .l_paren,        .r_paren,        .r_paren,        .semicolon,      .l_paren,        .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .symbol_literal, .semicolon,      .symbol_literal, .semicolon,      .symbol_literal,
-        .semicolon,      .identifier,     .semicolon,      .l_paren,        .r_paren,        .r_paren,
-        .semicolon,      .colon_colon,    .r_paren,        .semicolon,
-    }, &.{});
 }
