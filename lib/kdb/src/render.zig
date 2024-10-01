@@ -92,6 +92,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
     const tree = r.tree;
     const ais = r.ais;
+    _ = ais; // autofix
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
@@ -126,32 +127,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => return renderLambda(r, node, space),
 
         .expr_block,
-        => {
-            try renderToken(r, main_tokens[node], .none);
-            if (datas[node].lhs > 0) {
-                const sub_range = tree.extraData(datas[node].lhs, Ast.Node.SubRange);
-                const exprs = tree.extra_data[sub_range.start..sub_range.end];
-                if (exprs.len > 1) {
-                    if (tree.tokensOnSameLine(main_tokens[node], datas[node].rhs)) {
-                        for (exprs[0 .. exprs.len - 1]) |expr| {
-                            try renderExpression(r, expr, .semicolon);
-                        }
-                        try renderExpression(r, exprs[exprs.len - 1], .none);
-                    } else {
-                        try ais.maybeInsertNewline();
-                        for (exprs[0 .. exprs.len - 1]) |expr| {
-                            try renderExpression(r, expr, .semicolon_newline);
-                        }
-                        try renderExpression(r, exprs[exprs.len - 1], .none);
-                    }
-                } else {
-                    for (exprs) |expr| {
-                        try renderExpression(r, expr, .semicolon);
-                    }
-                }
-            }
-            return renderToken(r, datas[node].rhs, space);
-        },
+        => return renderExprBlock(r, node, space),
 
         .assign,
         .global_assign,
@@ -508,7 +484,7 @@ fn renderLambda(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
 
-    const lambda = tree.extraData(datas[node].lhs, Ast.Node.Lambda);
+    const lambda: Ast.Node.Lambda = tree.extraData(datas[node].lhs, Ast.Node.Lambda);
     const l_brace = main_tokens[node];
     assert(token_tags[l_brace] == .l_brace);
     const r_brace = datas[node].rhs;
@@ -607,6 +583,46 @@ fn renderLambda(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         }
         return renderToken(r, r_brace, space);
     }
+}
+
+fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
+    const datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+
+    const l_bracket = main_tokens[node];
+    assert(token_tags[l_bracket] == .l_bracket);
+    const r_bracket = datas[node].rhs;
+    assert(token_tags[r_bracket] == .r_bracket);
+
+    if (datas[node].lhs == 0) {
+        try renderToken(r, l_bracket, .none);
+        return renderToken(r, r_bracket, space);
+    }
+
+    const extra = tree.extraData(datas[node].lhs, Ast.Node.SubRange);
+    const params = tree.extra_data[extra.start..extra.end];
+    assert(params.len > 0);
+
+    if (tree.tokensOnSameLine(l_bracket, r_bracket)) {
+        try renderToken(r, l_bracket, .none);
+        for (params, 0..) |param_node, i| {
+            try renderExpression(r, param_node, if (i + 1 < params.len) .semicolon else .none);
+        }
+        return renderToken(r, r_bracket, space);
+    }
+
+    const should_indent = ais.indent_count == 0;
+    if (should_indent) ais.pushIndentNextLine();
+    defer if (should_indent) ais.popIndent();
+
+    try renderToken(r, l_bracket, .newline);
+    for (params, 0..) |param_node, i| {
+        try renderExpression(r, param_node, if (i + 1 < params.len) .semicolon_newline else .none);
+    }
+    return renderToken(r, r_bracket, space);
 }
 
 fn renderTokenSpace(r: *Render, token: Token.Index) Error!void {
