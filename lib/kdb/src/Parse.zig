@@ -357,6 +357,16 @@ fn parseNoun(p: *Parse) !Node.Index {
         .two_colon,
         => try p.parseOperator(),
 
+        .colon_colon,
+        => try p.addNode(.{
+            .tag = .null,
+            .main_token = p.nextToken(),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+
         .number_literal,
         => try p.parseNumberLiteral(),
 

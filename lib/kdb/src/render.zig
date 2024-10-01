@@ -102,6 +102,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .empty,
         => return renderOnlySpace(r, space),
 
+        .null,
+        => return renderToken(r, main_tokens[node], space),
+
         .grouped_expression,
         => {
             try renderToken(r, main_tokens[node], .none);
