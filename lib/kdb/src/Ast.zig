@@ -247,6 +247,9 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .symbol_list_literal,
         .identifier,
         => return main_tokens[n] + end_offset,
+
+        .select,
+        => return main_tokens[n] + end_offset,
     };
 }
 
@@ -334,6 +337,13 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .number_list_literal,
         .symbol_list_literal,
         => return datas[n].lhs + end_offset,
+
+        .select,
+        => {
+            const select = tree.extraData(datas[n].lhs, Ast.Node.Select);
+            _ = select; // autofix
+            unreachable;
+        },
     };
 }
 
@@ -533,6 +543,9 @@ pub const Node = struct {
         /// identifier AST node for it.
         identifier,
 
+        /// `select lhs`. rhs unused. main_token is the `select`. `Select[lhs]`.
+        select,
+
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
                 .root,
@@ -607,6 +620,9 @@ pub const Node = struct {
                 .symbol_list_literal,
                 .identifier,
                 => .other,
+
+                .select,
+                => .other,
             };
         }
     };
@@ -646,6 +662,8 @@ pub const Node = struct {
         /// Index into extra_data.
         columns_end: Index,
     };
+
+    pub const Select = struct {};
 };
 
 pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
@@ -3236,5 +3254,264 @@ test "render expression blocks" {
             .identifier, .semicolon,  .identifier, .r_bracket,
         },
         &.{ .expr_block, .identifier, .identifier, .identifier, .identifier },
+    );
+}
+
+test "select" {
+    if (true) return error.SkipZigTest;
+    try testAst(
+        "select from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select a from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select a,b from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select by from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select a by from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select a,b by from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select by c from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select by c,d from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a by c from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a,b by c,d from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select from x where e",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select from x where e,f",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a from x where e",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a,b from x where e,f",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select by from x where e,f",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a by from x where e",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a,b by from x where e,f",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select by c from x where e",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select by c,d from x where e,f",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a by c from x where e",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "select a,b by c,d from x where e,f",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAst(
+        "select`a from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_literal },
+    );
+    try testAst(
+        "select`a`b from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_list_literal },
+    );
+    try testAst(
+        "select`a,`c from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_literal, .symbol_literal },
+    );
+    try testAst(
+        "select`a,`c`d from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_literal, .symbol_list_literal },
+    );
+    try testAst(
+        "select`a`b,`c from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_list_literal, .symbol_literal },
+    );
+    try testAst(
+        "select`a`b,`c`d from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_list_literal, .symbol_list_literal },
+    );
+    try testAst(
+        "select by`a from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_literal },
+    );
+    try testAst(
+        "select by`a`b from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_list_literal },
+    );
+    try testAst(
+        "select by`a,`c from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_literal, .symbol_literal },
+    );
+    try testAst(
+        "select by`a,`c`d from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_literal, .symbol_list_literal },
+    );
+    try testAst(
+        "select by`a`b,`c from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_list_literal, .symbol_literal },
+    );
+    try testAst(
+        "select by`a`b,`c`d from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .symbol_list_literal, .symbol_list_literal },
+    );
+
+    try testAst(
+        "select distinct from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select distinct a from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select distinct by from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select distinct a by from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select distinct by b from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select distinct a by b from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier, .identifier },
+    );
+
+    try testAst(
+        "select[1]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .number_literal },
+    );
+    try testAst(
+        "select[a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+
+    try testAst(
+        "select[1;<a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .number_literal, .identifier },
+    );
+    try testAst(
+        "select[a;<b]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier, .identifier },
+    );
+
+    try testAst(
+        "select[<a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[<:a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[<=a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[<>a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[>a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[>:a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[>=a]from x",
+        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .select, .identifier, .identifier },
     );
 }

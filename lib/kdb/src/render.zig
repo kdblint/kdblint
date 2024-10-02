@@ -218,6 +218,11 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
             return renderToken(r, datas[node].lhs, space);
         },
+
+        .select,
+        => {
+            unreachable;
+        },
     }
 }
 

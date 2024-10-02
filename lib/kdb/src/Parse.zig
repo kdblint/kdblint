@@ -135,6 +135,11 @@ fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
     return error.ParseError;
 }
 
+fn tokenSlice(p: *Parse, token_idex: Token.Index) []const u8 {
+    const loc = p.tokens.items(.loc)[token_idex];
+    return p.source[loc.start..loc.end];
+}
+
 fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     const tags: []Node.Tag = p.nodes.items(.tag);
     const datas: []Node.Data = p.nodes.items(.data);
@@ -378,6 +383,9 @@ fn parseNoun(p: *Parse) !Node.Index {
 
         .identifier,
         => try p.parseToken(.identifier, .identifier),
+
+        .keyword_select,
+        => try p.parseSelect(),
 
         else => null_node,
     };
@@ -781,6 +789,91 @@ fn parseExprBlock(p: *Parse) !Node.Index {
     });
 }
 
+fn parseSelect(p: *Parse) !Node.Index {
+    const main_token = p.assertToken(.keyword_select);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    // Limit expression
+    var distinct = false;
+    var ascending = false;
+    var limit_expr: Node.Index = 0;
+    var order_tok: Token.Index = 0;
+    if (p.eatIdentifier("distinct")) |_| {
+        distinct = true;
+    } else if (p.eatToken(.l_bracket)) |_| {
+        switch (p.peekTag()) {
+            .angle_bracket_left,
+            .angle_bracket_left_colon,
+            .angle_bracket_left_equal,
+            .angle_bracket_left_right,
+            => {
+                _ = p.nextToken();
+                ascending = true;
+                order_tok = try p.expectToken(.identifier);
+            },
+
+            .angle_bracket_right,
+            .angle_bracket_right_colon,
+            .angle_bracket_right_equal,
+            => {
+                _ = p.nextToken();
+                order_tok = try p.expectToken(.identifier);
+            },
+
+            else => {
+                try p.ends_expr.append(p.gpa, .r_bracket);
+                defer {
+                    const ends_expr = p.ends_expr.pop();
+                    assert(ends_expr == .r_bracket);
+                }
+
+                limit_expr = try p.expectExpr();
+                if (p.eatToken(.semicolon)) |_| {
+                    switch (p.peekTag()) {
+                        .angle_bracket_left,
+                        .angle_bracket_left_colon,
+                        .angle_bracket_left_equal,
+                        .angle_bracket_left_right,
+                        => {
+                            _ = p.nextToken();
+                            ascending = true;
+                            order_tok = try p.expectToken(.identifier);
+                        },
+
+                        .angle_bracket_right,
+                        .angle_bracket_right_colon,
+                        .angle_bracket_right_equal,
+                        => {
+                            _ = p.nextToken();
+                            order_tok = try p.expectToken(.identifier);
+                        },
+
+                        else => {},
+                    }
+                }
+            },
+        }
+
+        _ = try p.expectToken(.r_bracket);
+    }
+
+    // Select phrase
+    const select_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(select_top);
+    if (p.peekIdentifier(.{ .by = true, .from = true }) == null) {}
+
+    return p.addNode(.{
+        .tag = .select,
+        .main_token = main_token,
+        .data = .{
+            .lhs = undefined,
+            .rhs = undefined,
+        },
+    });
+}
+
 /// Operator
 ///     <- PLUS
 ///      / MINUS
@@ -944,6 +1037,31 @@ fn isIterator(p: *Parse, node: Node.Index) bool {
 
 fn eatToken(p: *Parse, tag: Token.Tag) ?Token.Index {
     return if (p.peekTag() == tag) p.nextToken() else null;
+}
+
+const SqlIdentifier = packed struct(u8) {
+    by: bool = false,
+    from: bool = false,
+    where: bool = false,
+    distinct: bool = false,
+    _: u4 = 0,
+};
+
+fn peekIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) ?Token.Index {
+    if (p.peekTag() != .identifier) return null;
+    if (sql_identifier.by) if (p.identifierEql("by", p.tok_i)) return p.tok_i;
+    if (sql_identifier.from) if (p.identifierEql("from", p.tok_i)) return p.tok_i;
+    if (sql_identifier.where) if (p.identifierEql("where", p.tok_i)) return p.tok_i;
+    if (sql_identifier.distinct) if (p.identifierEql("distinct", p.tok_i)) return p.tok_i;
+    return null;
+}
+
+fn identifierEql(p: *Parse, identifier: []const u8, token_index: Token.Index) bool {
+    return p.peekTag() == .identifier and std.mem.eql(u8, p.tokenSlice(token_index), identifier);
+}
+
+fn eatIdentifier(p: *Parse, identifier: []const u8) ?Token.Index {
+    return if (p.identifierEql(identifier, p.tok_i)) p.nextToken() else null;
 }
 
 fn assertToken(p: *Parse, tag: Token.Tag) Token.Index {
