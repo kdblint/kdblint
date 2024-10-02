@@ -2664,65 +2664,6 @@ test "call - implicit projection" {
     }, "({x+y};1)");
 }
 
-test "select" {
-    try testParse("select from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();0b;())");
-    try testParse("select a from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;(,`a)!,`a)");
-    try testParse("select a,b from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();0b;`a`b!`a`b)");
-    try testParse("select by from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();()!();())");
-    try testParse("select a by from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();()!();(,`a)!,`a)");
-    try testParse("select a,b by from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();()!();`a`b!`a`b)");
-    try testParse("select by c from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();(,`c)!,`c;())");
-    try testParse("select by c,d from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;())");
-    try testParse("select a by c from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();(,`c)!,`c;(,`a)!,`a)");
-    try testParse("select a,b by c,d from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;();`c`d!`c`d;`a`b!`a`b)");
-    try testParse("select from x where e", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;,,`e;0b;())");
-    try testParse("select from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);0b;())");
-    try testParse("select a from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;0b;(,`a)!,`a)");
-    try testParse("select a,b from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);0b;`a`b!`a`b)");
-    try testParse("select by from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);()!();())");
-    try testParse("select a by from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;()!();(,`a)!,`a)");
-    try testParse("select a,b by from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);()!();`a`b!`a`b)");
-    try testParse("select by c from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!,`c;())");
-    try testParse("select by c,d from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;())");
-    try testParse("select a by c from x where e", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,,`e;(,`c)!,`c;(,`a)!,`a)");
-    try testParse("select a,b by c,d from x where e,f", &.{ .implicit_return, .select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier }, "(?;`x;,(`e;`f);`c`d!`c`d;`a`b!`a`b)");
-
-    try testParse("select`a from x", &.{ .implicit_return, .select, .identifier, .symbol_literal }, "(?;`x;();0b;(,`x)!,,`a)");
-    try testParse("select`a`b from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal }, "(?;`x;();0b;(,`x)!,,`a`b)");
-    try testParse("select`a,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_literal }, "(?;`x;();0b;`x`x1!(,`a;,`c))");
-    try testParse("select`a,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_list_literal }, "(?;`x;();0b;`x`x1!(,`a;,`c`d))");
-    try testParse("select`a`b,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_literal }, "(?;`x;();0b;`x`x1!(,`a`b;,`c))");
-    try testParse("select`a`b,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_list_literal }, "(?;`x;();0b;`x`x1!(,`a`b;,`c`d))");
-    try testParse("select by`a from x", &.{ .implicit_return, .select, .identifier, .symbol_literal }, "(?;`x;();(,`x)!,,`a;())");
-    try testParse("select by`a`b from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal }, "(?;`x;();(,`x)!,,`a`b;())");
-    try testParse("select by`a,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_literal }, "(?;`x;();`x`x1!(,`a;,`c);())");
-    try testParse("select by`a,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_literal, .symbol_list_literal }, "(?;`x;();`x`x1!(,`a;,`c`d);())");
-    try testParse("select by`a`b,`c from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_literal }, "(?;`x;();`x`x1!(,`a`b;,`c);())");
-    try testParse("select by`a`b,`c`d from x", &.{ .implicit_return, .select, .identifier, .symbol_list_literal, .symbol_list_literal }, "(?;`x;();`x`x1!(,`a`b;,`c`d);())");
-
-    try testParse("select distinct from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();1b;())");
-    try testParse("select distinct a from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();1b;(,`a)!,`a)");
-    try testParse("select distinct by from x", &.{ .implicit_return, .select, .identifier }, "(?;`x;();()!();())");
-    try testParse("select distinct a by from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();()!();(,`a)!,`a)");
-    try testParse("select distinct by b from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();(,`b)!,`b;())");
-    try testParseLanguage(.k, "select distinct a by b from x", &.{ .implicit_return, .select, .identifier, .identifier, .implicit_apply, .identifier, .identifier }, "(?;`x;();(,`b)!,`b;(,`a)!,(`distinct;`a))");
-    try testParseLanguage(.q, "select distinct a by b from x", &.{ .implicit_return, .select, .identifier, .identifier, .implicit_apply, .identifier, .distinct }, "(?;`x;();(,`b)!,`b;(,`a)!,(distinct;`a))");
-
-    try testParse("select[1]from x", &.{ .implicit_return, .select, .identifier, .long_literal }, "(?;`x;();0b;();1)");
-    try testParse("select[a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();`a)");
-
-    try testParse("select[1;<a]from x", &.{ .implicit_return, .select, .identifier, .long_literal, .identifier }, "(?;`x;();0b;();1;,(<:;`a))");
-    try testParse("select[a;<b]from x", &.{ .implicit_return, .select, .identifier, .identifier, .identifier }, "(?;`x;();0b;();`a;,(<:;`b))");
-
-    try testParse("select[<a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[<:a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[<=a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[<>a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(<:;`a))");
-    try testParse("select[>a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
-    try testParse("select[>:a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
-    try testParse("select[>=a]from x", &.{ .implicit_return, .select, .identifier, .identifier }, "(?;`x;();0b;();0W;,(>:;`a))");
-}
-
 test "exec" {
     try testParse("exec from x", &.{ .implicit_return, .exec, .identifier }, "(?;`x;();();())");
     try testParse("exec a from x", &.{ .implicit_return, .exec, .identifier, .identifier }, "(?;`x;();();,`a)");

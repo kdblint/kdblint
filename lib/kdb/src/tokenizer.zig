@@ -15,7 +15,9 @@ pub const Token = struct {
     // pub const Index = enum(u32) { _ };
     pub const Index = u32;
 
-    pub const keywords = std.StaticStringMap(Tag).initComptime(.{});
+    pub const keywords = std.StaticStringMap(Tag).initComptime(.{
+        .{ "select", .keyword_select },
+    });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
         return keywords.get(bytes);
@@ -104,6 +106,9 @@ pub const Token = struct {
         eob,
         eof,
 
+        // Keywords
+        keyword_select,
+
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
                 // Punctuation
@@ -185,6 +190,9 @@ pub const Token = struct {
                 .eob,
                 .eof,
                 => null,
+
+                // Keywords
+                .keyword_select => "select",
             };
         }
 
