@@ -80,7 +80,6 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     defer parser.nodes.deinit(gpa);
     defer parser.extra_data.deinit(gpa);
     defer parser.scratch.deinit(gpa);
-    defer parser.ends_expr.deinit(gpa);
 
     // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
     // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
@@ -150,8 +149,12 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
     inline for (fields, 0..) |field, i| {
-        comptime assert(field.type == Node.Index);
-        @field(result, field.name) = tree.extra_data[index + i];
+        switch (@typeInfo(field.type)) {
+            .int => comptime assert(field.type == Node.Index),
+            .@"struct" => |ti| comptime assert(ti.layout == .@"packed" and ti.backing_integer.? == Node.Index),
+            inline else => |tag| @compileError("Expected Node.Index or packed struct, found '" ++ @tagName(tag) ++ "'"),
+        }
+        @field(result, field.name) = @bitCast(tree.extra_data[index + i]);
     }
     return result;
 }
@@ -365,16 +368,21 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
         .cannot_apply_iterator_directly => try writer.writeAll("cannot apply iterator directly"),
         .expected_whitespace => try writer.writeAll("expected whitespace"),
 
+        .expected_qsql_token => {
+            const found_tag = token_tags[parse_error.token];
+            const expected_string = parse_error.extra.expected_string;
+            switch (found_tag) {
+                .invalid => return writer.print("expected '{s}', found invalid bytes", .{expected_string}),
+                else => return writer.print("expected '{s}', found '{s}'", .{ expected_string, found_tag.symbol() }),
+            }
+        },
+
         .expected_token => {
             const found_tag = token_tags[parse_error.token];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
             switch (found_tag) {
-                .invalid => return writer.print("expected '{s}', found invalid bytes", .{
-                    expected_symbol,
-                }),
-                else => return writer.print("expected '{s}', found '{s}'", .{
-                    expected_symbol, found_tag.symbol(),
-                }),
+                .invalid => return writer.print("expected '{s}', found invalid bytes", .{expected_symbol}),
+                else => return writer.print("expected '{s}', found '{s}'", .{ expected_symbol, found_tag.symbol() }),
             }
         },
     }
@@ -389,6 +397,7 @@ pub const Error = struct {
     extra: union {
         none: void,
         expected_tag: Token.Tag,
+        expected_string: []const u8,
     } = .{ .none = {} },
 
     pub const Tag = enum {
@@ -398,6 +407,9 @@ pub const Error = struct {
         cannot_apply_operator_directly,
         cannot_apply_iterator_directly,
         expected_whitespace,
+
+        /// `expected_string` is populated.
+        expected_qsql_token,
 
         /// `expected_tag` is populated.
         expected_token,
@@ -663,7 +675,25 @@ pub const Node = struct {
         columns_end: Index,
     };
 
-    pub const Select = struct {};
+    pub const Select = struct {
+        /// Index into extra_data.
+        select_start: Index,
+        /// Index into extra_data.
+        select_end: Index,
+        /// Index into extra_data.
+        by_start: Index,
+        /// Index into extra_data.
+        by_end: Index,
+        from: Index,
+        /// Index into extra_data.
+        where_start: Index,
+        /// Index into extra_data.
+        where_end: Index,
+        data: packed struct(Index) {
+            has_by: bool,
+            _: u31 = 0,
+        },
+    };
 };
 
 pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
@@ -3258,7 +3288,6 @@ test "render expression blocks" {
 }
 
 test "select" {
-    if (true) return error.SkipZigTest;
     try testAst(
         "select from x",
         &.{ .keyword_select, .identifier, .identifier },
@@ -3266,104 +3295,131 @@ test "select" {
     );
     try testAst(
         "select a from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select a,b from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .comma, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier },
         &.{ .select, .identifier },
     );
     try testAst(
         "select a by from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select a,b by from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .comma, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by c from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select by c,d from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .comma, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a by c from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a,b by c,d from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .comma,      .identifier, .identifier,
+            .identifier,     .comma,      .identifier, .identifier, .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select from x where e",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select from x where e,f",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier, .comma, .identifier },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a from x where e",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a,b from x where e,f",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .comma,      .identifier, .identifier,
+            .identifier,     .identifier, .identifier, .comma,      .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by from x where e,f",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier, .comma, .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a by from x where e",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a,b by from x where e,f",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .comma,      .identifier, .identifier, .identifier,
+            .identifier,     .identifier, .identifier, .comma,      .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by c from x where e",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by c,d from x where e,f",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .identifier, .comma, .identifier, .identifier,
+            .identifier,     .identifier, .identifier, .comma, .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a by c from x where e",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a,b by c,d from x where e,f",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .comma,      .identifier, .identifier, .identifier, .comma,
+            .identifier,     .identifier, .identifier, .identifier, .identifier, .comma,      .identifier,
+        },
+        &.{
+            .select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
     );
+
+    if (true) return error.SkipZigTest;
 
     try testAst(
         "select`a from x",
