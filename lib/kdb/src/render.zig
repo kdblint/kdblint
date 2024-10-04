@@ -223,30 +223,56 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => {
             const select = main_tokens[node];
             const select_node = tree.extraData(datas[node].lhs, Ast.Node.Select);
+            const distinct = select_node.data.distinct;
             const select_exprs = tree.extra_data[select_node.select_start..select_node.select_end];
             const has_by = select_node.data.has_by;
             const by_exprs = tree.extra_data[select_node.by_start..select_node.by_end];
             const from = select_node.from;
             const where_exprs = tree.extra_data[select_node.where_start..select_node.where_end];
 
-            try renderToken(r, select, .space); // select
-            if (select_exprs.len > 0) {
-                for (select_exprs) |expr| {
-                    try renderExpression(r, expr, .comma);
-                }
+            try renderTokenSpace(r, select); // select
+            if (distinct) {
+                try renderTokenSpace(r, select + 1); // distinct
 
-                if (has_by) {
-                    const last_token = tree.lastToken(select_exprs[select_exprs.len - 1]);
-                    try renderToken(r, last_token + 1, .space); // by
-                    for (by_exprs) |expr| {
+                if (select_exprs.len > 0) {
+                    for (select_exprs) |expr| {
                         try renderExpression(r, expr, .comma);
+                    }
+
+                    if (has_by) {
+                        const last_token = tree.lastToken(select_exprs[select_exprs.len - 1]);
+                        try renderTokenSpace(r, last_token + 1); // by
+                        for (by_exprs) |expr| {
+                            try renderExpression(r, expr, .comma);
+                        }
+                    }
+                } else {
+                    if (has_by) {
+                        try renderTokenSpace(r, select + 2); // by
+                        for (by_exprs) |expr| {
+                            try renderExpression(r, expr, .comma);
+                        }
                     }
                 }
             } else {
-                if (has_by) {
-                    try renderToken(r, main_tokens[node] + 1, .space); // by
-                    for (by_exprs) |expr| {
+                if (select_exprs.len > 0) {
+                    for (select_exprs) |expr| {
                         try renderExpression(r, expr, .comma);
+                    }
+
+                    if (has_by) {
+                        const last_token = tree.lastToken(select_exprs[select_exprs.len - 1]);
+                        try renderTokenSpace(r, last_token + 1); // by
+                        for (by_exprs) |expr| {
+                            try renderExpression(r, expr, .comma);
+                        }
+                    }
+                } else {
+                    if (has_by) {
+                        try renderTokenSpace(r, select + 1); // by
+                        for (by_exprs) |expr| {
+                            try renderExpression(r, expr, .comma);
+                        }
                     }
                 }
             }
@@ -996,6 +1022,7 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         },
 
         .identifier,
+        .keyword_select,
         => tags[token2] == .number_literal or tags[token2] == .identifier,
 
         else => false,
