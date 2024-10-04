@@ -691,7 +691,8 @@ pub const Node = struct {
         where_end: Index,
         data: packed struct(Index) {
             has_by: bool,
-            _: u31 = 0,
+            distinct: bool,
+            _: u30 = 0,
         },
     };
 };
@@ -3419,99 +3420,119 @@ test "select" {
         },
     );
 
-    if (true) return error.SkipZigTest;
-
     try testAst(
         "select`a from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_literal },
+        &.{ .keyword_select, .symbol_literal, .identifier, .identifier },
+        &.{ .select, .symbol_literal, .identifier },
     );
     try testAst(
         "select`a`b from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_list_literal },
+        &.{ .keyword_select, .symbol_literal, .symbol_literal, .identifier, .identifier },
+        &.{ .select, .symbol_list_literal, .identifier },
     );
     try testAst(
         "select`a,`c from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_literal, .symbol_literal },
+        &.{ .keyword_select, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier },
+        &.{ .select, .symbol_literal, .symbol_literal, .identifier },
     );
     try testAst(
         "select`a,`c`d from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_literal, .symbol_list_literal },
+        &.{
+            .keyword_select, .symbol_literal, .comma, .symbol_literal, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .select, .symbol_literal, .symbol_list_literal, .identifier },
     );
     try testAst(
         "select`a`b,`c from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_list_literal, .symbol_literal },
+        &.{
+            .keyword_select, .symbol_literal, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .select, .symbol_list_literal, .symbol_literal, .identifier },
     );
     try testAst(
         "select`a`b,`c`d from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_list_literal, .symbol_list_literal },
+        &.{
+            .keyword_select, .symbol_literal, .symbol_literal, .comma,
+            .symbol_literal, .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .select, .symbol_list_literal, .symbol_list_literal, .identifier },
     );
     try testAst(
         "select by`a from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_literal },
+        &.{ .keyword_select, .identifier, .symbol_literal, .identifier, .identifier },
+        &.{ .select, .symbol_literal, .identifier },
     );
     try testAst(
         "select by`a`b from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_list_literal },
+        &.{ .keyword_select, .identifier, .symbol_literal, .symbol_literal, .identifier, .identifier },
+        &.{ .select, .symbol_list_literal, .identifier },
     );
     try testAst(
         "select by`a,`c from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_literal, .symbol_literal },
+        &.{
+            .keyword_select, .identifier, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .select, .symbol_literal, .symbol_literal, .identifier },
     );
     try testAst(
         "select by`a,`c`d from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_literal, .symbol_list_literal },
+        &.{
+            .keyword_select, .identifier,     .symbol_literal, .comma,
+            .symbol_literal, .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .select, .symbol_literal, .symbol_list_literal, .identifier },
     );
     try testAst(
         "select by`a`b,`c from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_list_literal, .symbol_literal },
+        &.{
+            .keyword_select, .identifier,     .symbol_literal, .symbol_literal,
+            .comma,          .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .select, .symbol_list_literal, .symbol_literal, .identifier },
     );
     try testAst(
         "select by`a`b,`c`d from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .symbol_list_literal, .symbol_list_literal },
+        &.{
+            .keyword_select, .identifier,     .symbol_literal, .symbol_literal, .comma,
+            .symbol_literal, .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .select, .symbol_list_literal, .symbol_list_literal, .identifier },
     );
 
     try testAst(
         "select distinct from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier },
         &.{ .select, .identifier },
     );
     try testAst(
         "select distinct a from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select distinct by from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier },
     );
     try testAst(
         "select distinct a by from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select distinct by b from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select distinct a by b from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier, .identifier, .identifier },
+        &.{
+            .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .select, .identifier, .identifier, .identifier },
     );
+
+    if (true) return error.SkipZigTest;
 
     try testAst(
         "select[1]from x",

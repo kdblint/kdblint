@@ -940,6 +940,7 @@ fn parseSelect(p: *Parse) !Node.Index {
         .where_end = where.end,
         .data = .{
             .has_by = has_by,
+            .distinct = distinct,
         },
     };
     return p.setNode(select_node_index, .{
