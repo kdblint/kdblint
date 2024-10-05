@@ -17,6 +17,7 @@ pub const Token = struct {
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
         .{ "select", .keyword_select },
+        .{ "exec", .keyword_exec },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -108,6 +109,7 @@ pub const Token = struct {
 
         // Keywords
         keyword_select,
+        keyword_exec,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
@@ -193,6 +195,7 @@ pub const Token = struct {
 
                 // Keywords
                 .keyword_select => "select",
+                .keyword_exec => "exec",
             };
         }
 
