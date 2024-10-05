@@ -368,6 +368,9 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
         .cannot_apply_iterator_directly => try writer.writeAll("cannot apply iterator directly"),
         .expected_whitespace => try writer.writeAll("expected whitespace"),
 
+        .cannot_combine_limit_expression_and_distinct,
+        => try writer.writeAll("Cannot combine limit expression and distinct in select statement"),
+
         .expected_qsql_token => {
             const found_tag = token_tags[parse_error.token];
             const expected_string = parse_error.extra.expected_string;
@@ -407,6 +410,8 @@ pub const Error = struct {
         cannot_apply_operator_directly,
         cannot_apply_iterator_directly,
         expected_whitespace,
+
+        cannot_combine_limit_expression_and_distinct,
 
         /// `expected_string` is populated.
         expected_qsql_token,
@@ -794,16 +799,16 @@ fn testAstModeRender(
     var tree = try Ast.parse(gpa, source_code, mode);
     defer tree.deinit(gpa);
 
-    // Errors
-    const errors = try gpa.alloc(Error.Tag, tree.errors.len);
-    defer gpa.free(errors);
-    for (tree.errors, 0..) |err, i| errors[i] = err.tag;
-    try std.testing.expectEqualSlices(Error.Tag, &.{}, errors);
-
     // Token tags
     const actual_token_tags: []Token.Tag = tree.tokens.items(.tag);
     try std.testing.expectEqualSlices(Token.Tag, expected_tokens, actual_token_tags[0 .. actual_token_tags.len - 1]);
     try std.testing.expectEqual(.eof, actual_token_tags[actual_token_tags.len - 1]);
+
+    // Errors
+    const actual_errors = try gpa.alloc(Error.Tag, tree.errors.len);
+    defer gpa.free(actual_errors);
+    for (tree.errors, 0..) |err, i| actual_errors[i] = err.tag;
+    try std.testing.expectEqualSlices(Error.Tag, &.{}, actual_errors);
 
     // Node tags
     const actual_nodes: []Node.Tag = tree.nodes.items(.tag);
@@ -860,7 +865,7 @@ fn failAstMode(
     // Errors
     const actual_errors = try gpa.alloc(Error.Tag, tree.errors.len);
     defer gpa.free(actual_errors);
-    for (tree.errors, actual_errors) |err, *tag| tag.* = err.tag;
+    for (tree.errors, 0..) |err, i| actual_errors[i] = err.tag;
     try std.testing.expectEqualSlices(Error.Tag, expected_errors, actual_errors);
     try std.testing.expect(tree.errors.len > 0);
 }
@@ -3543,6 +3548,13 @@ test "select" {
         "select[1]from x",
         &.{ .keyword_select, .l_bracket, .number_literal, .r_bracket, .identifier, .identifier },
         &.{ .select, .number_literal, .identifier },
+    );
+    try failAst(
+        "select[1]distinct from x",
+        &.{
+            .keyword_select, .l_bracket, .number_literal, .r_bracket, .identifier, .identifier, .identifier,
+        },
+        &.{.cannot_combine_limit_expression_and_distinct},
     );
     try testAst(
         "select[1] -1*a from x",
