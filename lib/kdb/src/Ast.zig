@@ -260,8 +260,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
     const tags: []Node.Tag = tree.nodes.items(.tag);
     const datas: []Node.Data = tree.nodes.items(.data);
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
-    var end_offset: Token.Index = 0;
-    _ = &end_offset;
+    const end_offset: Token.Index = 0;
     var n = node;
     while (true) switch (tags[n]) {
         .root,
@@ -343,9 +342,8 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
 
         .select,
         => {
-            const select = tree.extraData(datas[n].lhs, Ast.Node.Select);
-            _ = select; // autofix
-            unreachable;
+            const select = tree.fullSelect(node);
+            n = if (select.where) |where| where.exprs[where.exprs.len - 1] else select.from;
         },
     };
 }
@@ -390,6 +388,94 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
         },
     }
 }
+
+pub fn fullSelect(tree: Ast, node: Node.Index) full.Select {
+    assert(tree.nodes.items(.tag)[node] == .select);
+
+    const data = tree.nodes.items(.data)[node];
+    const select = tree.extraData(data.lhs, Node.Select);
+
+    const select_exprs = tree.extra_data[select.select_start..select.by_start];
+    const by_exprs = tree.extra_data[select.by_start..select.where_start];
+    const where_exprs = tree.extra_data[select.where_start..select.where_end];
+
+    const select_token = tree.nodes.items(.main_token)[node];
+    const limit_expr: ?Node.Index = if (select.limit > 0) select.limit else null;
+    const order_token: ?Token.Index = if (select.order > 0) select.order else null;
+    const distinct_token: ?Token.Index = if (select.data.distinct) select_token + 1 else null;
+    const from_token = tree.firstToken(select.from) - 1;
+
+    const limit: ?full.Select.Limit = if (select.limit > 0 or select.order > 0) .{
+        .l_bracket = select_token + 1,
+        .expr = limit_expr,
+        .order_token = order_token,
+        .r_bracket = if (order_token) |tok|
+            tok + 1
+        else if (limit_expr) |expr|
+            tree.lastToken(expr) + 1
+        else
+            unreachable,
+    } else null;
+
+    const by: ?full.Select.By = if (select.data.has_by) .{
+        .by_token = if (select_exprs.len > 0)
+            tree.lastToken(select_exprs[select_exprs.len - 1]) + 1
+        else if (distinct_token) |tok|
+            tok + 1
+        else if (limit) |l|
+            l.r_bracket + 1
+        else
+            select_token + 1,
+        .exprs = by_exprs,
+    } else null;
+
+    const where: ?full.Select.Where = if (where_exprs.len > 0) .{
+        .where_token = tree.lastToken(select.from) + 1,
+        .exprs = where_exprs,
+    } else null;
+
+    return .{
+        .select_token = select_token,
+        .limit = limit,
+        .distinct_token = distinct_token,
+        .select = select_exprs,
+        .by = by,
+        .from_token = from_token,
+        .from = select.from,
+        .where = where,
+    };
+}
+
+/// Fully assembled AST node information.
+pub const full = struct {
+    pub const Select = struct {
+        select_token: Token.Index,
+        limit: ?Limit,
+        distinct_token: ?Token.Index,
+        select: []Node.Index,
+        by: ?By,
+        from_token: Token.Index,
+        from: Node.Index,
+        where: ?Where,
+
+        pub const Limit = struct {
+            l_bracket: Token.Index,
+            expr: ?Node.Index,
+            order_token: ?Token.Index,
+            r_bracket: Token.Index,
+        };
+
+        pub const By = struct {
+            by_token: Token.Index,
+            exprs: []Node.Index,
+        };
+
+        pub const Where = struct {
+            where_token: Token.Index,
+            exprs: []Node.Index,
+        };
+    };
+};
 
 pub const Error = struct {
     tag: Tag,
@@ -680,18 +766,13 @@ pub const Node = struct {
         columns_end: Index,
     };
 
-    // TODO: Compress
     pub const Select = struct {
         limit: Index,
         order: Token.Index,
         /// Index into extra_data.
         select_start: Index,
         /// Index into extra_data.
-        select_end: Index,
-        /// Index into extra_data.
         by_start: Index,
-        /// Index into extra_data.
-        by_end: Index,
         from: Index,
         /// Index into extra_data.
         where_start: Index,
@@ -3547,6 +3628,13 @@ test "select" {
     try testAst(
         "select[1]from x",
         &.{ .keyword_select, .l_bracket, .number_literal, .r_bracket, .identifier, .identifier },
+        &.{ .select, .number_literal, .identifier },
+    );
+    try testAst(
+        "select[1]by from x",
+        &.{
+            .keyword_select, .l_bracket, .number_literal, .r_bracket, .identifier, .identifier, .identifier,
+        },
         &.{ .select, .number_literal, .identifier },
     );
     try failAst(
