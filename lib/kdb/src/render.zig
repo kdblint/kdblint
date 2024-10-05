@@ -220,99 +220,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .select,
-        => {
-            const select_node = tree.extraData(datas[node].lhs, Ast.Node.Select);
-
-            const select = main_tokens[node];
-            const limit = select_node.limit;
-            const order = select_node.order;
-            const distinct = select_node.data.distinct;
-            const select_exprs = tree.extra_data[select_node.select_start..select_node.select_end];
-            const has_by = select_node.data.has_by;
-            const by_exprs = tree.extra_data[select_node.by_start..select_node.by_end];
-            const from = select_node.from;
-            const where_exprs = tree.extra_data[select_node.where_start..select_node.where_end];
-
-            try renderTokenSpace(r, select); // select
-            if (limit > 0) {
-                try renderToken(r, select + 1, .none); // [
-                if (order > 0) {
-                    try renderExpression(r, limit, .semicolon);
-                    try renderToken(r, order - 1, .none); // < / >
-                    try renderToken(r, order, .none);
-                    try renderTokenSpace(r, order + 1); // ]
-                } else {
-                    try renderExpression(r, limit, .none);
-                    try renderTokenSpace(r, tree.lastToken(limit) + 1); // ]
-                }
-            } else if (order > 0) {
-                try renderToken(r, select + 1, .none); // [
-                try renderToken(r, order - 1, .none); // < / >
-                try renderToken(r, order, .none);
-                try renderTokenSpace(r, order + 1); // ]
-            }
-
-            if (distinct) {
-                try renderTokenSpace(r, select + 1); // distinct
-
-                if (select_exprs.len > 0) {
-                    for (select_exprs) |expr| {
-                        try renderExpression(r, expr, .comma);
-                    }
-
-                    if (has_by) {
-                        const last_token = tree.lastToken(select_exprs[select_exprs.len - 1]);
-                        try renderTokenSpace(r, last_token + 1); // by
-                        for (by_exprs) |expr| {
-                            try renderExpression(r, expr, .comma);
-                        }
-                    }
-                } else {
-                    if (has_by) {
-                        try renderTokenSpace(r, select + 2); // by
-                        for (by_exprs) |expr| {
-                            try renderExpression(r, expr, .comma);
-                        }
-                    }
-                }
-            } else {
-                if (select_exprs.len > 0) {
-                    for (select_exprs) |expr| {
-                        try renderExpression(r, expr, .comma);
-                    }
-
-                    if (has_by) {
-                        const last_token = tree.lastToken(select_exprs[select_exprs.len - 1]);
-                        try renderTokenSpace(r, last_token + 1); // by
-                        for (by_exprs) |expr| {
-                            try renderExpression(r, expr, .comma);
-                        }
-                    }
-                } else {
-                    if (has_by) {
-                        try renderTokenSpace(r, select + 1); // by
-                        for (by_exprs) |expr| {
-                            try renderExpression(r, expr, .comma);
-                        }
-                    }
-                }
-            }
-
-            try renderToken(r, tree.firstToken(from) - 1, .space); // from
-
-            if (where_exprs.len > 0) {
-                try renderExpression(r, from, .space);
-
-                try renderToken(r, tree.lastToken(from) + 1, .space); // where
-                for (where_exprs[0 .. where_exprs.len - 1]) |expr| {
-                    try renderExpression(r, expr, .comma);
-                }
-
-                return renderExpression(r, where_exprs[where_exprs.len - 1], space);
-            } else {
-                return renderExpression(r, from, space);
-            }
-        },
+        => return renderSelect(r, node, space),
     }
 }
 
@@ -718,6 +626,49 @@ fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         try renderExpression(r, param_node, if (i + 1 < params.len) .semicolon_newline else .none);
     }
     return renderToken(r, r_bracket, space);
+}
+
+fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const select = r.tree.fullSelect(node);
+
+    try renderTokenSpace(r, select.select_token); // select
+    if (select.limit) |limit| {
+        try renderToken(r, limit.l_bracket, .none); // [
+        if (limit.expr) |expr| try renderExpression(r, expr, .semicolon);
+        if (limit.order_token) |tok| {
+            try renderToken(r, tok - 1, .none); // < / >
+            try renderToken(r, tok, .none);
+        }
+        try renderTokenSpace(r, limit.r_bracket); // ]
+    }
+
+    if (select.distinct_token) |tok| try renderTokenSpace(r, tok); // distinct
+
+    for (select.select) |expr| {
+        try renderExpression(r, expr, .comma);
+    }
+
+    if (select.by) |by| {
+        try renderTokenSpace(r, by.by_token); // by
+        for (by.exprs) |expr| {
+            try renderExpression(r, expr, .comma);
+        }
+    }
+
+    try renderToken(r, select.from_token, .space); // from
+
+    if (select.where) |where| {
+        try renderExpression(r, select.from, .space);
+
+        try renderToken(r, where.where_token, .space); // where
+        for (where.exprs[0 .. where.exprs.len - 1]) |expr| {
+            try renderExpression(r, expr, .comma);
+        }
+
+        return renderExpression(r, where.exprs[where.exprs.len - 1], space);
+    } else {
+        return renderExpression(r, select.from, space);
+    }
 }
 
 fn renderTokenSpace(r: *Render, token: Token.Index) Error!void {

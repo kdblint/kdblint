@@ -134,6 +134,7 @@ fn tokenSlice(p: *Parse, token_idex: Token.Index) []const u8 {
     return p.source[loc.start..loc.end];
 }
 
+// TODO: Add tests
 fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     const tags: []Node.Tag = p.nodes.items(.tag);
     const datas: []Node.Data = p.nodes.items(.data);
@@ -942,9 +943,7 @@ fn parseSelect(p: *Parse) !Node.Index {
         .limit = limit_expr,
         .order = order_tok,
         .select_start = select.start,
-        .select_end = select.end,
         .by_start = by.start,
-        .by_end = by.end,
         .from = from_expr,
         .where_start = where.start,
         .where_end = where.end,
