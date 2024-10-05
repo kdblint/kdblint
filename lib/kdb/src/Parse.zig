@@ -106,16 +106,6 @@ fn warn(p: *Parse, error_tag: Ast.Error.Tag) !void {
 
 fn warnMsg(p: *Parse, msg: Ast.Error) !void {
     @branchHint(.cold);
-    // switch (msg.tag) {
-    //     .expected_container,
-    //     => if (msg.token != 0 and !p.tokensOnSameLine(msg.token - 1, msg.token)) {
-    //         var copy = msg;
-    //         copy.token_is_prev = true;
-    //         copy.token -= 1;
-    //         return p.errors.append(p.gpa, copy);
-    //     },
-    //     else => {},
-    // }
     try p.errors.append(p.gpa, msg);
 }
 
@@ -153,7 +143,7 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     switch (tag.getType()) {
         // Fail if we are applying a unary operator directly in q.
         .unary_operator => if (p.mode == .q) {
-            return p.failMsg(.{
+            return p.warnMsg(.{
                 .tag = .cannot_apply_operator_directly,
                 .token = main_tokens[lhs],
             });
@@ -161,7 +151,7 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
 
         // Fail if we are projecting an operator with no lhs.
         .binary_operator => if (datas[lhs].lhs == null_node) {
-            return p.failMsg(.{
+            return p.warnMsg(.{
                 .tag = .cannot_project_operator_without_lhs,
                 .token = main_tokens[lhs],
             });
@@ -169,7 +159,7 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
 
         // Fail if we are applying an iterator directly in q.
         .iterator => if (p.mode == .q and tags[rhs] != .expr_block) {
-            return p.failMsg(.{
+            return p.warnMsg(.{
                 .tag = .cannot_apply_iterator_directly,
                 .token = main_tokens[lhs],
             });
@@ -851,7 +841,7 @@ fn parseSelect(p: *Parse) !Node.Index {
         defer p.depth -= 1;
 
         // TODO: Warn only first character is checked for ascending condition.
-        // TODO: Should this be switch to consume expressions instead of tokens?
+        // TODO: Should this be switched to consume expressions instead of tokens?
         switch (p.peekTag()) {
             .angle_bracket_left,
             .angle_bracket_left_colon,
@@ -899,6 +889,10 @@ fn parseSelect(p: *Parse) !Node.Index {
             },
         }
         _ = try p.expectToken(.r_bracket);
+
+        if (p.peekIdentifier(.{ .distinct = true })) |_| {
+            try p.warn(.cannot_combine_limit_expression_and_distinct);
+        }
     }
 
     // Select phrase
@@ -1190,11 +1184,7 @@ fn assertToken(p: *Parse, tag: Token.Tag) Token.Index {
 
 fn expectToken(p: *Parse, tag: Token.Tag) !Token.Index {
     if (p.eatToken(tag)) |token| return token;
-    return p.failMsg(.{
-        .tag = .expected_token,
-        .token = p.tok_i,
-        .extra = .{ .expected_tag = tag },
-    });
+    return p.failExpected(tag);
 }
 
 fn prevTag(p: *Parse) Token.Tag {
