@@ -221,8 +221,11 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .select,
         => {
-            const select = main_tokens[node];
             const select_node = tree.extraData(datas[node].lhs, Ast.Node.Select);
+
+            const select = main_tokens[node];
+            const limit = select_node.limit;
+            const order = select_node.order;
             const distinct = select_node.data.distinct;
             const select_exprs = tree.extra_data[select_node.select_start..select_node.select_end];
             const has_by = select_node.data.has_by;
@@ -231,6 +234,24 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const where_exprs = tree.extra_data[select_node.where_start..select_node.where_end];
 
             try renderTokenSpace(r, select); // select
+            if (limit > 0) {
+                try renderToken(r, select + 1, .none); // [
+                if (order > 0) {
+                    try renderExpression(r, limit, .semicolon);
+                    try renderToken(r, order - 1, .none); // < / >
+                    try renderToken(r, order, .none);
+                    try renderTokenSpace(r, order + 1); // ]
+                } else {
+                    try renderExpression(r, limit, .none);
+                    try renderTokenSpace(r, tree.lastToken(limit) + 1); // ]
+                }
+            } else if (order > 0) {
+                try renderToken(r, select + 1, .none); // [
+                try renderToken(r, order - 1, .none); // < / >
+                try renderToken(r, order, .none);
+                try renderTokenSpace(r, order + 1); // ]
+            }
+
             if (distinct) {
                 try renderTokenSpace(r, select + 1); // distinct
 

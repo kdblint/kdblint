@@ -450,7 +450,10 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
             assert(op != null_node);
 
             if (p.isIterator(op)) {
-                const rhs = try p.parseExpr();
+                const rhs = if (sql_identifier) |sql_id|
+                    try p.parseSqlExpr(sql_id)
+                else
+                    try p.parseExpr();
                 return p.addNode(.{
                     .tag = .apply_binary,
                     .main_token = op,
@@ -499,7 +502,10 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
             const assign_index = try p.reserveNode(assign_tag);
             errdefer p.unreserveNode(assign_index);
 
-            const rhs = try p.parseExpr();
+            const rhs = if (sql_identifier) |sql_id|
+                try p.parseSqlExpr(sql_id)
+            else
+                try p.parseExpr();
 
             return p.setNode(assign_index, .{
                 .tag = assign_tag,
@@ -543,7 +549,10 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
                 try p.parsePrecedence(.iterator);
             assert(op != null_node);
 
-            const rhs = try p.parseExpr();
+            const rhs = if (sql_identifier) |sql_id|
+                try p.parseSqlExpr(sql_id)
+            else
+                try p.parseExpr();
             return p.addNode(.{
                 .tag = .apply_binary,
                 .main_token = op,
@@ -838,6 +847,11 @@ fn parseSelect(p: *Parse) !Node.Index {
     if (p.eatIdentifier(.{ .distinct = true })) |_| {
         distinct = true;
     } else if (p.eatToken(.l_bracket)) |_| {
+        p.depth += 1;
+        defer p.depth -= 1;
+
+        // TODO: Warn only first character is checked for ascending condition.
+        // TODO: Should this be switch to consume expressions instead of tokens?
         switch (p.peekTag()) {
             .angle_bracket_left,
             .angle_bracket_left_colon,
@@ -931,6 +945,8 @@ fn parseSelect(p: *Parse) !Node.Index {
     const by = try p.listToSpan(p.scratch.items[by_top..where_top]);
     const where = try p.listToSpan(p.scratch.items[where_top..]);
     const select_node: Node.Select = .{
+        .limit = limit_expr,
+        .order = order_tok,
         .select_start = select.start,
         .select_end = select.end,
         .by_start = by.start,
@@ -941,6 +957,7 @@ fn parseSelect(p: *Parse) !Node.Index {
         .data = .{
             .has_by = has_by,
             .distinct = distinct,
+            .ascending = ascending,
         },
     };
     return p.setNode(select_node_index, .{
@@ -1050,7 +1067,6 @@ fn parseNumberLiteral(p: *Parse) !Node.Index {
     while (p.peekTag() == .number_literal) {
         const number_literal = p.assertToken(.number_literal);
         try p.scratch.append(p.gpa, number_literal);
-        if (p.eob) break;
     }
 
     const items = p.scratch.items[scratch_top..];
@@ -1083,7 +1099,6 @@ fn parseSymbolLiteral(p: *Parse) !Node.Index {
     while (p.peekTag() == .symbol_literal) {
         const symbol_literal = p.assertToken(.symbol_literal);
         try p.scratch.append(p.gpa, symbol_literal);
-        if (p.eob) break;
         if (p.prevLoc().end != p.peekLoc().start) break;
     }
 

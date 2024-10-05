@@ -675,7 +675,10 @@ pub const Node = struct {
         columns_end: Index,
     };
 
+    // TODO: Compress
     pub const Select = struct {
+        limit: Index,
+        order: Token.Index,
         /// Index into extra_data.
         select_start: Index,
         /// Index into extra_data.
@@ -692,7 +695,8 @@ pub const Node = struct {
         data: packed struct(Index) {
             has_by: bool,
             distinct: bool,
-            _: u30 = 0,
+            ascending: bool,
+            _: u29 = 0,
         },
     };
 };
@@ -790,6 +794,12 @@ fn testAstModeRender(
     var tree = try Ast.parse(gpa, source_code, mode);
     defer tree.deinit(gpa);
 
+    // Errors
+    const errors = try gpa.alloc(Error.Tag, tree.errors.len);
+    defer gpa.free(errors);
+    for (tree.errors, 0..) |err, i| errors[i] = err.tag;
+    try std.testing.expectEqualSlices(Error.Tag, &.{}, errors);
+
     // Token tags
     const actual_token_tags: []Token.Tag = tree.tokens.items(.tag);
     try std.testing.expectEqualSlices(Token.Tag, expected_tokens, actual_token_tags[0 .. actual_token_tags.len - 1]);
@@ -799,9 +809,6 @@ fn testAstModeRender(
     const actual_nodes: []Node.Tag = tree.nodes.items(.tag);
     try std.testing.expectEqualSlices(Node.Tag, expected_nodes, actual_nodes[1..]);
     try std.testing.expectEqual(.root, actual_nodes[0]);
-
-    // Errors
-    try std.testing.expect(tree.errors.len == 0);
 
     // Render
     const actual_source = try render(tree, gpa);
@@ -3532,63 +3539,177 @@ test "select" {
         &.{ .select, .identifier, .identifier, .identifier },
     );
 
-    if (true) return error.SkipZigTest;
-
     try testAst(
         "select[1]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .number_literal },
+        &.{ .keyword_select, .l_bracket, .number_literal, .r_bracket, .identifier, .identifier },
+        &.{ .select, .number_literal, .identifier },
+    );
+    try testAst(
+        "select[1] -1*a from x",
+        &.{
+            .keyword_select, .l_bracket,  .number_literal, .r_bracket,  .number_literal,
+            .asterisk,       .identifier, .identifier,     .identifier,
+        },
+        &.{
+            .select, .number_literal, .number_literal, .asterisk, .identifier, .apply_binary, .identifier,
+        },
     );
     try testAst(
         "select[a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
+        &.{ .keyword_select, .l_bracket, .identifier, .r_bracket, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket,  .identifier, .r_bracket,  .number_literal,
+            .asterisk,       .identifier, .identifier, .identifier,
+        },
+        &.{
+            .select, .identifier, .number_literal, .asterisk, .identifier, .apply_binary, .identifier,
+        },
     );
 
     try testAst(
         "select[1;<a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .number_literal, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .number_literal, .semicolon,  .angle_bracket_left,
+            .identifier,     .r_bracket, .identifier,     .identifier,
+        },
+        &.{ .select, .number_literal, .identifier },
+    );
+    try testAst(
+        "select[1;<a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket,      .number_literal, .semicolon,  .angle_bracket_left, .identifier,
+            .r_bracket,      .number_literal, .asterisk,       .identifier, .identifier,         .identifier,
+        },
+        &.{
+            .select, .number_literal, .number_literal, .asterisk, .identifier, .apply_binary, .identifier,
+        },
     );
     try testAst(
         "select[a;<b]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .identifier, .semicolon,  .angle_bracket_left,
+            .identifier,     .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select[a;<b] -1*c from x",
+        &.{
+            .keyword_select, .l_bracket,      .identifier, .semicolon,  .angle_bracket_left, .identifier,
+            .r_bracket,      .number_literal, .asterisk,   .identifier, .identifier,         .identifier,
+        },
+        &.{
+            .select, .identifier, .number_literal, .asterisk, .identifier, .apply_binary, .identifier,
+        },
     );
 
     try testAst(
         "select[<a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left, .identifier, .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select[<a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left, .identifier, .r_bracket,
+            .number_literal, .asterisk,  .identifier,         .identifier, .identifier,
+        },
+        &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
     );
     try testAst(
         "select[<:a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left_colon, .identifier, .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select[<:a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left_colon, .identifier, .r_bracket,
+            .number_literal, .asterisk,  .identifier,               .identifier, .identifier,
+        },
+        &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
     );
     try testAst(
         "select[<=a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left_equal, .identifier, .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select[<=a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left_equal, .identifier, .r_bracket,
+            .number_literal, .asterisk,  .identifier,               .identifier, .identifier,
+        },
+        &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
     );
     try testAst(
         "select[<>a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left_right, .identifier, .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select[<>a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_left_right, .identifier, .r_bracket,
+            .number_literal, .asterisk,  .identifier,               .identifier, .identifier,
+        },
+        &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
     );
     try testAst(
         "select[>a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_right, .identifier, .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select[>a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_right, .identifier, .r_bracket,
+            .number_literal, .asterisk,  .identifier,          .identifier, .identifier,
+        },
+        &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
     );
     try testAst(
         "select[>:a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_right_colon, .identifier, .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select[>:a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_right_colon, .identifier, .r_bracket,
+            .number_literal, .asterisk,  .identifier,                .identifier, .identifier,
+        },
+        &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
     );
     try testAst(
         "select[>=a]from x",
-        &.{ .keyword_select, .identifier, .identifier },
-        &.{ .select, .identifier, .identifier },
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_right_equal, .identifier, .r_bracket, .identifier, .identifier,
+        },
+        &.{ .select, .identifier },
+    );
+    try testAst(
+        "select[>=a] -1*b from x",
+        &.{
+            .keyword_select, .l_bracket, .angle_bracket_right_equal, .identifier, .r_bracket,
+            .number_literal, .asterisk,  .identifier,                .identifier, .identifier,
+        },
+        &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
     );
 }
