@@ -993,7 +993,6 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
     return true;
 }
 
-// TODO: Test "first select/exec/update/delete ..."
 fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
     const tags: []Token.Tag = r.tree.tokens.items(.tag);
     return switch (tags[token1]) {
@@ -1032,7 +1031,8 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         .identifier,
         .keyword_select,
         .keyword_exec,
-        => tags[token2] == .number_literal or tags[token2] == .identifier,
+        => tags[token2] == .number_literal or tags[token2] == .identifier or
+            tags[token2] == .keyword_select or tags[token2] == .keyword_exec,
 
         else => false,
     };

@@ -17,12 +17,20 @@ mode: Ast.Mode,
 source: []const u8,
 tokens: std.MultiArrayList(Token) = .{},
 tok_i: Token.Index = 0,
-depth: u32 = 0,
 eob: bool = false,
+ends_expr: std.ArrayListUnmanaged(Token.Tag) = .{},
 errors: std.ArrayListUnmanaged(Ast.Error) = .{},
 nodes: std.MultiArrayList(Node) = .{},
 extra_data: std.ArrayListUnmanaged(Node.Index) = .{},
 scratch: std.ArrayListUnmanaged(Node.Index) = .{},
+
+pub fn deinit(p: *Parse) void {
+    p.ends_expr.deinit(p.gpa);
+    p.errors.deinit(p.gpa);
+    p.nodes.deinit(p.gpa);
+    p.extra_data.deinit(p.gpa);
+    p.scratch.deinit(p.gpa);
+}
 
 const Blocks = struct {
     len: usize,
@@ -240,7 +248,7 @@ fn parseBlocks(p: *Parse) !Blocks {
 
 /// Block <- Expr SEMICOLON?
 fn parseBlock(p: *Parse) !Node.Index {
-    const expr = p.parseExpr() catch |err| switch (err) {
+    const expr = p.parseExpr(null) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => blk: {
             p.skipBlock();
@@ -288,51 +296,26 @@ const oper_table = std.enums.directEnumArrayDefault(
 );
 
 /// Expr <- Noun Verb*
-fn parseExpr(p: *Parse) !Node.Index {
-    return p.parsePrecedence(.none);
+fn parseExpr(p: *Parse, comptime sql_identifier: ?SqlIdentifier) !Node.Index {
+    return p.parsePrecedence(.none, sql_identifier);
 }
 
-fn expectExpr(p: *Parse) !Token.Index {
-    const expr = try p.parseExpr();
+fn expectExpr(p: *Parse, comptime sql_identifier: ?SqlIdentifier) !Token.Index {
+    const expr = try p.parseExpr(sql_identifier);
     if (expr != null_node) return expr;
     return p.fail(.expected_expr);
 }
 
-fn parsePrecedence(p: *Parse, min_prec: Precedence) Error!Node.Index {
+fn parsePrecedence(p: *Parse, min_prec: Precedence, comptime sql_identifier: ?SqlIdentifier) Error!Node.Index {
+    if (sql_identifier) |sql_id| if (p.peekIdentifier(sql_id)) |_| return null_node;
     var node = try p.parseNoun();
     if (node == null_node) {
         return null_node;
     }
 
     while (true) {
-        const prec = oper_table[@intFromEnum(p.peekTag())];
-        if (@intFromEnum(min_prec) > @intFromEnum(prec)) break;
-        node = try p.parseVerb(node, null);
-    }
-
-    return node;
-}
-
-fn parseSqlExpr(p: *Parse, comptime sql_identifier: SqlIdentifier) !Node.Index {
-    return p.parseSqlPrecedence(.none, sql_identifier);
-}
-
-fn expectSqlExpr(p: *Parse, comptime sql_identifier: SqlIdentifier) !Token.Index {
-    const expr = try p.parseSqlExpr(sql_identifier);
-    if (expr != null_node) return expr;
-    return p.fail(.expected_expr);
-}
-
-fn parseSqlPrecedence(p: *Parse, min_prec: Precedence, comptime sql_identifier: SqlIdentifier) Error!Node.Index {
-    if (p.peekIdentifier(sql_identifier)) |_| return null_node;
-    var node = try p.parseNoun();
-    if (node == null_node) {
-        return null_node;
-    }
-
-    while (true) {
-        if (p.peekIdentifier(sql_identifier)) |_| break;
-        const prec = if (p.peekTag() == .comma)
+        if (sql_identifier) |sql_id| if (p.peekIdentifier(sql_id)) |_| break;
+        const prec = if (sql_identifier != null and p.peekTag() == .comma)
             .stop
         else
             oper_table[@intFromEnum(p.peekTag())];
@@ -424,11 +407,14 @@ fn parseNoun(p: *Parse) !Node.Index {
     return p.parseIterator(noun);
 }
 
+// TODO: Test comma returns lhs.
 /// Verb <- Expr*
 fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier) !Node.Index {
     assert(lhs != null_node);
 
     const tag = p.peekTag();
+    if (p.ends_expr.items.len > 0 and tag == p.ends_expr.items[p.ends_expr.items.len - 1]) return lhs;
+
     switch (tag) {
         .l_paren,
         .l_brace,
@@ -436,18 +422,14 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .string_literal,
         .symbol_literal,
         .identifier,
+        .keyword_select,
+        .keyword_exec,
         => {
-            const op = if (sql_identifier) |sql_id|
-                try p.parseSqlPrecedence(.iterator, sql_id)
-            else
-                try p.parsePrecedence(.iterator);
+            const op = try p.parsePrecedence(.iterator, sql_identifier);
             assert(op != null_node);
 
             if (p.isIterator(op)) {
-                const rhs = if (sql_identifier) |sql_id|
-                    try p.parseSqlExpr(sql_id)
-                else
-                    try p.parseExpr();
+                const rhs = try p.parseExpr(sql_identifier);
                 return p.addNode(.{
                     .tag = .apply_binary,
                     .main_token = op,
@@ -471,10 +453,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
 
         .l_bracket,
         => {
-            const rhs = if (sql_identifier) |sql_id|
-                try p.parseSqlPrecedence(.call, sql_id)
-            else
-                try p.parsePrecedence(.call);
+            const rhs = try p.parsePrecedence(.call, sql_identifier);
             const apply_unary = try p.addNode(.{
                 .tag = .apply_unary,
                 .main_token = undefined,
@@ -496,11 +475,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
             const assign_index = try p.reserveNode(assign_tag);
             errdefer p.unreserveNode(assign_index);
 
-            const rhs = if (sql_identifier) |sql_id|
-                try p.parseSqlExpr(sql_id)
-            else
-                try p.parseExpr();
-
+            const rhs = try p.parseExpr(sql_identifier);
             return p.setNode(assign_index, .{
                 .tag = assign_tag,
                 .main_token = main_token,
@@ -537,16 +512,10 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .one_colon,
         .two_colon,
         => {
-            const op = if (sql_identifier) |sql_id|
-                try p.parseSqlPrecedence(.iterator, sql_id)
-            else
-                try p.parsePrecedence(.iterator);
+            const op = try p.parsePrecedence(.iterator, sql_identifier);
             assert(op != null_node);
 
-            const rhs = if (sql_identifier) |sql_id|
-                try p.parseSqlExpr(sql_id)
-            else
-                try p.parseExpr();
+            const rhs = try p.parseExpr(sql_identifier);
             return p.addNode(.{
                 .tag = .apply_binary,
                 .main_token = op,
@@ -557,7 +526,12 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
             });
         },
 
-        else => return lhs,
+        .semicolon,
+        .eob,
+        .eof,
+        => return lhs,
+
+        else => return p.fail(.expected_expr),
     }
 }
 
@@ -603,8 +577,8 @@ fn parseGroup(p: *Parse) !Node.Index {
         });
     }
 
-    p.depth += 1;
-    defer p.depth -= 1;
+    try p.ends_expr.append(p.gpa, .r_paren);
+    defer assert(p.ends_expr.pop() == .r_paren);
 
     const table = try p.parseTable(l_paren);
     if (table != null_node) {
@@ -618,7 +592,7 @@ fn parseGroup(p: *Parse) !Node.Index {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     while (true) {
-        const expr = try p.parseExpr();
+        const expr = try p.parseExpr(null);
         try p.scratch.append(p.gpa, if (expr == null_node)
             try p.parseEmpty()
         else
@@ -661,20 +635,25 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     const keys_top = p.scratch.items.len;
-    if (p.peekTag() != .r_bracket) {
-        while (true) {
-            const expr = try p.expectExpr();
-            try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.semicolon)) |_| continue;
-            break;
+    {
+        try p.ends_expr.append(p.gpa, .r_bracket);
+        defer assert(p.ends_expr.pop() == .r_bracket);
+
+        if (p.peekTag() != .r_bracket) {
+            while (true) {
+                const expr = try p.expectExpr(null);
+                try p.scratch.append(p.gpa, expr);
+                if (p.eatToken(.semicolon)) |_| continue;
+                break;
+            }
         }
+        _ = try p.expectToken(.r_bracket);
     }
-    _ = try p.expectToken(.r_bracket);
 
     const columns_top = p.scratch.items.len;
 
     while (true) {
-        const expr = try p.expectExpr();
+        const expr = try p.expectExpr(null);
         try p.scratch.append(p.gpa, expr);
         if (p.eatToken(.semicolon)) |_| continue;
         break;
@@ -705,8 +684,8 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
 fn parseLambda(p: *Parse) !Node.Index {
     const l_brace = p.assertToken(.l_brace);
 
-    p.depth += 1;
-    defer p.depth -= 1;
+    try p.ends_expr.append(p.gpa, .r_brace);
+    defer assert(p.ends_expr.pop() == .r_brace);
 
     const lambda_index = try p.reserveNode(.lambda);
     errdefer p.unreserveNode(lambda_index);
@@ -745,7 +724,7 @@ fn parseLambda(p: *Parse) !Node.Index {
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
         while (true) {
-            const expr = try p.parseExpr();
+            const expr = try p.parseExpr(null);
             if (expr != null_node) {
                 try p.scratch.append(p.gpa, expr);
             }
@@ -790,8 +769,8 @@ fn parseExprBlock(p: *Parse) !Node.Index {
         });
     }
 
-    p.depth += 1;
-    defer p.depth -= 1;
+    try p.ends_expr.append(p.gpa, .r_bracket);
+    defer assert(p.ends_expr.pop() == .r_bracket);
 
     const expr_block_index = try p.reserveNode(.expr_block);
     errdefer p.unreserveNode(expr_block_index);
@@ -801,7 +780,7 @@ fn parseExprBlock(p: *Parse) !Node.Index {
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
         while (true) {
-            const expr = try p.parseExpr();
+            const expr = try p.parseExpr(null);
             try p.scratch.append(p.gpa, if (expr == null_node)
                 try p.parseEmpty()
             else
@@ -841,9 +820,6 @@ fn parseSelect(p: *Parse) !Node.Index {
     if (p.eatIdentifier(.{ .distinct = true })) |_| {
         distinct = true;
     } else if (p.eatToken(.l_bracket)) |_| {
-        p.depth += 1;
-        defer p.depth -= 1;
-
         // TODO: Warn only first character is checked for ascending condition.
         // TODO: Should this be switched to consume expressions instead of tokens?
         switch (p.peekTag()) {
@@ -866,7 +842,10 @@ fn parseSelect(p: *Parse) !Node.Index {
             },
 
             else => {
-                limit_expr = try p.expectExpr();
+                try p.ends_expr.append(p.gpa, .r_bracket);
+                defer assert(p.ends_expr.pop() == .r_bracket);
+
+                limit_expr = try p.expectExpr(null);
                 if (p.eatToken(.semicolon)) |_| {
                     switch (p.peekTag()) {
                         .angle_bracket_left,
@@ -903,7 +882,7 @@ fn parseSelect(p: *Parse) !Node.Index {
     const select_top = p.scratch.items.len;
     if (p.peekIdentifier(.{ .by = true, .from = true }) == null) {
         while (true) {
-            const expr = try p.expectSqlExpr(.{ .by = true, .from = true });
+            const expr = try p.expectExpr(.{ .by = true, .from = true });
             try p.scratch.append(p.gpa, expr);
             if (p.eatToken(.comma)) |_| continue;
             break;
@@ -914,11 +893,11 @@ fn parseSelect(p: *Parse) !Node.Index {
     const by_top = p.scratch.items.len;
     const has_by = p.eatIdentifier(.{ .by = true }) != null;
     if (has_by) {
-        const first_expr = try p.parseSqlExpr(.{ .from = true });
+        const first_expr = try p.parseExpr(.{ .from = true });
         if (first_expr > 0) {
             try p.scratch.append(p.gpa, first_expr);
             while (p.eatToken(.comma)) |_| {
-                const expr = try p.expectSqlExpr(.{ .from = true });
+                const expr = try p.expectExpr(.{ .from = true });
                 try p.scratch.append(p.gpa, expr);
             }
         }
@@ -926,13 +905,13 @@ fn parseSelect(p: *Parse) !Node.Index {
 
     // From phrase
     _ = try p.expectIdentifier(.{ .from = true });
-    const from_expr = try p.expectSqlExpr(.{ .where = true });
+    const from_expr = try p.expectExpr(.{ .where = true });
 
     // Where phrase
     const where_top = p.scratch.items.len;
     if (p.eatIdentifier(.{ .where = true })) |_| {
         while (true) {
-            const expr = try p.expectSqlExpr(.{});
+            const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
             if (p.eatToken(.comma)) |_| continue;
             break;
@@ -979,7 +958,7 @@ fn parseExec(p: *Parse) !Node.Index {
     const select_top = p.scratch.items.len;
     if (p.peekIdentifier(.{ .by = true, .from = true }) == null) {
         while (true) {
-            const expr = try p.expectSqlExpr(.{ .by = true, .from = true });
+            const expr = try p.expectExpr(.{ .by = true, .from = true });
             try p.scratch.append(p.gpa, expr);
             if (p.eatToken(.comma)) |_| continue;
             break;
@@ -990,7 +969,7 @@ fn parseExec(p: *Parse) !Node.Index {
     const by_top = p.scratch.items.len;
     if (p.eatIdentifier(.{ .by = true })) |_| {
         while (true) {
-            const expr = try p.expectSqlExpr(.{ .from = true });
+            const expr = try p.expectExpr(.{ .from = true });
             try p.scratch.append(p.gpa, expr);
             if (p.eatToken(.comma)) |_| continue;
             break;
@@ -999,13 +978,13 @@ fn parseExec(p: *Parse) !Node.Index {
 
     // From phrase
     _ = try p.expectIdentifier(.{ .from = true });
-    const from_expr = try p.expectSqlExpr(.{ .where = true });
+    const from_expr = try p.expectExpr(.{ .where = true });
 
     // Where phrase
     const where_top = p.scratch.items.len;
     if (p.eatIdentifier(.{ .where = true })) |_| {
         while (true) {
-            const expr = try p.expectSqlExpr(.{});
+            const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
             if (p.eatToken(.comma)) |_| continue;
             break;
@@ -1313,7 +1292,7 @@ fn isEob(p: *Parse, token_index: Token.Index) bool {
 
     const tag = tags[token_index];
     switch (tag) {
-        .semicolon => return p.depth == 0,
+        .semicolon => return p.ends_expr.items.len == 0,
         .eof => return true,
         else => {
             if (tags[token_index + 1] == .eof) return true;
