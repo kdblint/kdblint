@@ -315,7 +315,7 @@ fn parsePrecedence(p: *Parse, min_prec: Precedence, comptime sql_identifier: ?Sq
 
     while (true) {
         if (sql_identifier) |sql_id| if (p.peekIdentifier(sql_id)) |_| break;
-        const prec = if (sql_identifier != null and p.peekTag() == .comma)
+        const prec: Precedence = if (sql_identifier != null and p.peekTag() == .comma)
             .stop
         else
             oper_table[@intFromEnum(p.peekTag())];
@@ -407,7 +407,6 @@ fn parseNoun(p: *Parse) !Node.Index {
     return p.parseIterator(noun);
 }
 
-// TODO: Test comma returns lhs.
 /// Verb <- Expr*
 fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier) !Node.Index {
     assert(lhs != null_node);
