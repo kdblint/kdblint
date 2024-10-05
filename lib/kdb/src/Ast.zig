@@ -76,10 +76,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .source = source,
         .tokens = tokens,
     };
-    defer parser.errors.deinit(gpa);
-    defer parser.nodes.deinit(gpa);
-    defer parser.extra_data.deinit(gpa);
-    defer parser.scratch.deinit(gpa);
+    defer parser.deinit();
 
     // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
     // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
@@ -367,7 +364,7 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
         .expected_expr => try writer.print("expected expression, found '{s}'", .{
             token_tags[parse_error.token].symbol(),
         }),
-        .expected_prefix_expr => try writer.writeAll("expected prefix expr"),
+
         .cannot_project_operator_without_lhs => try writer.writeAll("cannot project operator without lhs"),
         .cannot_apply_operator_directly => try writer.writeAll("cannot apply operator directly"),
         .cannot_apply_iterator_directly => try writer.writeAll("cannot apply iterator directly"),
@@ -553,7 +550,6 @@ pub const Error = struct {
 
     pub const Tag = enum {
         expected_expr,
-        expected_prefix_expr,
         cannot_project_operator_without_lhs,
         cannot_apply_operator_directly,
         cannot_apply_iterator_directly,
@@ -2043,6 +2039,20 @@ test "nested paren/bracket/brace" {
         "((()))",
         &.{ .l_paren, .l_paren, .l_paren, .r_paren, .r_paren, .r_paren },
         &.{ .grouped_expression, .grouped_expression, .empty_list },
+    );
+}
+
+// TODO: update/delete
+test "whitespace" {
+    try testAst(
+        "first select from x",
+        &.{ .identifier, .keyword_select, .identifier, .identifier },
+        &.{ .identifier, .select, .identifier, .apply_unary },
+    );
+    try testAst(
+        "first exec from x",
+        &.{ .identifier, .keyword_exec, .identifier, .identifier },
+        &.{ .identifier, .exec, .identifier, .apply_unary },
     );
 }
 
