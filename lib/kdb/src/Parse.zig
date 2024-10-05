@@ -416,6 +416,9 @@ fn parseNoun(p: *Parse) !Node.Index {
         .keyword_select,
         => try p.parseSelect(),
 
+        .keyword_exec,
+        => try p.parseExec(),
+
         else => null_node,
     };
     return p.parseIterator(noun);
@@ -958,6 +961,72 @@ fn parseSelect(p: *Parse) !Node.Index {
         .main_token = select_token,
         .data = .{
             .lhs = try p.addExtra(select_node),
+            .rhs = undefined,
+        },
+    });
+}
+
+fn parseExec(p: *Parse) !Node.Index {
+    const exec_token = p.assertToken(.keyword_exec);
+
+    const exec_node_index = try p.reserveNode(.exec);
+    errdefer p.unreserveNode(exec_node_index);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    // Select phrase
+    const select_top = p.scratch.items.len;
+    if (p.peekIdentifier(.{ .by = true, .from = true }) == null) {
+        while (true) {
+            const expr = try p.expectSqlExpr(.{ .by = true, .from = true });
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
+    }
+
+    // By phrase
+    const by_top = p.scratch.items.len;
+    if (p.eatIdentifier(.{ .by = true })) |_| {
+        while (true) {
+            const expr = try p.expectSqlExpr(.{ .from = true });
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
+    }
+
+    // From phrase
+    _ = try p.expectIdentifier(.{ .from = true });
+    const from_expr = try p.expectSqlExpr(.{ .where = true });
+
+    // Where phrase
+    const where_top = p.scratch.items.len;
+    if (p.eatIdentifier(.{ .where = true })) |_| {
+        while (true) {
+            const expr = try p.expectSqlExpr(.{});
+            try p.scratch.append(p.gpa, expr);
+            if (p.eatToken(.comma)) |_| continue;
+            break;
+        }
+    }
+
+    const select = try p.listToSpan(p.scratch.items[select_top..by_top]);
+    const by = try p.listToSpan(p.scratch.items[by_top..where_top]);
+    const where = try p.listToSpan(p.scratch.items[where_top..]);
+    const exec_node: Node.Exec = .{
+        .select_start = select.start,
+        .by_start = by.start,
+        .from = from_expr,
+        .where_start = where.start,
+        .where_end = where.end,
+    };
+    return p.setNode(exec_node_index, .{
+        .tag = .exec,
+        .main_token = exec_token,
+        .data = .{
+            .lhs = try p.addExtra(exec_node),
             .rhs = undefined,
         },
     });

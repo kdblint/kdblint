@@ -252,6 +252,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] + end_offset,
 
         .select,
+        .exec,
         => return main_tokens[n] + end_offset,
     };
 }
@@ -344,6 +345,12 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => {
             const select = tree.fullSelect(node);
             n = if (select.where) |where| where.exprs[where.exprs.len - 1] else select.from;
+        },
+
+        .exec,
+        => {
+            const exec = tree.fullExec(node);
+            n = if (exec.where) |where| where.exprs[where.exprs.len - 1] else exec.from;
         },
     };
 }
@@ -446,6 +453,42 @@ pub fn fullSelect(tree: Ast, node: Node.Index) full.Select {
     };
 }
 
+pub fn fullExec(tree: Ast, node: Node.Index) full.Exec {
+    assert(tree.nodes.items(.tag)[node] == .exec);
+
+    const data = tree.nodes.items(.data)[node];
+    const exec = tree.extraData(data.lhs, Node.Exec);
+
+    const select_exprs = tree.extra_data[exec.select_start..exec.by_start];
+    const by_exprs = tree.extra_data[exec.by_start..exec.where_start];
+    const where_exprs = tree.extra_data[exec.where_start..exec.where_end];
+
+    const exec_token = tree.nodes.items(.main_token)[node];
+    const from_token = tree.firstToken(exec.from) - 1;
+
+    const by: ?full.Exec.By = if (by_exprs.len > 0) .{
+        .by_token = if (select_exprs.len > 0)
+            tree.lastToken(select_exprs[select_exprs.len - 1]) + 1
+        else
+            exec_token + 1,
+        .exprs = by_exprs,
+    } else null;
+
+    const where: ?full.Exec.Where = if (where_exprs.len > 0) .{
+        .where_token = tree.lastToken(exec.from) + 1,
+        .exprs = where_exprs,
+    } else null;
+
+    return .{
+        .exec_token = exec_token,
+        .select = select_exprs,
+        .by = by,
+        .from_token = from_token,
+        .from = exec.from,
+        .where = where,
+    };
+}
+
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const Select = struct {
@@ -464,6 +507,25 @@ pub const full = struct {
             order_token: ?Token.Index,
             r_bracket: Token.Index,
         };
+
+        pub const By = struct {
+            by_token: Token.Index,
+            exprs: []Node.Index,
+        };
+
+        pub const Where = struct {
+            where_token: Token.Index,
+            exprs: []Node.Index,
+        };
+    };
+
+    pub const Exec = struct {
+        exec_token: Token.Index,
+        select: []Node.Index,
+        by: ?By,
+        from_token: Token.Index,
+        from: Node.Index,
+        where: ?Where,
 
         pub const By = struct {
             by_token: Token.Index,
@@ -648,6 +710,8 @@ pub const Node = struct {
 
         /// `select lhs`. rhs unused. main_token is the `select`. `Select[lhs]`.
         select,
+        /// `exec lhs`. rhs unused. main_token is the `exec`. `Exec[lhs]`.
+        exec,
 
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
@@ -725,6 +789,7 @@ pub const Node = struct {
                 => .other,
 
                 .select,
+                .exec,
                 => .other,
             };
         }
@@ -784,6 +849,18 @@ pub const Node = struct {
             ascending: bool,
             _: u29 = 0,
         },
+    };
+
+    pub const Exec = struct {
+        /// Index into extra_data.
+        select_start: Index,
+        /// Index into extra_data.
+        by_start: Index,
+        from: Index,
+        /// Index into extra_data.
+        where_start: Index,
+        /// Index into extra_data.
+        where_end: Index,
     };
 };
 
@@ -3811,5 +3888,253 @@ test "select" {
             .number_literal, .asterisk,  .identifier,                .identifier, .identifier,
         },
         &.{ .select, .number_literal, .asterisk, .identifier, .apply_binary, .identifier },
+    );
+}
+
+test "exec" {
+    try testAst(
+        "exec from x",
+        &.{ .keyword_exec, .identifier, .identifier },
+        &.{ .exec, .identifier },
+    );
+    try testAst(
+        "exec a from x",
+        &.{ .keyword_exec, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a:a from x",
+        &.{ .keyword_exec, .identifier, .colon, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .assign, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a,b from x",
+        &.{ .keyword_exec, .identifier, .comma, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec by c from x",
+        &.{ .keyword_exec, .identifier, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .identifier },
+    );
+    try testAst(
+        "exec by c:c from x",
+        &.{ .keyword_exec, .identifier, .identifier, .colon, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .assign, .identifier, .identifier },
+    );
+    try testAst(
+        "exec by c,d from x",
+        &.{ .keyword_exec, .identifier, .identifier, .comma, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a by c from x",
+        &.{ .keyword_exec, .identifier, .identifier, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a:a by c from x",
+        &.{
+            .keyword_exec, .identifier, .colon, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .assign, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a by c:c from x",
+        &.{
+            .keyword_exec, .identifier, .identifier, .identifier, .colon, .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .identifier, .assign, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a:a by c:c from x",
+        &.{
+            .keyword_exec, .identifier, .colon,      .identifier, .identifier,
+            .identifier,   .colon,      .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .assign, .identifier, .identifier, .assign, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a,b by c,d from x",
+        &.{
+            .keyword_exec, .identifier, .comma,      .identifier, .identifier,
+            .identifier,   .comma,      .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec from x where e",
+        &.{ .keyword_exec, .identifier, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .identifier },
+    );
+    try testAst(
+        "exec from x where e,f",
+        &.{ .keyword_exec, .identifier, .identifier, .identifier, .identifier, .comma, .identifier },
+        &.{ .exec, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a from x where e",
+        &.{ .keyword_exec, .identifier, .identifier, .identifier, .identifier, .identifier },
+        &.{ .exec, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a:a from x where e",
+        &.{
+            .keyword_exec, .identifier, .colon, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .assign, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a,b from x where e,f",
+        &.{
+            .keyword_exec, .identifier, .comma,      .identifier, .identifier,
+            .identifier,   .identifier, .identifier, .comma,      .identifier,
+        },
+        &.{ .exec, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec by c from x where e",
+        &.{
+            .keyword_exec, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec by c:c from x where e",
+        &.{
+            .keyword_exec, .identifier, .identifier, .colon,      .identifier,
+            .identifier,   .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .assign, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec by c,d from x where e,f",
+        &.{
+            .keyword_exec, .identifier, .identifier, .comma, .identifier, .identifier,
+            .identifier,   .identifier, .identifier, .comma, .identifier,
+        },
+        &.{ .exec, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a by c from x where e",
+        &.{
+            .keyword_exec, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a:a by c from x where e",
+        &.{
+            .keyword_exec, .identifier, .colon,      .identifier, .identifier,
+            .identifier,   .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .assign, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a by c:c from x where e",
+        &.{
+            .keyword_exec, .identifier, .identifier, .identifier, .colon,
+            .identifier,   .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .exec, .identifier, .identifier, .assign, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "exec a:a by c:c from x where e",
+        &.{
+            .keyword_exec, .identifier, .colon,      .identifier, .identifier, .identifier,
+            .colon,        .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{
+            .exec, .identifier, .assign, .identifier, .identifier, .assign, .identifier, .identifier, .identifier,
+        },
+    );
+    try testAst(
+        "exec a,b by c,d from x where e,f",
+        &.{
+            .keyword_exec, .identifier, .comma,      .identifier, .identifier, .identifier, .comma,
+            .identifier,   .identifier, .identifier, .identifier, .identifier, .comma,      .identifier,
+        },
+        &.{
+            .exec, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+    );
+
+    try testAst(
+        "exec`a from x",
+        &.{ .keyword_exec, .symbol_literal, .identifier, .identifier },
+        &.{ .exec, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "exec`a`b from x",
+        &.{ .keyword_exec, .symbol_literal, .symbol_literal, .identifier, .identifier },
+        &.{ .exec, .symbol_list_literal, .identifier },
+    );
+    try testAst(
+        "exec`a,`c from x",
+        &.{ .keyword_exec, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier },
+        &.{ .exec, .symbol_literal, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "exec`a,`c`d from x",
+        &.{
+            .keyword_exec, .symbol_literal, .comma, .symbol_literal, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .exec, .symbol_literal, .symbol_list_literal, .identifier },
+    );
+    try testAst(
+        "exec`a`b,`c from x",
+        &.{
+            .keyword_exec, .symbol_literal, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .exec, .symbol_list_literal, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "exec`a`b,`c`d from x",
+        &.{
+            .keyword_exec,   .symbol_literal, .symbol_literal, .comma,
+            .symbol_literal, .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .exec, .symbol_list_literal, .symbol_list_literal, .identifier },
+    );
+    try testAst(
+        "exec by`a from x",
+        &.{ .keyword_exec, .identifier, .symbol_literal, .identifier, .identifier },
+        &.{ .exec, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "exec by`a`b from x",
+        &.{ .keyword_exec, .identifier, .symbol_literal, .symbol_literal, .identifier, .identifier },
+        &.{ .exec, .symbol_list_literal, .identifier },
+    );
+    try testAst(
+        "exec by`a,`c from x",
+        &.{
+            .keyword_exec, .identifier, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .exec, .symbol_literal, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "exec by`a,`c`d from x",
+        &.{
+            .keyword_exec,   .identifier,     .symbol_literal, .comma,
+            .symbol_literal, .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .exec, .symbol_literal, .symbol_list_literal, .identifier },
+    );
+    try testAst(
+        "exec by`a`b,`c from x",
+        &.{
+            .keyword_exec, .identifier,     .symbol_literal, .symbol_literal,
+            .comma,        .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .exec, .symbol_list_literal, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "exec by`a`b,`c`d from x",
+        &.{
+            .keyword_exec,   .identifier,     .symbol_literal, .symbol_literal, .comma,
+            .symbol_literal, .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .exec, .symbol_list_literal, .symbol_list_literal, .identifier },
     );
 }

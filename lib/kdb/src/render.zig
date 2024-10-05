@@ -221,6 +221,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .select,
         => return renderSelect(r, node, space),
+
+        .exec,
+        => return renderExec(r, node, space),
     }
 }
 
@@ -671,6 +674,38 @@ fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     }
 }
 
+fn renderExec(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const exec = r.tree.fullExec(node);
+
+    try renderTokenSpace(r, exec.exec_token); // exec
+
+    for (exec.select) |expr| {
+        try renderExpression(r, expr, .comma);
+    }
+
+    if (exec.by) |by| {
+        try renderTokenSpace(r, by.by_token); // by
+        for (by.exprs) |expr| {
+            try renderExpression(r, expr, .comma);
+        }
+    }
+
+    try renderToken(r, exec.from_token, .space); // from
+
+    if (exec.where) |where| {
+        try renderExpression(r, exec.from, .space);
+
+        try renderToken(r, where.where_token, .space); // where
+        for (where.exprs[0 .. where.exprs.len - 1]) |expr| {
+            try renderExpression(r, expr, .comma);
+        }
+
+        return renderExpression(r, where.exprs[where.exprs.len - 1], space);
+    } else {
+        return renderExpression(r, exec.from, space);
+    }
+}
+
 fn renderTokenSpace(r: *Render, token: Token.Index) Error!void {
     const space = getSpace(r, token, token + 1);
     return renderToken(r, token, space);
@@ -958,6 +993,7 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
     return true;
 }
 
+// TODO: Test "first select/exec/update/delete ..."
 fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
     const tags: []Token.Tag = r.tree.tokens.items(.tag);
     return switch (tags[token1]) {
@@ -995,6 +1031,7 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
 
         .identifier,
         .keyword_select,
+        .keyword_exec,
         => tags[token2] == .number_literal or tags[token2] == .identifier,
 
         else => false,
