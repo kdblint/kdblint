@@ -223,7 +223,12 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => return renderSelect(r, node, space),
 
         .exec,
-        => return renderExec(r, node, space),
+        => {
+            const exec = r.tree.fullExec(node);
+
+            try renderTokenSpace(r, exec.exec_token); // exec
+            return renderSqlCommon(r, exec, space);
+        },
     }
 }
 
@@ -647,62 +652,34 @@ fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
     if (select.distinct_token) |tok| try renderTokenSpace(r, tok); // distinct
 
-    for (select.select) |expr| {
-        try renderExpression(r, expr, .comma);
-    }
-
-    if (select.by) |by| {
-        try renderTokenSpace(r, by.by_token); // by
-        for (by.exprs) |expr| {
-            try renderExpression(r, expr, .comma);
-        }
-    }
-
-    try renderToken(r, select.from_token, .space); // from
-
-    if (select.where) |where| {
-        try renderExpression(r, select.from, .space);
-
-        try renderToken(r, where.where_token, .space); // where
-        for (where.exprs[0 .. where.exprs.len - 1]) |expr| {
-            try renderExpression(r, expr, .comma);
-        }
-
-        return renderExpression(r, where.exprs[where.exprs.len - 1], space);
-    } else {
-        return renderExpression(r, select.from, space);
-    }
+    return renderSqlCommon(r, select, space);
 }
 
-fn renderExec(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
-    const exec = r.tree.fullExec(node);
-
-    try renderTokenSpace(r, exec.exec_token); // exec
-
-    for (exec.select) |expr| {
+fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
+    for (data.select) |expr| {
         try renderExpression(r, expr, .comma);
     }
 
-    if (exec.by) |by| {
+    if (data.by) |by| {
         try renderTokenSpace(r, by.by_token); // by
         for (by.exprs) |expr| {
             try renderExpression(r, expr, .comma);
         }
     }
 
-    try renderToken(r, exec.from_token, .space); // from
+    try renderToken(r, data.from_token, .space); // from
 
-    if (exec.where) |where| {
-        try renderExpression(r, exec.from, .space);
+    if (data.where) |where| {
+        try renderExpression(r, data.from, .space);
 
-        try renderToken(r, where.where_token, .space); // where
+        try renderTokenSpace(r, where.where_token); // where
         for (where.exprs[0 .. where.exprs.len - 1]) |expr| {
             try renderExpression(r, expr, .comma);
         }
 
         return renderExpression(r, where.exprs[where.exprs.len - 1], space);
     } else {
-        return renderExpression(r, exec.from, space);
+        return renderExpression(r, data.from, space);
     }
 }
 

@@ -3468,6 +3468,40 @@ test "render expression blocks" {
     );
 }
 
+// TODO: update/delete
+test "select/exec with commas" {
+    try testAst(
+        "select(a,b),c by(d,e),f from x where(g,h),i",
+        &.{
+            .keyword_select, .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .identifier, .identifier, .l_paren, .identifier, .comma,   .identifier, .r_paren,
+            .comma,          .identifier,
+        },
+        &.{
+            .select,       .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
+            .identifier,   .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
+            .identifier,   .identifier,         .grouped_expression, .identifier, .comma,      .identifier,
+            .apply_binary, .identifier,
+        },
+    );
+    try testAst(
+        "exec(a,b),c by(d,e),f from x where(g,h),i",
+        &.{
+            .keyword_exec, .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,   .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,   .identifier, .identifier, .l_paren, .identifier, .comma,   .identifier, .r_paren,
+            .comma,        .identifier,
+        },
+        &.{
+            .exec,         .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
+            .identifier,   .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
+            .identifier,   .identifier,         .grouped_expression, .identifier, .comma,      .identifier,
+            .apply_binary, .identifier,
+        },
+    );
+}
+
 test "select" {
     try testAst(
         "select from x",
