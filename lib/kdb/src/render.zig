@@ -229,6 +229,14 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderTokenSpace(r, exec.exec_token); // exec
             return renderSqlCommon(r, exec, space);
         },
+
+        .update,
+        => {
+            const update = r.tree.fullUpdate(node);
+
+            try renderTokenSpace(r, update.update_token); // update
+            return renderSqlCommon(r, update, space);
+        },
     }
 }
 
@@ -1008,8 +1016,9 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         .identifier,
         .keyword_select,
         .keyword_exec,
+        .keyword_update,
         => tags[token2] == .number_literal or tags[token2] == .identifier or
-            tags[token2] == .keyword_select or tags[token2] == .keyword_exec,
+            tags[token2] == .keyword_select or tags[token2] == .keyword_exec or tags[token2] == .keyword_update,
 
         else => false,
     };

@@ -2664,24 +2664,6 @@ test "call - implicit projection" {
     }, "({x+y};1)");
 }
 
-test "update" {
-    try testParse("update a from x", &.{ .implicit_return, .update, .identifier, .identifier }, "(!;`x;();0b;(,`a)!,`a)");
-    try testParse("update a,b from x", &.{ .implicit_return, .update, .identifier, .identifier, .identifier }, "(!;`x;();0b;`a`b!`a`b)");
-    try testParse("update a by c from x", &.{ .implicit_return, .update, .identifier, .identifier, .identifier }, "(!;`x;();(,`c)!,`c;(,`a)!,`a)");
-    try testParse("update a,b by c,d from x", &.{ .implicit_return, .update, .identifier, .identifier, .identifier, .identifier, .identifier }, "(!;`x;();`c`d!`c`d;`a`b!`a`b)");
-    try testParse("update a from x where e", &.{ .implicit_return, .update, .identifier, .identifier, .identifier }, "(!;`x;,,`e;0b;(,`a)!,`a)");
-    try testParse("update a,b from x where e,f", &.{ .implicit_return, .update, .identifier, .identifier, .identifier, .identifier, .identifier }, "(!;`x;,(`e;`f);0b;`a`b!`a`b)");
-    try testParse("update a by c from x where e", &.{ .implicit_return, .update, .identifier, .identifier, .identifier, .identifier }, "(!;`x;,,`e;(,`c)!,`c;(,`a)!,`a)");
-    try testParse("update a,b by c,d from x where e,f", &.{ .implicit_return, .update, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier }, "(!;`x;,(`e;`f);`c`d!`c`d;`a`b!`a`b)");
-
-    try testParse("update`a from x", &.{ .implicit_return, .update, .identifier, .symbol_literal }, "(!;`x;();0b;(,`x)!,,`a)");
-    try testParse("update`a`b from x", &.{ .implicit_return, .update, .identifier, .symbol_list_literal }, "(!;`x;();0b;(,`x)!,,`a`b)");
-    try testParse("update`a,`c from x", &.{ .implicit_return, .update, .identifier, .symbol_literal, .symbol_literal }, "(!;`x;();0b;`x`x1!(,`a;,`c))");
-    try testParse("update`a,`c`d from x", &.{ .implicit_return, .update, .identifier, .symbol_literal, .symbol_list_literal }, "(!;`x;();0b;`x`x1!(,`a;,`c`d))");
-    try testParse("update`a`b,`c from x", &.{ .implicit_return, .update, .identifier, .symbol_list_literal, .symbol_literal }, "(!;`x;();0b;`x`x1!(,`a`b;,`c))");
-    try testParse("update`a`b,`c`d from x", &.{ .implicit_return, .update, .identifier, .symbol_list_literal, .symbol_list_literal }, "(!;`x;();0b;`x`x1!(,`a`b;,`c`d))");
-}
-
 test "delete rows" {
     try testParse("delete from x", &.{ .implicit_return, .delete_rows, .identifier }, "(!;`x;();0b;`symbol$())");
     try testParse("delete from x where a", &.{ .implicit_return, .delete_rows, .identifier, .identifier }, "(!;`x;,,`a;0b;`symbol$())");

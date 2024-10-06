@@ -250,6 +250,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
 
         .select,
         .exec,
+        .update,
         => return main_tokens[n] + end_offset,
     };
 }
@@ -348,6 +349,12 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => {
             const exec = tree.fullExec(node);
             n = if (exec.where) |where| where.exprs[where.exprs.len - 1] else exec.from;
+        },
+
+        .update,
+        => {
+            const update = tree.fullUpdate(node);
+            n = if (update.where) |where| where.exprs[where.exprs.len - 1] else update.from;
         },
     };
 }
@@ -486,6 +493,42 @@ pub fn fullExec(tree: Ast, node: Node.Index) full.Exec {
     };
 }
 
+pub fn fullUpdate(tree: Ast, node: Node.Index) full.Update {
+    assert(tree.nodes.items(.tag)[node] == .update);
+
+    const data = tree.nodes.items(.data)[node];
+    const update = tree.extraData(data.lhs, Node.Update);
+
+    const select_exprs = tree.extra_data[update.select_start..update.by_start];
+    const by_exprs = tree.extra_data[update.by_start..update.where_start];
+    const where_exprs = tree.extra_data[update.where_start..update.where_end];
+
+    const update_token = tree.nodes.items(.main_token)[node];
+    const from_token = tree.firstToken(update.from) - 1;
+
+    const by: ?full.Update.By = if (by_exprs.len > 0) .{
+        .by_token = if (select_exprs.len > 0)
+            tree.lastToken(select_exprs[select_exprs.len - 1]) + 1
+        else
+            update_token + 1,
+        .exprs = by_exprs,
+    } else null;
+
+    const where: ?full.Update.Where = if (where_exprs.len > 0) .{
+        .where_token = tree.lastToken(update.from) + 1,
+        .exprs = where_exprs,
+    } else null;
+
+    return .{
+        .update_token = update_token,
+        .select = select_exprs,
+        .by = by,
+        .from_token = from_token,
+        .from = update.from,
+        .where = where,
+    };
+}
+
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const Select = struct {
@@ -518,6 +561,25 @@ pub const full = struct {
 
     pub const Exec = struct {
         exec_token: Token.Index,
+        select: []Node.Index,
+        by: ?By,
+        from_token: Token.Index,
+        from: Node.Index,
+        where: ?Where,
+
+        pub const By = struct {
+            by_token: Token.Index,
+            exprs: []Node.Index,
+        };
+
+        pub const Where = struct {
+            where_token: Token.Index,
+            exprs: []Node.Index,
+        };
+    };
+
+    pub const Update = struct {
+        update_token: Token.Index,
         select: []Node.Index,
         by: ?By,
         from_token: Token.Index,
@@ -708,6 +770,8 @@ pub const Node = struct {
         select,
         /// `exec lhs`. rhs unused. main_token is the `exec`. `Exec[lhs]`.
         exec,
+        /// `update lhs`. rhs unused. main_token is the `update`. `Update[lhs]`.
+        update,
 
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
@@ -786,6 +850,7 @@ pub const Node = struct {
 
                 .select,
                 .exec,
+                .update,
                 => .other,
             };
         }
@@ -848,6 +913,18 @@ pub const Node = struct {
     };
 
     pub const Exec = struct {
+        /// Index into extra_data.
+        select_start: Index,
+        /// Index into extra_data.
+        by_start: Index,
+        from: Index,
+        /// Index into extra_data.
+        where_start: Index,
+        /// Index into extra_data.
+        where_end: Index,
+    };
+
+    pub const Update = struct {
         /// Index into extra_data.
         select_start: Index,
         /// Index into extra_data.
@@ -2042,7 +2119,7 @@ test "nested paren/bracket/brace" {
     );
 }
 
-// TODO: update/delete
+// TODO: delete
 test "whitespace" {
     try testAst(
         "first select from x",
@@ -2053,6 +2130,11 @@ test "whitespace" {
         "first exec from x",
         &.{ .identifier, .keyword_exec, .identifier, .identifier },
         &.{ .identifier, .exec, .identifier, .apply_unary },
+    );
+    try testAst(
+        "first update from x",
+        &.{ .identifier, .keyword_update, .identifier, .identifier },
+        &.{ .identifier, .update, .identifier, .apply_unary },
     );
 }
 
@@ -3468,8 +3550,8 @@ test "render expression blocks" {
     );
 }
 
-// TODO: update/delete
-test "select/exec with commas" {
+// TODO: delete
+test "select/exec/update with commas" {
     try testAst(
         "select(a,b),c by(d,e),f from x where(g,h),i",
         &.{
@@ -3495,6 +3577,21 @@ test "select/exec with commas" {
         },
         &.{
             .exec,         .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
+            .identifier,   .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
+            .identifier,   .identifier,         .grouped_expression, .identifier, .comma,      .identifier,
+            .apply_binary, .identifier,
+        },
+    );
+    try testAst(
+        "update(a,b),c by(d,e),f from x where(g,h),i",
+        &.{
+            .keyword_update, .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .identifier, .identifier, .l_paren, .identifier, .comma,   .identifier, .r_paren,
+            .comma,          .identifier,
+        },
+        &.{
+            .update,       .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
             .identifier,   .grouped_expression, .identifier,         .comma,      .identifier, .apply_binary,
             .identifier,   .identifier,         .grouped_expression, .identifier, .comma,      .identifier,
             .apply_binary, .identifier,
@@ -4180,5 +4277,99 @@ test "exec" {
             .symbol_literal, .symbol_literal, .identifier,     .identifier,
         },
         &.{ .exec, .symbol_list_literal, .symbol_list_literal, .identifier },
+    );
+}
+
+test "update" {
+    try testAst(
+        "update a from x",
+        &.{ .keyword_update, .identifier, .identifier, .identifier },
+        &.{ .update, .identifier, .identifier },
+    );
+    try testAst(
+        "update a,b from x",
+        &.{ .keyword_update, .identifier, .comma, .identifier, .identifier, .identifier },
+        &.{ .update, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "update a by c from x",
+        &.{ .keyword_update, .identifier, .identifier, .identifier, .identifier, .identifier },
+        &.{ .update, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "update a,b by c,d from x",
+        &.{
+            .keyword_update, .identifier, .comma,      .identifier, .identifier,
+            .identifier,     .comma,      .identifier, .identifier, .identifier,
+        },
+        &.{ .update, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "update a from x where e",
+        &.{ .keyword_update, .identifier, .identifier, .identifier, .identifier, .identifier },
+        &.{ .update, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "update a,b from x where e,f",
+        &.{
+            .keyword_update, .identifier, .comma,      .identifier, .identifier,
+            .identifier,     .identifier, .identifier, .comma,      .identifier,
+        },
+        &.{ .update, .identifier, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "update a by c from x where e",
+        &.{
+            .keyword_update, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+        &.{ .update, .identifier, .identifier, .identifier, .identifier },
+    );
+    try testAst(
+        "update a,b by c,d from x where e,f",
+        &.{
+            .keyword_update, .identifier, .comma,      .identifier, .identifier, .identifier, .comma,
+            .identifier,     .identifier, .identifier, .identifier, .identifier, .comma,      .identifier,
+        },
+        &.{
+            .update, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
+        },
+    );
+
+    try testAst(
+        "update`a from x",
+        &.{ .keyword_update, .symbol_literal, .identifier, .identifier },
+        &.{ .update, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "update`a`b from x",
+        &.{ .keyword_update, .symbol_literal, .symbol_literal, .identifier, .identifier },
+        &.{ .update, .symbol_list_literal, .identifier },
+    );
+    try testAst(
+        "update`a,`c from x",
+        &.{ .keyword_update, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier },
+        &.{ .update, .symbol_literal, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "update`a,`c`d from x",
+        &.{
+            .keyword_update, .symbol_literal, .comma, .symbol_literal, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .update, .symbol_literal, .symbol_list_literal, .identifier },
+    );
+    try testAst(
+        "update`a`b,`c from x",
+        &.{
+            .keyword_update, .symbol_literal, .symbol_literal, .comma, .symbol_literal, .identifier, .identifier,
+        },
+        &.{ .update, .symbol_list_literal, .symbol_literal, .identifier },
+    );
+    try testAst(
+        "update`a`b,`c`d from x",
+        &.{
+            .keyword_update, .symbol_literal, .symbol_literal, .comma,
+            .symbol_literal, .symbol_literal, .identifier,     .identifier,
+        },
+        &.{ .update, .symbol_list_literal, .symbol_list_literal, .identifier },
     );
 }
