@@ -371,28 +371,12 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         },
 
         .delete_cols,
-        => {
-            const delete = tree.fullDeleteCols(node);
-            n = delete.from;
-        },
+        => n = tree.fullDeleteCols(node).from,
 
         .do,
-        => {
-            const do_node = tree.fullDo(node);
-            return do_node.r_bracket;
-        },
-
         .@"if",
-        => {
-            const if_node = tree.fullIf(node);
-            return if_node.r_bracket;
-        },
-
         .@"while",
-        => {
-            const while_node = tree.fullWhile(node);
-            return while_node.r_bracket;
-        },
+        => return tree.fullStatement(node).r_bracket,
     };
 }
 
@@ -611,8 +595,7 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
     };
 }
 
-pub fn fullDo(tree: Ast, node: Node.Index) full.Do {
-    assert(tree.nodes.items(.tag)[node] == .do);
+pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
 
     const data = tree.nodes.items(.data)[node];
@@ -621,8 +604,8 @@ pub fn fullDo(tree: Ast, node: Node.Index) full.Do {
     const sub_range = tree.extraData(data.rhs, Node.SubRange);
     const body = tree.extra_data[sub_range.start..sub_range.end];
 
-    const do_token = tree.nodes.items(.main_token)[node];
-    const l_bracket = do_token + 1;
+    const main_token = tree.nodes.items(.main_token)[node];
+    const l_bracket = main_token + 1;
     const r_bracket = if (body.len > 0)
         tree.lastToken(body[body.len - 1]) + 1
     else blk: {
@@ -631,63 +614,7 @@ pub fn fullDo(tree: Ast, node: Node.Index) full.Do {
     };
 
     return .{
-        .do_token = do_token,
-        .l_bracket = l_bracket,
-        .condition = condition,
-        .body = body,
-        .r_bracket = r_bracket,
-    };
-}
-
-pub fn fullIf(tree: Ast, node: Node.Index) full.If {
-    assert(tree.nodes.items(.tag)[node] == .@"if");
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
-
-    const data = tree.nodes.items(.data)[node];
-
-    const condition = data.lhs;
-    const sub_range = tree.extraData(data.rhs, Node.SubRange);
-    const body = tree.extra_data[sub_range.start..sub_range.end];
-
-    const if_token = tree.nodes.items(.main_token)[node];
-    const l_bracket = if_token + 1;
-    const r_bracket = if (body.len > 0)
-        tree.lastToken(body[body.len - 1]) + 1
-    else blk: {
-        const last_token = tree.lastToken(condition);
-        break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
-    };
-
-    return .{
-        .if_token = if_token,
-        .l_bracket = l_bracket,
-        .condition = condition,
-        .body = body,
-        .r_bracket = r_bracket,
-    };
-}
-
-pub fn fullWhile(tree: Ast, node: Node.Index) full.While {
-    assert(tree.nodes.items(.tag)[node] == .@"while");
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
-
-    const data = tree.nodes.items(.data)[node];
-
-    const condition = data.lhs;
-    const sub_range = tree.extraData(data.rhs, Node.SubRange);
-    const body = tree.extra_data[sub_range.start..sub_range.end];
-
-    const while_token = tree.nodes.items(.main_token)[node];
-    const l_bracket = while_token + 1;
-    const r_bracket = if (body.len > 0)
-        tree.lastToken(body[body.len - 1]) + 1
-    else blk: {
-        const last_token = tree.lastToken(condition);
-        break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
-    };
-
-    return .{
-        .while_token = while_token,
+        .main_token = main_token,
         .l_bracket = l_bracket,
         .condition = condition,
         .body = body,
@@ -782,24 +709,8 @@ pub const full = struct {
         from: Node.Index,
     };
 
-    pub const Do = struct {
-        do_token: Token.Index,
-        l_bracket: Token.Index,
-        condition: Node.Index,
-        body: []Node.Index,
-        r_bracket: Token.Index,
-    };
-
-    pub const If = struct {
-        if_token: Token.Index,
-        l_bracket: Token.Index,
-        condition: Node.Index,
-        body: []Node.Index,
-        r_bracket: Token.Index,
-    };
-
-    pub const While = struct {
-        while_token: Token.Index,
+    pub const Statement = struct {
+        main_token: Token.Index,
         l_bracket: Token.Index,
         condition: Node.Index,
         body: []Node.Index,
