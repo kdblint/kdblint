@@ -20,6 +20,7 @@ pub const Token = struct {
         .{ "exec", .keyword_exec },
         .{ "update", .keyword_update },
         .{ "delete", .keyword_delete },
+        .{ "if", .keyword_if },
         .{ "while", .keyword_while },
     });
 
@@ -115,6 +116,7 @@ pub const Token = struct {
         keyword_exec,
         keyword_update,
         keyword_delete,
+        keyword_if,
         keyword_while,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
@@ -204,6 +206,7 @@ pub const Token = struct {
                 .keyword_exec => "exec",
                 .keyword_update => "update",
                 .keyword_delete => "delete",
+                .keyword_if => "if",
                 .keyword_while => "while",
             };
         }

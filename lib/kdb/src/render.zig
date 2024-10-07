@@ -252,6 +252,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderSqlCommon(r, delete, space);
         },
 
+        .@"if",
+        => return renderIf(r, r.tree.fullIf(node), space),
+
         .@"while",
         => return renderWhile(r, r.tree.fullWhile(node), space),
     }
@@ -714,22 +717,32 @@ fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
     return renderExpression(r, data.from, space);
 }
 
+fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
+    try renderTokenSpace(r, if_node.if_token); // if
+
+    try renderToken(r, if_node.l_bracket, .none); // [
+
+    try renderExpression(r, if_node.condition, .semicolon);
+
+    for (if_node.body) |expr| {
+        try renderExpression(r, expr, .semicolon);
+    }
+
+    return renderToken(r, if_node.r_bracket, space); // ]
+}
+
 fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void {
     try renderTokenSpace(r, while_node.while_token); // while
 
-    if (while_node.brackets) |brackets| {
-        try renderToken(r, brackets.l_bracket, .none); // [
+    try renderToken(r, while_node.l_bracket, .none); // [
 
-        try renderExpression(r, while_node.condition, .semicolon);
+    try renderExpression(r, while_node.condition, .semicolon);
 
-        for (while_node.body) |expr| {
-            try renderExpression(r, expr, .semicolon);
-        }
-
-        return renderToken(r, brackets.r_bracket, space); // ]
+    for (while_node.body) |expr| {
+        try renderExpression(r, expr, .semicolon);
     }
 
-    return renderExpression(r, while_node.condition, space);
+    return renderToken(r, while_node.r_bracket, space); // ]
 }
 
 fn renderTokenSpace(r: *Render, token: Token.Index) Error!void {

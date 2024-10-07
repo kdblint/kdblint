@@ -408,6 +408,9 @@ fn parseNoun(p: *Parse) !Node.Index {
         .keyword_delete,
         => try p.parseDelete(),
 
+        .keyword_if,
+        => try p.parseIf(),
+
         .keyword_while,
         => try p.parseWhile(),
 
@@ -1162,6 +1165,43 @@ fn parseDelete(p: *Parse) !Node.Index {
         .data = .{
             .lhs = try p.addExtra(delete_node),
             .rhs = undefined,
+        },
+    });
+}
+
+/// IfStatement <- KEYWORD_if LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+fn parseIf(p: *Parse) !Node.Index {
+    const while_token = p.assertToken(.keyword_if);
+
+    const if_index = try p.reserveNode(.@"if");
+    errdefer p.unreserveNode(if_index);
+
+    _ = try p.expectToken(.l_bracket);
+    try p.ends_expr.append(p.gpa, .r_bracket);
+
+    const condition = try p.expectExpr(null);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    _ = try p.expectToken(.semicolon);
+    while (true) {
+        const expr = try p.expectExpr(null);
+        try p.scratch.append(p.gpa, expr);
+        if (p.eatToken(.semicolon)) |_| continue;
+        break;
+    }
+
+    _ = try p.expectToken(.r_bracket);
+    assert(p.ends_expr.pop() == .r_bracket);
+
+    const exprs = try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..]));
+    return p.setNode(if_index, .{
+        .tag = .@"if",
+        .main_token = while_token,
+        .data = .{
+            .lhs = condition,
+            .rhs = exprs,
         },
     });
 }
