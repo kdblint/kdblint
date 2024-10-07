@@ -255,6 +255,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .delete_cols,
         => return main_tokens[n] + end_offset,
 
+        .@"if",
         .@"while",
         => return main_tokens[n] + end_offset,
     };
@@ -374,11 +375,16 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
             n = delete.from;
         },
 
+        .@"if",
+        => {
+            const if_node = tree.fullIf(node);
+            return if_node.r_bracket;
+        },
+
         .@"while",
         => {
             const while_node = tree.fullWhile(node);
-            if (while_node.brackets) |brackets| return brackets.r_bracket;
-            n = while_node.condition;
+            return while_node.r_bracket;
         },
     };
 }
@@ -598,6 +604,34 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
     };
 }
 
+pub fn fullIf(tree: Ast, node: Node.Index) full.If {
+    assert(tree.nodes.items(.tag)[node] == .@"if");
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+
+    const data = tree.nodes.items(.data)[node];
+
+    const condition = data.lhs;
+    const sub_range = tree.extraData(data.rhs, Node.SubRange);
+    const body = tree.extra_data[sub_range.start..sub_range.end];
+
+    const if_token = tree.nodes.items(.main_token)[node];
+    const l_bracket = if_token + 1;
+    const r_bracket = if (body.len > 0)
+        tree.lastToken(body[body.len - 1]) + 1
+    else blk: {
+        const last_token = tree.lastToken(condition);
+        break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
+    };
+
+    return .{
+        .if_token = if_token,
+        .l_bracket = l_bracket,
+        .condition = condition,
+        .body = body,
+        .r_bracket = r_bracket,
+    };
+}
+
 pub fn fullWhile(tree: Ast, node: Node.Index) full.While {
     assert(tree.nodes.items(.tag)[node] == .@"while");
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
@@ -609,22 +643,20 @@ pub fn fullWhile(tree: Ast, node: Node.Index) full.While {
     const body = tree.extra_data[sub_range.start..sub_range.end];
 
     const while_token = tree.nodes.items(.main_token)[node];
-
-    const brackets: ?full.While.Brackets = if (token_tags[while_token + 1] == .l_bracket) .{
-        .l_bracket = while_token + 1,
-        .r_bracket = if (body.len > 0)
-            tree.lastToken(body[body.len - 1]) + 1
-        else blk: {
-            const last_token = tree.lastToken(condition);
-            break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
-        },
-    } else null;
+    const l_bracket = while_token + 1;
+    const r_bracket = if (body.len > 0)
+        tree.lastToken(body[body.len - 1]) + 1
+    else blk: {
+        const last_token = tree.lastToken(condition);
+        break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
+    };
 
     return .{
         .while_token = while_token,
-        .brackets = brackets,
+        .l_bracket = l_bracket,
         .condition = condition,
         .body = body,
+        .r_bracket = r_bracket,
     };
 }
 
@@ -715,16 +747,20 @@ pub const full = struct {
         from: Node.Index,
     };
 
-    pub const While = struct {
-        while_token: Token.Index,
-        brackets: ?Brackets,
+    pub const If = struct {
+        if_token: Token.Index,
+        l_bracket: Token.Index,
         condition: Node.Index,
         body: []Node.Index,
+        r_bracket: Token.Index,
+    };
 
-        pub const Brackets = struct {
-            l_bracket: Token.Index,
-            r_bracket: Token.Index,
-        };
+    pub const While = struct {
+        while_token: Token.Index,
+        l_bracket: Token.Index,
+        condition: Node.Index,
+        body: []Node.Index,
+        r_bracket: Token.Index,
     };
 };
 
@@ -908,6 +944,8 @@ pub const Node = struct {
         /// `delete lhs`. rhs unused. main_token is the `delete`. `DeleteCols[lhs]`.
         delete_cols,
 
+        /// `if[lhs;rhs]`. main_token is the `if`. `SubRange[rhs]`.
+        @"if",
         /// `while[lhs;rhs]`. main_token is the `while`. `SubRange[rhs]`.
         @"while",
 
@@ -993,6 +1031,7 @@ pub const Node = struct {
                 .delete_cols,
                 => .other,
 
+                .@"if",
                 .@"while",
                 => .other,
             };
@@ -4578,6 +4617,49 @@ test "delete columns" {
     );
 }
 
+test "if" {
+    try failAst(
+        "if a",
+        &.{ .keyword_if, .identifier },
+        &.{.expected_token},
+    );
+    try failAst(
+        "if[a]",
+        &.{ .keyword_if, .l_bracket, .identifier, .r_bracket },
+        &.{.expected_token},
+    );
+    try failAst(
+        "if[a;]",
+        &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{.expected_expr},
+    );
+    try testAst(
+        "if[a;b]",
+        &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .@"if", .identifier, .identifier },
+    );
+    try failAst(
+        "if[a;b;]",
+        &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{.expected_expr},
+    );
+    try testAst(
+        "if[a;b;c]",
+        &.{
+            .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
+        },
+        &.{ .@"if", .identifier, .identifier, .identifier },
+    );
+    try failAst(
+        "if[a;b;;c]",
+        &.{
+            .keyword_if, .l_bracket, .identifier, .semicolon, .identifier,
+            .semicolon,  .semicolon, .identifier, .r_bracket,
+        },
+        &.{.expected_expr},
+    );
+}
+
 test "while" {
     try failAst(
         "while a",
@@ -4611,7 +4693,6 @@ test "while" {
         },
         &.{ .@"while", .identifier, .identifier, .identifier },
     );
-
     try failAst(
         "while[a;b;;c]",
         &.{
