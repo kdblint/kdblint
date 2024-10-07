@@ -20,6 +20,7 @@ pub const Token = struct {
         .{ "exec", .keyword_exec },
         .{ "update", .keyword_update },
         .{ "delete", .keyword_delete },
+        .{ "while", .keyword_while },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -114,6 +115,7 @@ pub const Token = struct {
         keyword_exec,
         keyword_update,
         keyword_delete,
+        keyword_while,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
@@ -202,6 +204,7 @@ pub const Token = struct {
                 .keyword_exec => "exec",
                 .keyword_update => "update",
                 .keyword_delete => "delete",
+                .keyword_while => "while",
             };
         }
 
@@ -214,6 +217,12 @@ pub const Token = struct {
                 .invalid => "invalid bytes",
                 .eof => "EOF",
                 else => unreachable,
+            };
+        }
+
+        pub fn isKeyword(tag: Tag) bool {
+            return switch (tag) {
+                inline else => |t| std.mem.startsWith(u8, @tagName(t), "keyword_"),
             };
         }
     };

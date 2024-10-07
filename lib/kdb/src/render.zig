@@ -251,6 +251,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try renderTokenSpace(r, delete.delete_token); // delete
             return renderSqlCommon(r, delete, space);
         },
+
+        .@"while",
+        => return renderWhile(r, r.tree.fullWhile(node), space),
     }
 }
 
@@ -711,6 +714,26 @@ fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
     return renderExpression(r, data.from, space);
 }
 
+fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void {
+    try renderTokenSpace(r, while_node.while_token); // while
+
+    if (while_node.brackets) |brackets| {
+        try renderToken(r, brackets.l_bracket, .none); // [
+
+        try renderExpression(r, while_node.condition, .semicolon);
+
+        if (while_node.body) |body| {
+            for (body) |expr| {
+                if (expr > 0) try renderExpression(r, expr, .semicolon);
+            }
+        }
+
+        return renderToken(r, brackets.r_bracket, space); // ]
+    }
+
+    return renderExpression(r, while_node.condition, space);
+}
+
 fn renderTokenSpace(r: *Render, token: Token.Index) Error!void {
     const space = getSpace(r, token, token + 1);
     return renderToken(r, token, space);
@@ -1034,15 +1057,10 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         },
 
         .identifier,
-        .keyword_select,
-        .keyword_exec,
-        .keyword_update,
-        .keyword_delete,
-        => tags[token2] == .number_literal or tags[token2] == .identifier or
-            tags[token2] == .keyword_select or tags[token2] == .keyword_exec or tags[token2] == .keyword_update or
-            tags[token2] == .keyword_delete,
+        => tags[token2] == .number_literal or tags[token2] == .identifier or tags[token2].isKeyword(),
 
-        else => false,
+        inline else => |t| t.isKeyword() and
+            (tags[token2] == .number_literal or tags[token2] == .identifier or tags[token2].isKeyword()),
     };
 }
 
