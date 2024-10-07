@@ -1166,58 +1166,43 @@ fn parseDelete(p: *Parse) !Node.Index {
     });
 }
 
-/// WhileStatement
-///     <-
-///      | KEYWORD_while Expr
-///      | KEYWORD_while LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+/// WhileStatement <- KEYWORD_while LBRACKET Expr (SEMICOLON Expr)* RBRACKET
 fn parseWhile(p: *Parse) !Node.Index {
     const while_token = p.assertToken(.keyword_while);
 
     const while_index = try p.reserveNode(.@"while");
     errdefer p.unreserveNode(while_index);
 
-    if (p.eatToken(.l_bracket)) |_| {
-        try p.ends_expr.append(p.gpa, .r_bracket);
-
-        const condition = try p.expectExpr(null);
-
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-        if (p.eatToken(.semicolon)) |_| {
-            {
-                const expr = try p.parseExpr(null);
-                if (expr > 0) try p.scratch.append(p.gpa, expr);
-            }
-
-            while (p.eatToken(.semicolon)) |_| {
-                const expr = try p.expectExpr(null);
-                try p.scratch.append(p.gpa, expr);
-            }
-        }
-
-        _ = try p.expectToken(.r_bracket);
-        assert(p.ends_expr.pop() == .r_bracket);
-
-        const exprs = p.scratch.items[scratch_top..];
-        const rhs = if (exprs.len > 0) try p.addExtra(try p.listToSpan(exprs)) else null_node;
-        return p.setNode(while_index, .{
-            .tag = .@"while",
-            .main_token = while_token,
-            .data = .{
-                .lhs = condition,
-                .rhs = rhs,
-            },
-        });
-    }
+    _ = try p.expectToken(.l_bracket);
+    try p.ends_expr.append(p.gpa, .r_bracket);
 
     const condition = try p.expectExpr(null);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    if (p.eatToken(.semicolon)) |_| {
+        {
+            const expr = try p.parseExpr(null);
+            if (expr > 0) try p.scratch.append(p.gpa, expr);
+        }
+
+        while (p.eatToken(.semicolon)) |_| {
+            const expr = try p.expectExpr(null);
+            try p.scratch.append(p.gpa, expr);
+        }
+    }
+
+    _ = try p.expectToken(.r_bracket);
+    assert(p.ends_expr.pop() == .r_bracket);
+
+    const exprs = try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..]));
     return p.setNode(while_index, .{
         .tag = .@"while",
         .main_token = while_token,
         .data = .{
             .lhs = condition,
-            .rhs = null_node,
+            .rhs = exprs,
         },
     });
 }
