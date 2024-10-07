@@ -393,6 +393,8 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
 
         .cannot_combine_limit_expression_and_distinct,
         => try writer.writeAll("Cannot combine limit expression and distinct in select statement"),
+        .cannot_define_where_cond_in_delete_cols,
+        => try writer.writeAll("Cannot define where condition in delete columns statement"),
 
         .expected_qsql_token => {
             const found_tag = token_tags[parse_error.token];
@@ -694,6 +696,7 @@ pub const Error = struct {
         expected_whitespace,
 
         cannot_combine_limit_expression_and_distinct,
+        cannot_define_where_cond_in_delete_cols,
 
         /// `expected_string` is populated.
         expected_qsql_token,
@@ -4509,5 +4512,10 @@ test "delete columns" {
         "delete a,b from x",
         &.{ .keyword_delete, .identifier, .comma, .identifier, .identifier, .identifier },
         &.{ .delete_cols, .identifier, .identifier, .identifier },
+    );
+    try failAst(
+        "delete a from x where b",
+        &.{ .keyword_delete, .identifier, .identifier, .identifier, .identifier, .identifier },
+        &.{.cannot_define_where_cond_in_delete_cols},
     );
 }

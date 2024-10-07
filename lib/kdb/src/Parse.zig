@@ -1137,6 +1137,10 @@ fn parseDelete(p: *Parse) !Node.Index {
     _ = try p.expectIdentifier(.{ .from = true });
     const from_expr = try p.expectExpr(.{ .where = true });
 
+    if (p.peekIdentifier(.{ .where = true })) |_| {
+        return p.fail(.cannot_define_where_cond_in_delete_cols);
+    }
+
     const select = try p.listToSpan(p.scratch.items[select_top..]);
     const delete_node: Node.DeleteCols = .{
         .select_start = select.start,
