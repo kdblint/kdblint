@@ -405,6 +405,9 @@ fn parseNoun(p: *Parse) !Node.Index {
         .keyword_update,
         => try p.parseUpdate(),
 
+        .keyword_delete,
+        => try p.parseDelete(),
+
         else => null_node,
     };
     return p.parseIterator(noun);
@@ -427,6 +430,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .keyword_select,
         .keyword_exec,
         .keyword_update,
+        .keyword_delete,
         => {
             const op = try p.parsePrecedence(.iterator, sql_identifier);
             assert(op != null_node);
@@ -1075,6 +1079,75 @@ fn parseUpdate(p: *Parse) !Node.Index {
         .main_token = update_token,
         .data = .{
             .lhs = try p.addExtra(update_node),
+            .rhs = undefined,
+        },
+    });
+}
+
+fn parseDelete(p: *Parse) !Node.Index {
+    const delete_token = p.assertToken(.keyword_delete);
+
+    const delete_node_index = try p.reserveNode(.delete_rows);
+    errdefer p.unreserveNode(delete_node_index);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    if (p.eatIdentifier(.{ .from = true })) |_| {
+        // From phrase
+        const from_expr = try p.expectExpr(.{ .where = true });
+
+        // Where phrase
+        const where_top = p.scratch.items.len;
+        if (p.eatIdentifier(.{ .where = true })) |_| {
+            while (true) {
+                const expr = try p.expectExpr(.{});
+                try p.scratch.append(p.gpa, expr);
+                if (p.eatToken(.comma)) |_| continue;
+                break;
+            }
+        }
+
+        const where = try p.listToSpan(p.scratch.items[where_top..]);
+        const delete_node: Node.DeleteRows = .{
+            .from = from_expr,
+            .where_start = where.start,
+            .where_end = where.end,
+        };
+        return p.setNode(delete_node_index, .{
+            .tag = .delete_rows,
+            .main_token = delete_token,
+            .data = .{
+                .lhs = try p.addExtra(delete_node),
+                .rhs = undefined,
+            },
+        });
+    }
+
+    // Select phrase
+    const select_top = p.scratch.items.len;
+    while (true) {
+        const expr = try p.expectExpr(.{ .from = true });
+        try p.scratch.append(p.gpa, expr);
+        if (p.eatToken(.comma)) |_| continue;
+        break;
+    }
+
+    // From phrase
+    _ = try p.expectIdentifier(.{ .from = true });
+    const from_expr = try p.expectExpr(.{ .where = true });
+
+    const select = try p.listToSpan(p.scratch.items[select_top..]);
+    const delete_node: Node.DeleteCols = .{
+        .select_start = select.start,
+        .select_end = select.end,
+        .from = from_expr,
+    };
+    return p.setNode(delete_node_index, .{
+        .tag = .delete_cols,
+        .main_token = delete_token,
+        .data = .{
+            .lhs = try p.addExtra(delete_node),
             .rhs = undefined,
         },
     });

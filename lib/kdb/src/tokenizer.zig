@@ -19,6 +19,7 @@ pub const Token = struct {
         .{ "select", .keyword_select },
         .{ "exec", .keyword_exec },
         .{ "update", .keyword_update },
+        .{ "delete", .keyword_delete },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -112,6 +113,7 @@ pub const Token = struct {
         keyword_select,
         keyword_exec,
         keyword_update,
+        keyword_delete,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
@@ -199,6 +201,7 @@ pub const Token = struct {
                 .keyword_select => "select",
                 .keyword_exec => "exec",
                 .keyword_update => "update",
+                .keyword_delete => "delete",
             };
         }
 

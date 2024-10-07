@@ -251,6 +251,8 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .select,
         .exec,
         .update,
+        .delete_rows,
+        .delete_cols,
         => return main_tokens[n] + end_offset,
     };
 }
@@ -355,6 +357,18 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => {
             const update = tree.fullUpdate(node);
             n = if (update.where) |where| where.exprs[where.exprs.len - 1] else update.from;
+        },
+
+        .delete_rows,
+        => {
+            const delete = tree.fullDeleteRows(node);
+            n = if (delete.where) |where| where.exprs[where.exprs.len - 1] else delete.from;
+        },
+
+        .delete_cols,
+        => {
+            const delete = tree.fullDeleteCols(node);
+            n = delete.from;
         },
     };
 }
@@ -529,6 +543,49 @@ pub fn fullUpdate(tree: Ast, node: Node.Index) full.Update {
     };
 }
 
+pub fn fullDeleteRows(tree: Ast, node: Node.Index) full.DeleteRows {
+    assert(tree.nodes.items(.tag)[node] == .delete_rows);
+
+    const data = tree.nodes.items(.data)[node];
+    const delete = tree.extraData(data.lhs, Node.DeleteRows);
+
+    const where_exprs = tree.extra_data[delete.where_start..delete.where_end];
+
+    const delete_token = tree.nodes.items(.main_token)[node];
+    const from_token = tree.firstToken(delete.from) - 1;
+
+    const where: ?full.DeleteRows.Where = if (where_exprs.len > 0) .{
+        .where_token = tree.lastToken(delete.from) + 1,
+        .exprs = where_exprs,
+    } else null;
+
+    return .{
+        .delete_token = delete_token,
+        .from_token = from_token,
+        .from = delete.from,
+        .where = where,
+    };
+}
+
+pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
+    assert(tree.nodes.items(.tag)[node] == .delete_cols);
+
+    const data = tree.nodes.items(.data)[node];
+    const delete = tree.extraData(data.lhs, Node.DeleteCols);
+
+    const select_exprs = tree.extra_data[delete.select_start..delete.select_end];
+
+    const delete_token = tree.nodes.items(.main_token)[node];
+    const from_token = tree.firstToken(delete.from) - 1;
+
+    return .{
+        .delete_token = delete_token,
+        .select = select_exprs,
+        .from_token = from_token,
+        .from = delete.from,
+    };
+}
+
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const Select = struct {
@@ -595,6 +652,25 @@ pub const full = struct {
             where_token: Token.Index,
             exprs: []Node.Index,
         };
+    };
+
+    pub const DeleteRows = struct {
+        delete_token: Token.Index,
+        from_token: Token.Index,
+        from: Node.Index,
+        where: ?Where,
+
+        pub const Where = struct {
+            where_token: Token.Index,
+            exprs: []Node.Index,
+        };
+    };
+
+    pub const DeleteCols = struct {
+        delete_token: Token.Index,
+        select: []Node.Index,
+        from_token: Token.Index,
+        from: Node.Index,
     };
 };
 
@@ -772,6 +848,10 @@ pub const Node = struct {
         exec,
         /// `update lhs`. rhs unused. main_token is the `update`. `Update[lhs]`.
         update,
+        /// `delete lhs`. rhs unused. main_token is the `delete`. `DeleteRows[lhs]`.
+        delete_rows,
+        /// `delete lhs`. rhs unused. main_token is the `delete`. `DeleteCols[lhs]`.
+        delete_cols,
 
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
@@ -851,6 +931,8 @@ pub const Node = struct {
                 .select,
                 .exec,
                 .update,
+                .delete_rows,
+                .delete_cols,
                 => .other,
             };
         }
@@ -934,6 +1016,22 @@ pub const Node = struct {
         where_start: Index,
         /// Index into extra_data.
         where_end: Index,
+    };
+
+    pub const DeleteRows = struct {
+        from: Index,
+        /// Index into extra_data.
+        where_start: Index,
+        /// Index into extra_data.
+        where_end: Index,
+    };
+
+    pub const DeleteCols = struct {
+        /// Index into extra_data.
+        select_start: Index,
+        /// Index into extra_data.
+        select_end: Index,
+        from: Index,
     };
 };
 
@@ -2119,8 +2217,7 @@ test "nested paren/bracket/brace" {
     );
 }
 
-// TODO: delete
-test "whitespace" {
+test "select/exec/update/delete whitespace" {
     try testAst(
         "first select from x",
         &.{ .identifier, .keyword_select, .identifier, .identifier },
@@ -2135,6 +2232,16 @@ test "whitespace" {
         "first update from x",
         &.{ .identifier, .keyword_update, .identifier, .identifier },
         &.{ .identifier, .update, .identifier, .apply_unary },
+    );
+    try testAst(
+        "first delete from x",
+        &.{ .identifier, .keyword_delete, .identifier, .identifier },
+        &.{ .identifier, .delete_rows, .identifier, .apply_unary },
+    );
+    try testAst(
+        "first delete a from x",
+        &.{ .identifier, .keyword_delete, .identifier, .identifier, .identifier },
+        &.{ .identifier, .delete_cols, .identifier, .identifier, .apply_unary },
     );
 }
 
@@ -4371,5 +4478,36 @@ test "update" {
             .symbol_literal, .symbol_literal, .identifier,     .identifier,
         },
         &.{ .update, .symbol_list_literal, .symbol_list_literal, .identifier },
+    );
+}
+
+test "delete rows" {
+    try testAst(
+        "delete from x",
+        &.{ .keyword_delete, .identifier, .identifier },
+        &.{ .delete_rows, .identifier },
+    );
+    try testAst(
+        "delete from x where a",
+        &.{ .keyword_delete, .identifier, .identifier, .identifier, .identifier },
+        &.{ .delete_rows, .identifier, .identifier },
+    );
+    try testAst(
+        "delete from x where a,b",
+        &.{ .keyword_delete, .identifier, .identifier, .identifier, .identifier, .comma, .identifier },
+        &.{ .delete_rows, .identifier, .identifier, .identifier },
+    );
+}
+
+test "delete columns" {
+    try testAst(
+        "delete a from x",
+        &.{ .keyword_delete, .identifier, .identifier, .identifier },
+        &.{ .delete_cols, .identifier, .identifier },
+    );
+    try testAst(
+        "delete a,b from x",
+        &.{ .keyword_delete, .identifier, .comma, .identifier, .identifier, .identifier },
+        &.{ .delete_cols, .identifier, .identifier, .identifier },
     );
 }
