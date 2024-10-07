@@ -252,6 +252,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderSqlCommon(r, delete, space);
         },
 
+        .do,
+        => return renderDo(r, r.tree.fullDo(node), space),
+
         .@"if",
         => return renderIf(r, r.tree.fullIf(node), space),
 
@@ -715,6 +718,20 @@ fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
     }
 
     return renderExpression(r, data.from, space);
+}
+
+fn renderDo(r: *Render, do_node: Ast.full.Do, space: Space) Error!void {
+    try renderTokenSpace(r, do_node.do_token); // do
+
+    try renderToken(r, do_node.l_bracket, .none); // [
+
+    try renderExpression(r, do_node.condition, .semicolon);
+
+    for (do_node.body) |expr| {
+        try renderExpression(r, expr, .semicolon);
+    }
+
+    return renderToken(r, do_node.r_bracket, space); // ]
 }
 
 fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
