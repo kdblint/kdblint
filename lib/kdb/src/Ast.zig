@@ -254,6 +254,9 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .delete_rows,
         .delete_cols,
         => return main_tokens[n] + end_offset,
+
+        .@"while",
+        => return main_tokens[n] + end_offset,
     };
 }
 
@@ -369,6 +372,13 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => {
             const delete = tree.fullDeleteCols(node);
             n = delete.from;
+        },
+
+        .@"while",
+        => {
+            const while_node = tree.fullWhile(node);
+            if (while_node.brackets) |brackets| return brackets.r_bracket;
+            n = while_node.condition;
         },
     };
 }
@@ -588,6 +598,53 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
     };
 }
 
+pub fn fullWhile(tree: Ast, node: Node.Index) full.While {
+    assert(tree.nodes.items(.tag)[node] == .@"while");
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+
+    const data = tree.nodes.items(.data)[node];
+
+    const condition = data.lhs;
+    const body: ?[]Node.Index = if (data.rhs > 0) body: {
+        const sub_range = tree.extraData(data.rhs, Node.SubRange);
+        assert(sub_range.end > sub_range.start);
+        break :body tree.extra_data[sub_range.start..sub_range.end];
+    } else null;
+
+    const while_token = tree.nodes.items(.main_token)[node];
+
+    const brackets: ?full.While.Brackets = if (token_tags[while_token + 1] == .l_bracket) .{
+        .l_bracket = while_token + 1,
+        .r_bracket = if (body) |b| body: {
+            var offset: usize = 1;
+            var it = std.mem.reverseIterator(b);
+            while (it.next()) |entry| {
+                if (entry > 0) break;
+                offset += 1;
+            }
+            if (offset == 1) {
+                break :body tree.lastToken(b[b.len - 1]) + 1;
+            } else if (offset == b.len + 1) {
+                if (true) unreachable;
+                break :body tree.lastToken(condition) + 2;
+            } else {
+                if (true) unreachable;
+                break :body tree.lastToken(b[b.len - offset]) + 2;
+            }
+        } else blk: {
+            const last_token = tree.lastToken(condition);
+            break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
+        },
+    } else null;
+
+    return .{
+        .while_token = while_token,
+        .brackets = brackets,
+        .condition = condition,
+        .body = body,
+    };
+}
+
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const Select = struct {
@@ -673,6 +730,18 @@ pub const full = struct {
         select: []Node.Index,
         from_token: Token.Index,
         from: Node.Index,
+    };
+
+    pub const While = struct {
+        while_token: Token.Index,
+        brackets: ?Brackets,
+        condition: Node.Index,
+        body: ?[]Node.Index,
+
+        pub const Brackets = struct {
+            l_bracket: Token.Index,
+            r_bracket: Token.Index,
+        };
     };
 };
 
@@ -856,6 +925,9 @@ pub const Node = struct {
         /// `delete lhs`. rhs unused. main_token is the `delete`. `DeleteCols[lhs]`.
         delete_cols,
 
+        /// `while[lhs;rhs]`. rhs can be omitted. main_token is the `while`. `SubRange[rhs]`.
+        @"while",
+
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
                 .root,
@@ -936,6 +1008,9 @@ pub const Node = struct {
                 .update,
                 .delete_rows,
                 .delete_cols,
+                => .other,
+
+                .@"while",
                 => .other,
             };
         }
@@ -4517,5 +4592,49 @@ test "delete columns" {
         "delete a from x where b",
         &.{ .keyword_delete, .identifier, .identifier, .identifier, .identifier, .identifier },
         &.{.cannot_define_where_cond_in_delete_cols},
+    );
+}
+
+test "while" {
+    try testAst(
+        "while a",
+        &.{ .keyword_while, .identifier },
+        &.{ .@"while", .identifier },
+    );
+    try testAst(
+        "while[a]",
+        &.{ .keyword_while, .l_bracket, .identifier, .r_bracket },
+        &.{ .@"while", .identifier },
+    );
+    try testAst(
+        "while[a;]",
+        &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{ .@"while", .identifier },
+    );
+    try testAst(
+        "while[a;b]",
+        &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .@"while", .identifier, .identifier },
+    );
+    try failAst(
+        "while[a;b;]",
+        &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{.expected_expr},
+    );
+    try testAst(
+        "while[a;b;c]",
+        &.{
+            .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
+        },
+        &.{ .@"while", .identifier, .identifier, .identifier },
+    );
+
+    try failAst(
+        "while[a;b;;c]",
+        &.{
+            .keyword_while, .l_bracket, .identifier, .semicolon, .identifier,
+            .semicolon,     .semicolon, .identifier, .r_bracket,
+        },
+        &.{.expected_expr},
     );
 }

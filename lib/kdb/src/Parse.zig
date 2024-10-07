@@ -408,6 +408,9 @@ fn parseNoun(p: *Parse) !Node.Index {
         .keyword_delete,
         => try p.parseDelete(),
 
+        .keyword_while,
+        => try p.parseWhile(),
+
         else => null_node,
     };
     return p.parseIterator(noun);
@@ -584,9 +587,6 @@ fn parseGroup(p: *Parse) !Node.Index {
         });
     }
 
-    try p.ends_expr.append(p.gpa, .r_paren);
-    defer assert(p.ends_expr.pop() == .r_paren);
-
     const table = try p.parseTable(l_paren);
     if (table != null_node) {
         return table;
@@ -598,6 +598,8 @@ fn parseGroup(p: *Parse) !Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
+    try p.ends_expr.append(p.gpa, .r_paren);
+
     while (true) {
         const expr = try p.parseExpr(null);
         try p.scratch.append(p.gpa, if (expr == null_node)
@@ -608,6 +610,7 @@ fn parseGroup(p: *Parse) !Node.Index {
         break;
     }
     const r_paren = try p.expectToken(.r_paren);
+    assert(p.ends_expr.pop() == .r_paren);
 
     const list = p.scratch.items[scratch_top..];
     switch (list.len) {
@@ -635,6 +638,8 @@ fn parseGroup(p: *Parse) !Node.Index {
 fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
     _ = p.eatToken(.l_bracket) orelse return null_node;
 
+    try p.ends_expr.append(p.gpa, .r_paren);
+
     const table_index = try p.reserveNode(.table_literal);
     errdefer p.unreserveNode(table_index);
 
@@ -644,7 +649,6 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
     const keys_top = p.scratch.items.len;
     {
         try p.ends_expr.append(p.gpa, .r_bracket);
-        defer assert(p.ends_expr.pop() == .r_bracket);
 
         if (p.peekTag() != .r_bracket) {
             while (true) {
@@ -655,6 +659,7 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
             }
         }
         _ = try p.expectToken(.r_bracket);
+        assert(p.ends_expr.pop() == .r_bracket);
     }
 
     const columns_top = p.scratch.items.len;
@@ -666,6 +671,7 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
         break;
     }
     const r_paren = try p.expectToken(.r_paren);
+    assert(p.ends_expr.pop() == .r_paren);
 
     const keys = try p.listToSpan(p.scratch.items[keys_top..columns_top]);
     const columns = try p.listToSpan(p.scratch.items[columns_top..]);
@@ -692,7 +698,6 @@ fn parseLambda(p: *Parse) !Node.Index {
     const l_brace = p.assertToken(.l_brace);
 
     try p.ends_expr.append(p.gpa, .r_brace);
-    defer assert(p.ends_expr.pop() == .r_brace);
 
     const lambda_index = try p.reserveNode(.lambda);
     errdefer p.unreserveNode(lambda_index);
@@ -701,6 +706,8 @@ fn parseLambda(p: *Parse) !Node.Index {
     var r_bracket: Token.Index = 0;
     const params: Node.SubRange = if (p.eatToken(.l_bracket)) |token| params: {
         l_bracket = token;
+
+        try p.ends_expr.append(p.gpa, .r_bracket);
 
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -714,6 +721,7 @@ fn parseLambda(p: *Parse) !Node.Index {
         }
 
         r_bracket = try p.expectToken(.r_bracket);
+        assert(p.ends_expr.pop() == .r_bracket);
 
         break :params try p.listToSpan(p.scratch.items[scratch_top..]);
     } else .{ .start = 0, .end = 0 };
@@ -743,6 +751,7 @@ fn parseLambda(p: *Parse) !Node.Index {
     };
     const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_semicolon else .lambda;
     const r_brace = try p.expectToken(.r_brace);
+    assert(p.ends_expr.pop() == .r_brace);
 
     const lambda = try p.addExtra(Node.Lambda{
         .l_bracket = l_bracket,
@@ -777,7 +786,6 @@ fn parseExprBlock(p: *Parse) !Node.Index {
     }
 
     try p.ends_expr.append(p.gpa, .r_bracket);
-    defer assert(p.ends_expr.pop() == .r_bracket);
 
     const expr_block_index = try p.reserveNode(.expr_block);
     errdefer p.unreserveNode(expr_block_index);
@@ -799,6 +807,7 @@ fn parseExprBlock(p: *Parse) !Node.Index {
         break :exprs try p.listToSpan(p.scratch.items[scratch_top..]);
     };
     const r_bracket = try p.expectToken(.r_bracket);
+    assert(p.ends_expr.pop() == .r_bracket);
 
     return p.setNode(expr_block_index, .{
         .tag = .expr_block,
@@ -813,8 +822,8 @@ fn parseExprBlock(p: *Parse) !Node.Index {
 fn parseSelect(p: *Parse) !Node.Index {
     const select_token = p.assertToken(.keyword_select);
 
-    const select_node_index = try p.reserveNode(.select);
-    errdefer p.unreserveNode(select_node_index);
+    const select_index = try p.reserveNode(.select);
+    errdefer p.unreserveNode(select_index);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -827,6 +836,8 @@ fn parseSelect(p: *Parse) !Node.Index {
     if (p.eatIdentifier(.{ .distinct = true })) |_| {
         distinct = true;
     } else if (p.eatToken(.l_bracket)) |_| {
+        try p.ends_expr.append(p.gpa, .r_bracket);
+
         // TODO: Warn only first character is checked for ascending condition.
         // TODO: Should this be switched to consume expressions instead of tokens?
         switch (p.peekTag()) {
@@ -849,9 +860,6 @@ fn parseSelect(p: *Parse) !Node.Index {
             },
 
             else => {
-                try p.ends_expr.append(p.gpa, .r_bracket);
-                defer assert(p.ends_expr.pop() == .r_bracket);
-
                 limit_expr = try p.expectExpr(null);
                 if (p.eatToken(.semicolon)) |_| {
                     switch (p.peekTag()) {
@@ -879,6 +887,7 @@ fn parseSelect(p: *Parse) !Node.Index {
             },
         }
         _ = try p.expectToken(.r_bracket);
+        assert(p.ends_expr.pop() == .r_bracket);
 
         if (p.peekIdentifier(.{ .distinct = true })) |_| {
             try p.warn(.cannot_combine_limit_expression_and_distinct);
@@ -942,7 +951,7 @@ fn parseSelect(p: *Parse) !Node.Index {
             .ascending = ascending,
         },
     };
-    return p.setNode(select_node_index, .{
+    return p.setNode(select_index, .{
         .tag = .select,
         .main_token = select_token,
         .data = .{
@@ -955,8 +964,8 @@ fn parseSelect(p: *Parse) !Node.Index {
 fn parseExec(p: *Parse) !Node.Index {
     const exec_token = p.assertToken(.keyword_exec);
 
-    const exec_node_index = try p.reserveNode(.exec);
-    errdefer p.unreserveNode(exec_node_index);
+    const exec_index = try p.reserveNode(.exec);
+    errdefer p.unreserveNode(exec_index);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -1008,7 +1017,7 @@ fn parseExec(p: *Parse) !Node.Index {
         .where_start = where.start,
         .where_end = where.end,
     };
-    return p.setNode(exec_node_index, .{
+    return p.setNode(exec_index, .{
         .tag = .exec,
         .main_token = exec_token,
         .data = .{
@@ -1021,8 +1030,8 @@ fn parseExec(p: *Parse) !Node.Index {
 fn parseUpdate(p: *Parse) !Node.Index {
     const update_token = p.assertToken(.keyword_update);
 
-    const update_node_index = try p.reserveNode(.update);
-    errdefer p.unreserveNode(update_node_index);
+    const update_index = try p.reserveNode(.update);
+    errdefer p.unreserveNode(update_index);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -1074,7 +1083,7 @@ fn parseUpdate(p: *Parse) !Node.Index {
         .where_start = where.start,
         .where_end = where.end,
     };
-    return p.setNode(update_node_index, .{
+    return p.setNode(update_index, .{
         .tag = .update,
         .main_token = update_token,
         .data = .{
@@ -1087,8 +1096,8 @@ fn parseUpdate(p: *Parse) !Node.Index {
 fn parseDelete(p: *Parse) !Node.Index {
     const delete_token = p.assertToken(.keyword_delete);
 
-    const delete_node_index = try p.reserveNode(.delete_rows);
-    errdefer p.unreserveNode(delete_node_index);
+    const delete_index = try p.reserveNode(.delete_rows);
+    errdefer p.unreserveNode(delete_index);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -1114,7 +1123,7 @@ fn parseDelete(p: *Parse) !Node.Index {
             .where_start = where.start,
             .where_end = where.end,
         };
-        return p.setNode(delete_node_index, .{
+        return p.setNode(delete_index, .{
             .tag = .delete_rows,
             .main_token = delete_token,
             .data = .{
@@ -1147,12 +1156,68 @@ fn parseDelete(p: *Parse) !Node.Index {
         .select_end = select.end,
         .from = from_expr,
     };
-    return p.setNode(delete_node_index, .{
+    return p.setNode(delete_index, .{
         .tag = .delete_cols,
         .main_token = delete_token,
         .data = .{
             .lhs = try p.addExtra(delete_node),
             .rhs = undefined,
+        },
+    });
+}
+
+/// WhileStatement
+///     <-
+///      | KEYWORD_while Expr
+///      | KEYWORD_while LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+fn parseWhile(p: *Parse) !Node.Index {
+    const while_token = p.assertToken(.keyword_while);
+
+    const while_index = try p.reserveNode(.@"while");
+    errdefer p.unreserveNode(while_index);
+
+    if (p.eatToken(.l_bracket)) |_| {
+        try p.ends_expr.append(p.gpa, .r_bracket);
+
+        const condition = try p.expectExpr(null);
+
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+        if (p.eatToken(.semicolon)) |_| {
+            {
+                const expr = try p.parseExpr(null);
+                if (expr > 0) try p.scratch.append(p.gpa, expr);
+            }
+
+            while (p.eatToken(.semicolon)) |_| {
+                const expr = try p.expectExpr(null);
+                try p.scratch.append(p.gpa, expr);
+            }
+        }
+
+        _ = try p.expectToken(.r_bracket);
+        assert(p.ends_expr.pop() == .r_bracket);
+
+        const exprs = p.scratch.items[scratch_top..];
+        const rhs = if (exprs.len > 0) try p.addExtra(try p.listToSpan(exprs)) else null_node;
+        return p.setNode(while_index, .{
+            .tag = .@"while",
+            .main_token = while_token,
+            .data = .{
+                .lhs = condition,
+                .rhs = rhs,
+            },
+        });
+    }
+
+    const condition = try p.expectExpr(null);
+    return p.setNode(while_index, .{
+        .tag = .@"while",
+        .main_token = while_token,
+        .data = .{
+            .lhs = condition,
+            .rhs = null_node,
         },
     });
 }
@@ -1430,6 +1495,8 @@ fn skipBlock(p: *Parse) void {
             _ = p.nextToken();
         }
     }
+
+    p.ends_expr.clearRetainingCapacity();
 }
 
 fn isEob(p: *Parse, token_index: Token.Index) bool {
