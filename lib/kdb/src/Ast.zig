@@ -605,33 +605,16 @@ pub fn fullWhile(tree: Ast, node: Node.Index) full.While {
     const data = tree.nodes.items(.data)[node];
 
     const condition = data.lhs;
-    const body: ?[]Node.Index = if (data.rhs > 0) body: {
-        const sub_range = tree.extraData(data.rhs, Node.SubRange);
-        assert(sub_range.end > sub_range.start);
-        break :body tree.extra_data[sub_range.start..sub_range.end];
-    } else null;
+    const sub_range = tree.extraData(data.rhs, Node.SubRange);
+    const body = tree.extra_data[sub_range.start..sub_range.end];
 
     const while_token = tree.nodes.items(.main_token)[node];
 
     const brackets: ?full.While.Brackets = if (token_tags[while_token + 1] == .l_bracket) .{
         .l_bracket = while_token + 1,
-        .r_bracket = if (body) |b| body: {
-            var offset: usize = 1;
-            var it = std.mem.reverseIterator(b);
-            while (it.next()) |entry| {
-                if (entry > 0) break;
-                offset += 1;
-            }
-            if (offset == 1) {
-                break :body tree.lastToken(b[b.len - 1]) + 1;
-            } else if (offset == b.len + 1) {
-                if (true) unreachable;
-                break :body tree.lastToken(condition) + 2;
-            } else {
-                if (true) unreachable;
-                break :body tree.lastToken(b[b.len - offset]) + 2;
-            }
-        } else blk: {
+        .r_bracket = if (body.len > 0)
+            tree.lastToken(body[body.len - 1]) + 1
+        else blk: {
             const last_token = tree.lastToken(condition);
             break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
         },
@@ -736,7 +719,7 @@ pub const full = struct {
         while_token: Token.Index,
         brackets: ?Brackets,
         condition: Node.Index,
-        body: ?[]Node.Index,
+        body: []Node.Index,
 
         pub const Brackets = struct {
             l_bracket: Token.Index,
@@ -925,7 +908,7 @@ pub const Node = struct {
         /// `delete lhs`. rhs unused. main_token is the `delete`. `DeleteCols[lhs]`.
         delete_cols,
 
-        /// `while[lhs;rhs]`. rhs can be omitted. main_token is the `while`. `SubRange[rhs]`.
+        /// `while[lhs;rhs]`. main_token is the `while`. `SubRange[rhs]`.
         @"while",
 
         pub fn getType(tag: Tag) Type {
@@ -4596,10 +4579,10 @@ test "delete columns" {
 }
 
 test "while" {
-    try testAst(
+    try failAst(
         "while a",
         &.{ .keyword_while, .identifier },
-        &.{ .@"while", .identifier },
+        &.{.expected_token},
     );
     try testAst(
         "while[a]",

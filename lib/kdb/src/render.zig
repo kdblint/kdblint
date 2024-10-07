@@ -722,10 +722,8 @@ fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void 
 
         try renderExpression(r, while_node.condition, .semicolon);
 
-        if (while_node.body) |body| {
-            for (body) |expr| {
-                if (expr > 0) try renderExpression(r, expr, .semicolon);
-            }
+        for (while_node.body) |expr| {
+            try renderExpression(r, expr, .semicolon);
         }
 
         return renderToken(r, brackets.r_bracket, space); // ]
