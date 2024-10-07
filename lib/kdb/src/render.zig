@@ -91,8 +91,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     if (node == 0) return renderOnlySpace(r, space);
 
     const tree = r.tree;
-    const ais = r.ais;
-    _ = ais; // autofix
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
@@ -236,6 +234,22 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             try renderTokenSpace(r, update.update_token); // update
             return renderSqlCommon(r, update, space);
+        },
+
+        .delete_rows,
+        => {
+            const delete = r.tree.fullDeleteRows(node);
+
+            try renderTokenSpace(r, delete.delete_token); // delete
+            return renderSqlCommon(r, delete, space);
+        },
+
+        .delete_cols,
+        => {
+            const delete = r.tree.fullDeleteCols(node);
+
+            try renderTokenSpace(r, delete.delete_token); // delete
+            return renderSqlCommon(r, delete, space);
         },
     }
 }
@@ -664,31 +678,37 @@ fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 }
 
 fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
-    for (data.select) |expr| {
-        try renderExpression(r, expr, .comma);
+    if (@hasField(@TypeOf(data), "select")) {
+        for (data.select) |expr| {
+            try renderExpression(r, expr, .comma);
+        }
     }
 
-    if (data.by) |by| {
-        try renderTokenSpace(r, by.by_token); // by
-        for (by.exprs) |expr| {
-            try renderExpression(r, expr, .comma);
+    if (@hasField(@TypeOf(data), "by")) {
+        if (data.by) |by| {
+            try renderTokenSpace(r, by.by_token); // by
+            for (by.exprs) |expr| {
+                try renderExpression(r, expr, .comma);
+            }
         }
     }
 
     try renderToken(r, data.from_token, .space); // from
 
-    if (data.where) |where| {
-        try renderExpression(r, data.from, .space);
+    if (@hasField(@TypeOf(data), "where")) {
+        if (data.where) |where| {
+            try renderExpression(r, data.from, .space);
 
-        try renderTokenSpace(r, where.where_token); // where
-        for (where.exprs[0 .. where.exprs.len - 1]) |expr| {
-            try renderExpression(r, expr, .comma);
+            try renderTokenSpace(r, where.where_token); // where
+            for (where.exprs[0 .. where.exprs.len - 1]) |expr| {
+                try renderExpression(r, expr, .comma);
+            }
+
+            return renderExpression(r, where.exprs[where.exprs.len - 1], space);
         }
-
-        return renderExpression(r, where.exprs[where.exprs.len - 1], space);
-    } else {
-        return renderExpression(r, data.from, space);
     }
+
+    return renderExpression(r, data.from, space);
 }
 
 fn renderTokenSpace(r: *Render, token: Token.Index) Error!void {
@@ -1017,8 +1037,10 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         .keyword_select,
         .keyword_exec,
         .keyword_update,
+        .keyword_delete,
         => tags[token2] == .number_literal or tags[token2] == .identifier or
-            tags[token2] == .keyword_select or tags[token2] == .keyword_exec or tags[token2] == .keyword_update,
+            tags[token2] == .keyword_select or tags[token2] == .keyword_exec or tags[token2] == .keyword_update or
+            tags[token2] == .keyword_delete,
 
         else => false,
     };

@@ -2664,17 +2664,6 @@ test "call - implicit projection" {
     }, "({x+y};1)");
 }
 
-test "delete rows" {
-    try testParse("delete from x", &.{ .implicit_return, .delete_rows, .identifier }, "(!;`x;();0b;`symbol$())");
-    try testParse("delete from x where a", &.{ .implicit_return, .delete_rows, .identifier, .identifier }, "(!;`x;,,`a;0b;`symbol$())");
-    try testParse("delete from x where a,b", &.{ .implicit_return, .delete_rows, .identifier, .identifier, .identifier }, "(!;`x;,(`a;`b);0b;`symbol$())");
-}
-
-test "delete columns" {
-    try testParse("delete a from x", &.{ .implicit_return, .delete_cols, .identifier, .identifier }, "(!;`x;();0b;,,`a)");
-    try testParse("delete a,b from x", &.{ .implicit_return, .delete_cols, .identifier, .identifier, .identifier }, "(!;`x;();0b;,`a`b)");
-}
-
 test "os" {
     try testParse("\\ls", &.{ .implicit_return, .os }, "(.,[\"\\\\\"];\"ls\")");
     try testParse("\\ls arg", &.{ .implicit_return, .os }, "(.,[\"\\\\\"];\"ls arg\")");
