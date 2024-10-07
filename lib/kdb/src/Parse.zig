@@ -408,6 +408,9 @@ fn parseNoun(p: *Parse) !Node.Index {
         .keyword_delete,
         => try p.parseDelete(),
 
+        .keyword_do,
+        => try p.parseDo(),
+
         .keyword_if,
         => try p.parseIf(),
 
@@ -1169,9 +1172,50 @@ fn parseDelete(p: *Parse) !Node.Index {
     });
 }
 
+/// DoStatement <- KEYWORD_do LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+fn parseDo(p: *Parse) !Node.Index {
+    const do_token = p.assertToken(.keyword_do);
+
+    const do_index = try p.reserveNode(.do);
+    errdefer p.unreserveNode(do_index);
+
+    _ = try p.expectToken(.l_bracket);
+    try p.ends_expr.append(p.gpa, .r_bracket);
+
+    const condition = try p.expectExpr(null);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    if (p.eatToken(.semicolon)) |_| {
+        {
+            const expr = try p.parseExpr(null);
+            if (expr > 0) try p.scratch.append(p.gpa, expr);
+        }
+
+        while (p.eatToken(.semicolon)) |_| {
+            const expr = try p.expectExpr(null);
+            try p.scratch.append(p.gpa, expr);
+        }
+    }
+
+    _ = try p.expectToken(.r_bracket);
+    assert(p.ends_expr.pop() == .r_bracket);
+
+    const exprs = try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..]));
+    return p.setNode(do_index, .{
+        .tag = .do,
+        .main_token = do_token,
+        .data = .{
+            .lhs = condition,
+            .rhs = exprs,
+        },
+    });
+}
+
 /// IfStatement <- KEYWORD_if LBRACKET Expr (SEMICOLON Expr)* RBRACKET
 fn parseIf(p: *Parse) !Node.Index {
-    const while_token = p.assertToken(.keyword_if);
+    const if_token = p.assertToken(.keyword_if);
 
     const if_index = try p.reserveNode(.@"if");
     errdefer p.unreserveNode(if_index);
@@ -1198,7 +1242,7 @@ fn parseIf(p: *Parse) !Node.Index {
     const exprs = try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..]));
     return p.setNode(if_index, .{
         .tag = .@"if",
-        .main_token = while_token,
+        .main_token = if_token,
         .data = .{
             .lhs = condition,
             .rhs = exprs,

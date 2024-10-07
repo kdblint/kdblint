@@ -255,6 +255,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .delete_cols,
         => return main_tokens[n] + end_offset,
 
+        .do,
         .@"if",
         .@"while",
         => return main_tokens[n] + end_offset,
@@ -373,6 +374,12 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => {
             const delete = tree.fullDeleteCols(node);
             n = delete.from;
+        },
+
+        .do,
+        => {
+            const do_node = tree.fullDo(node);
+            return do_node.r_bracket;
         },
 
         .@"if",
@@ -604,6 +611,34 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
     };
 }
 
+pub fn fullDo(tree: Ast, node: Node.Index) full.Do {
+    assert(tree.nodes.items(.tag)[node] == .do);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+
+    const data = tree.nodes.items(.data)[node];
+
+    const condition = data.lhs;
+    const sub_range = tree.extraData(data.rhs, Node.SubRange);
+    const body = tree.extra_data[sub_range.start..sub_range.end];
+
+    const do_token = tree.nodes.items(.main_token)[node];
+    const l_bracket = do_token + 1;
+    const r_bracket = if (body.len > 0)
+        tree.lastToken(body[body.len - 1]) + 1
+    else blk: {
+        const last_token = tree.lastToken(condition);
+        break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
+    };
+
+    return .{
+        .do_token = do_token,
+        .l_bracket = l_bracket,
+        .condition = condition,
+        .body = body,
+        .r_bracket = r_bracket,
+    };
+}
+
 pub fn fullIf(tree: Ast, node: Node.Index) full.If {
     assert(tree.nodes.items(.tag)[node] == .@"if");
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
@@ -745,6 +780,14 @@ pub const full = struct {
         select: []Node.Index,
         from_token: Token.Index,
         from: Node.Index,
+    };
+
+    pub const Do = struct {
+        do_token: Token.Index,
+        l_bracket: Token.Index,
+        condition: Node.Index,
+        body: []Node.Index,
+        r_bracket: Token.Index,
     };
 
     pub const If = struct {
@@ -944,6 +987,8 @@ pub const Node = struct {
         /// `delete lhs`. rhs unused. main_token is the `delete`. `DeleteCols[lhs]`.
         delete_cols,
 
+        /// `do[lhs;rhs]`. main_token is the `do`. `SubRange[rhs]`.
+        do,
         /// `if[lhs;rhs]`. main_token is the `if`. `SubRange[rhs]`.
         @"if",
         /// `while[lhs;rhs]`. main_token is the `while`. `SubRange[rhs]`.
@@ -1031,6 +1076,7 @@ pub const Node = struct {
                 .delete_cols,
                 => .other,
 
+                .do,
                 .@"if",
                 .@"while",
                 => .other,
@@ -4614,6 +4660,49 @@ test "delete columns" {
         "delete a from x where b",
         &.{ .keyword_delete, .identifier, .identifier, .identifier, .identifier, .identifier },
         &.{.cannot_define_where_cond_in_delete_cols},
+    );
+}
+
+test "do" {
+    try failAst(
+        "do a",
+        &.{ .keyword_do, .identifier },
+        &.{.expected_token},
+    );
+    try testAst(
+        "do[a]",
+        &.{ .keyword_do, .l_bracket, .identifier, .r_bracket },
+        &.{ .do, .identifier },
+    );
+    try testAst(
+        "do[a;]",
+        &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{ .do, .identifier },
+    );
+    try testAst(
+        "do[a;b]",
+        &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .do, .identifier, .identifier },
+    );
+    try failAst(
+        "do[a;b;]",
+        &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{.expected_expr},
+    );
+    try testAst(
+        "do[a;b;c]",
+        &.{
+            .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
+        },
+        &.{ .do, .identifier, .identifier, .identifier },
+    );
+    try failAst(
+        "do[a;b;;c]",
+        &.{
+            .keyword_do, .l_bracket, .identifier, .semicolon, .identifier,
+            .semicolon,  .semicolon, .identifier, .r_bracket,
+        },
+        &.{.expected_expr},
     );
 }
 
