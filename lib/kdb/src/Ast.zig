@@ -195,30 +195,52 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .global_assign,
         => n = datas[n].lhs,
 
+        .colon,
         .plus,
+        .plus_colon,
         .minus,
+        .minus_colon,
         .asterisk,
+        .asterisk_colon,
         .percent,
+        .percent_colon,
         .ampersand,
+        .ampersand_colon,
         .pipe,
+        .pipe_colon,
         .caret,
+        .caret_colon,
         .equal,
+        .equal_colon,
         .angle_bracket_left,
+        .angle_bracket_left_colon,
         .angle_bracket_left_equal,
         .angle_bracket_left_right,
         .angle_bracket_right,
+        .angle_bracket_right_colon,
         .angle_bracket_right_equal,
         .dollar,
+        .dollar_colon,
         .comma,
+        .comma_colon,
         .hash,
+        .hash_colon,
         .underscore,
+        .underscore_colon,
         .tilde,
+        .tilde_colon,
         .bang,
+        .bang_colon,
         .question_mark,
+        .question_mark_colon,
         .at,
+        .at_colon,
         .period,
+        .period_colon,
         .zero_colon,
+        .zero_colon_colon,
         .one_colon,
+        .one_colon_colon,
         .two_colon,
         => return main_tokens[n] - end_offset,
 
@@ -298,30 +320,52 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .global_assign,
         => n = datas[n].rhs,
 
+        .colon,
         .plus,
+        .plus_colon,
         .minus,
+        .minus_colon,
         .asterisk,
+        .asterisk_colon,
         .percent,
+        .percent_colon,
         .ampersand,
+        .ampersand_colon,
         .pipe,
+        .pipe_colon,
         .caret,
+        .caret_colon,
         .equal,
+        .equal_colon,
         .angle_bracket_left,
+        .angle_bracket_left_colon,
         .angle_bracket_left_equal,
         .angle_bracket_left_right,
         .angle_bracket_right,
+        .angle_bracket_right_colon,
         .angle_bracket_right_equal,
         .dollar,
+        .dollar_colon,
         .comma,
+        .comma_colon,
         .hash,
+        .hash_colon,
         .underscore,
+        .underscore_colon,
         .tilde,
+        .tilde_colon,
         .bang,
+        .bang_colon,
         .question_mark,
+        .question_mark_colon,
         .at,
+        .at_colon,
         .period,
+        .period_colon,
         .zero_colon,
+        .zero_colon_colon,
         .one_colon,
+        .one_colon_colon,
         .two_colon,
         => return main_tokens[n] + end_offset,
 
@@ -837,54 +881,98 @@ pub const Node = struct {
         /// `lhs :: rhs`. main_token is the `::`.
         global_assign,
 
+        /// Both lhs and rhs unused. main_token is the `:`.
+        colon,
         /// Both lhs and rhs unused. main_token is the `+`.
         plus,
+        /// Both lhs and rhs unused. main_token is the `+:`.
+        plus_colon,
         /// Both lhs and rhs unused. main_token is the `-`.
         minus,
+        /// Both lhs and rhs unused. main_token is the `-:`.
+        minus_colon,
         /// Both lhs and rhs unused. main_token is the `*`.
         asterisk,
+        /// Both lhs and rhs unused. main_token is the `*:`.
+        asterisk_colon,
         /// Both lhs and rhs unused. main_token is the `%`.
         percent,
+        /// Both lhs and rhs unused. main_token is the `%:`.
+        percent_colon,
         /// Both lhs and rhs unused. main_token is the `&`.
         ampersand,
+        /// Both lhs and rhs unused. main_token is the `&:`.
+        ampersand_colon,
         /// Both lhs and rhs unused. main_token is the `|`.
         pipe,
+        /// Both lhs and rhs unused. main_token is the `|:`.
+        pipe_colon,
         /// Both lhs and rhs unused. main_token is the `^`.
         caret,
+        /// Both lhs and rhs unused. main_token is the `^:`.
+        caret_colon,
         /// Both lhs and rhs unused. main_token is the `=`.
         equal,
+        /// Both lhs and rhs unused. main_token is the `=:`.
+        equal_colon,
         /// Both lhs and rhs unused. main_token is the `<`.
         angle_bracket_left,
+        /// Both lhs and rhs unused. main_token is the `<:`.
+        angle_bracket_left_colon,
         /// Both lhs and rhs unused. main_token is the `<=`.
         angle_bracket_left_equal,
         /// Both lhs and rhs unused. main_token is the `<>`.
         angle_bracket_left_right,
         /// Both lhs and rhs unused. main_token is the `>`.
         angle_bracket_right,
+        /// Both lhs and rhs unused. main_token is the `>:`.
+        angle_bracket_right_colon,
         /// Both lhs and rhs unused. main_token is the `>=`.
         angle_bracket_right_equal,
         /// Both lhs and rhs unused. main_token is the `$`.
         dollar,
+        /// Both lhs and rhs unused. main_token is the `$:`.
+        dollar_colon,
         /// Both lhs and rhs unused. main_token is the `,`.
         comma,
+        /// Both lhs and rhs unused. main_token is the `,:`.
+        comma_colon,
         /// Both lhs and rhs unused. main_token is the `#`.
         hash,
+        /// Both lhs and rhs unused. main_token is the `#:`.
+        hash_colon,
         /// Both lhs and rhs unused. main_token is the `_`.
         underscore,
+        /// Both lhs and rhs unused. main_token is the `_:`.
+        underscore_colon,
         /// Both lhs and rhs unused. main_token is the `~`.
         tilde,
+        /// Both lhs and rhs unused. main_token is the `~:`.
+        tilde_colon,
         /// Both lhs and rhs unused. main_token is the `!`.
         bang,
+        /// Both lhs and rhs unused. main_token is the `!:`.
+        bang_colon,
         /// Both lhs and rhs unused. main_token is the `?`.
         question_mark,
+        /// Both lhs and rhs unused. main_token is the `?:`.
+        question_mark_colon,
         /// Both lhs and rhs unused. main_token is the `@`.
         at,
+        /// Both lhs and rhs unused. main_token is the `@:`.
+        at_colon,
         /// Both lhs and rhs unused. main_token is the `.`.
         period,
+        /// Both lhs and rhs unused. main_token is the `.:`.
+        period_colon,
         /// Both lhs and rhs unused. main_token is the `0:`.
         zero_colon,
+        /// Both lhs and rhs unused. main_token is the `0::`.
+        zero_colon_colon,
         /// Both lhs and rhs unused. main_token is the `1:`.
         one_colon,
+        /// Both lhs and rhs unused. main_token is the `1::`.
+        one_colon_colon,
         /// Both lhs and rhs unused. main_token is the `2:`.
         two_colon,
 
@@ -974,30 +1062,52 @@ pub const Node = struct {
                 .global_assign,
                 => .other,
 
+                .colon,
                 .plus,
+                .plus_colon,
                 .minus,
+                .minus_colon,
                 .asterisk,
+                .asterisk_colon,
                 .percent,
+                .percent_colon,
                 .ampersand,
+                .ampersand_colon,
                 .pipe,
+                .pipe_colon,
                 .caret,
+                .caret_colon,
                 .equal,
+                .equal_colon,
                 .angle_bracket_left,
+                .angle_bracket_left_colon,
                 .angle_bracket_left_equal,
                 .angle_bracket_left_right,
                 .angle_bracket_right,
+                .angle_bracket_right_colon,
                 .angle_bracket_right_equal,
                 .dollar,
+                .dollar_colon,
                 .comma,
+                .comma_colon,
                 .hash,
+                .hash_colon,
                 .underscore,
+                .underscore_colon,
                 .tilde,
+                .tilde_colon,
                 .bang,
+                .bang_colon,
                 .question_mark,
+                .question_mark_colon,
                 .at,
+                .at_colon,
                 .period,
+                .period_colon,
                 .zero_colon,
+                .zero_colon_colon,
                 .one_colon,
+                .one_colon_colon,
                 .two_colon,
                 => .binary_operator,
 
