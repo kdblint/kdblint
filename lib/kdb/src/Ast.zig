@@ -673,6 +673,7 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
 
 pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    const tags: []Node.Tag = tree.nodes.items(.tag);
 
     const data = tree.nodes.items(.data)[node];
 
@@ -683,7 +684,10 @@ pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
     const main_token = tree.nodes.items(.main_token)[node];
     const l_bracket = main_token + 1;
     const r_bracket = if (body.len > 0)
-        tree.lastToken(body[body.len - 1]) + 1
+        if (tags[body[body.len - 1]] == .empty)
+            tree.lastToken(body[body.len - 1])
+        else
+            tree.lastToken(body[body.len - 1]) + 1
     else blk: {
         const last_token = tree.lastToken(condition);
         break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
@@ -4762,17 +4766,17 @@ test "do" {
     try testAst(
         "do[a;]",
         &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .r_bracket },
-        &.{ .do, .identifier },
+        &.{ .do, .identifier, .empty },
     );
     try testAst(
         "do[a;b]",
         &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
         &.{ .do, .identifier, .identifier },
     );
-    try failAst(
+    try testAst(
         "do[a;b;]",
         &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{.expected_expr},
+        &.{ .do, .identifier, .identifier, .empty },
     );
     try testAst(
         "do[a;b;c]",
@@ -4781,13 +4785,13 @@ test "do" {
         },
         &.{ .do, .identifier, .identifier, .identifier },
     );
-    try failAst(
+    try testAst(
         "do[a;b;;c]",
         &.{
             .keyword_do, .l_bracket, .identifier, .semicolon, .identifier,
             .semicolon,  .semicolon, .identifier, .r_bracket,
         },
-        &.{.expected_expr},
+        &.{ .do, .identifier, .identifier, .empty, .identifier },
     );
 }
 
@@ -4797,25 +4801,25 @@ test "if" {
         &.{ .keyword_if, .identifier },
         &.{.expected_token},
     );
-    try failAst(
+    try testAst(
         "if[a]",
         &.{ .keyword_if, .l_bracket, .identifier, .r_bracket },
-        &.{.expected_token},
+        &.{ .@"if", .identifier },
     );
-    try failAst(
+    try testAst(
         "if[a;]",
         &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .r_bracket },
-        &.{.expected_expr},
+        &.{ .@"if", .identifier, .empty },
     );
     try testAst(
         "if[a;b]",
         &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
         &.{ .@"if", .identifier, .identifier },
     );
-    try failAst(
+    try testAst(
         "if[a;b;]",
         &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{.expected_expr},
+        &.{ .@"if", .identifier, .identifier, .empty },
     );
     try testAst(
         "if[a;b;c]",
@@ -4824,13 +4828,13 @@ test "if" {
         },
         &.{ .@"if", .identifier, .identifier, .identifier },
     );
-    try failAst(
+    try testAst(
         "if[a;b;;c]",
         &.{
             .keyword_if, .l_bracket, .identifier, .semicolon, .identifier,
             .semicolon,  .semicolon, .identifier, .r_bracket,
         },
-        &.{.expected_expr},
+        &.{ .@"if", .identifier, .identifier, .empty, .identifier },
     );
 }
 
@@ -4848,17 +4852,17 @@ test "while" {
     try testAst(
         "while[a;]",
         &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .r_bracket },
-        &.{ .@"while", .identifier },
+        &.{ .@"while", .identifier, .empty },
     );
     try testAst(
         "while[a;b]",
         &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
         &.{ .@"while", .identifier, .identifier },
     );
-    try failAst(
+    try testAst(
         "while[a;b;]",
         &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{.expected_expr},
+        &.{ .@"while", .identifier, .identifier, .empty },
     );
     try testAst(
         "while[a;b;c]",
@@ -4867,12 +4871,12 @@ test "while" {
         },
         &.{ .@"while", .identifier, .identifier, .identifier },
     );
-    try failAst(
+    try testAst(
         "while[a;b;;c]",
         &.{
             .keyword_while, .l_bracket, .identifier, .semicolon, .identifier,
             .semicolon,     .semicolon, .identifier, .r_bracket,
         },
-        &.{.expected_expr},
+        &.{ .@"while", .identifier, .identifier, .empty, .identifier },
     );
 }
