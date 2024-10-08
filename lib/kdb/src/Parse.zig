@@ -1272,12 +1272,9 @@ fn parseStatement(p: *Parse, comptime token_tag: Token.Tag) !Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    _ = try p.expectToken(.semicolon);
-    while (true) {
+    while (p.eatToken(.semicolon)) |_| {
         const expr = try p.parseExpr(null);
         try p.scratch.append(p.gpa, if (expr == null_node) try p.parseEmpty() else expr);
-        if (p.eatToken(.semicolon)) |_| continue;
-        break;
     }
 
     _ = try p.expectToken(.r_bracket);

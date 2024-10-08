@@ -94,12 +94,42 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
-    switch (node_tags[node]) {
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+
+    const tag = node_tags[node];
+    switch (tag) {
         .root,
         => unreachable,
 
         .empty,
-        => return renderOnlySpace(r, space),
+        => {
+            switch (space) {
+                .none => {},
+                .space => return renderOnlySpace(r, space),
+                .newline => return renderOnlySpace(r, space),
+                .comma => {
+                    const main_token = main_tokens[node];
+                    if (token_tags[main_token] == .comma) {
+                        return renderToken(r, main_token, .none);
+                    } else {
+                        return renderOnlySpace(r, .space);
+                    }
+                },
+                .semicolon => {
+                    const main_token = main_tokens[node];
+                    if (token_tags[main_token] == .semicolon) {
+                        return renderToken(r, main_token, .none);
+                    }
+                },
+                .semicolon_newline => {
+                    const main_token = main_tokens[node];
+                    if (token_tags[main_token] == .semicolon) {
+                        try renderToken(r, main_token, .none);
+                    }
+                    return renderOnlySpace(r, .newline);
+                },
+            }
+        },
 
         .null,
         => return renderToken(r, main_tokens[node], space),
@@ -821,20 +851,11 @@ const Space = enum {
     newline,
     /// If the next token is a comma, render it as well. If not, insert a space.
     comma,
-    /// If the next token is a comma, render it as well. If not, insert one.
-    /// In either case, a newline will be inserted afterwards.
-    comma_newline,
-    /// Additionally consume the next token if it is a comma.
-    /// In either case, a space will be inserted afterwards.
-    comma_space,
     /// Additionally consume the next token if it is a semicolon.
     semicolon,
     /// Additionally consume the next token if it is a semicolon.
     /// In either case, a newline will be inserted afterwards.
     semicolon_newline,
-    /// Skip rendering whitespace and comments. If this is used, the caller
-    /// *must* handle whitespace and comments manually.
-    skip,
 };
 
 fn renderToken(r: *Render, token_index: Token.Index, space: Space) Error!void {
@@ -853,8 +874,6 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
 
     const token_start = token_locs[token_index].start;
 
-    if (space == .skip) return;
-
     // Ensure comments before the start of a new block aren't indented.
     const is_eob = isEob(r, token_index);
     if (is_eob) ais.popIndent();
@@ -872,18 +891,6 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
             try ais.writer().writeByte(' ');
         },
 
-        .comma_newline => if (token_tags[token_index + 1] == .comma) {
-            try renderToken(r, token_index + 1, .newline);
-        } else if (!comment) {
-            try ais.insertNewline();
-        },
-
-        .comma_space => if (token_tags[token_index + 1] == .comma) {
-            try renderToken(r, token_index + 1, .space);
-        } else if (!comment) {
-            try ais.writer().writeByte(' ');
-        },
-
         .semicolon => if (token_tags[token_index + 1] == .semicolon) {
             try renderToken(r, token_index + 1, .none);
         },
@@ -893,8 +900,6 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
         } else if (!comment) {
             try ais.insertNewline();
         },
-
-        .skip => unreachable,
     }
 }
 
@@ -913,11 +918,8 @@ fn renderOnlySpace(r: *Render, space: Space) Error!void {
         .space => try ais.writer().writeByte(' '),
         .newline => try ais.insertNewline(),
         .comma => try ais.writer().writeAll(","),
-        .comma_newline => try ais.writer().writeAll(",\n"),
-        .comma_space => try ais.writer().writeAll(", "),
         .semicolon => try ais.writer().writeByte(';'),
         .semicolon_newline => try ais.writer().writeAll(";\n"),
-        .skip => unreachable,
     }
 }
 
