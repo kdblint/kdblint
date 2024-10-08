@@ -840,7 +840,7 @@ const Space = enum {
 fn renderToken(r: *Render, token_index: Token.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const lexeme = tokenSliceForRender(tree, token_index);
+    const lexeme = tree.tokenSlice(token_index);
     try ais.writer().writeAll(lexeme);
     try renderSpace(r, token_index, lexeme.len, space);
 }
@@ -854,6 +854,11 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
     const token_start = token_locs[token_index].start;
 
     if (space == .skip) return;
+
+    // Ensure comments before the start of a new block aren't indented.
+    const is_eob = isEob(r, token_index);
+    if (is_eob) ais.popIndent();
+    defer if (is_eob) ais.pushIndent();
 
     const comment = try renderComments(r, token_start + lexeme_len, token_locs[token_index + 1].start);
     switch (space) {
@@ -891,6 +896,14 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
 
         .skip => unreachable,
     }
+}
+
+fn isEob(r: *Render, token_index: Token.Index) bool {
+    const tree = r.tree;
+    const locs: []Token.Loc = tree.tokens.items(.loc);
+
+    const next_token_start = locs[token_index + 1].start;
+    return next_token_start == tree.source.len or tree.source[next_token_start - 1] == '\n';
 }
 
 fn renderOnlySpace(r: *Render, space: Space) Error!void {
@@ -1135,7 +1148,7 @@ fn renderExtraNewlineToken(r: *Render, token_index: Token.Index) Error!void {
     const prev_token_end = if (token_index == 0)
         0
     else
-        token_locs[token_index - 1].start + tokenSliceForRender(tree, token_index - 1).len;
+        token_locs[token_index - 1].start + tree.tokenSlice(token_index - 1).len;
 
     // If there is a immediately preceding comment or doc_comment,
     // skip it because required extra newline has already been rendered.
@@ -1150,10 +1163,6 @@ fn renderExtraNewlineToken(r: *Render, token_index: Token.Index) Error!void {
         if (newlines == 2) return ais.insertNewline();
         if (i == prev_token_end) break;
     }
-}
-
-fn tokenSliceForRender(tree: Ast, token_index: Token.Index) []const u8 {
-    return tree.tokenSlice(token_index);
 }
 
 fn hasSameLineComment(tree: Ast, token_index: Ast.Token.Index) bool {
