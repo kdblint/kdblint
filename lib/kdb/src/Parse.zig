@@ -430,14 +430,10 @@ fn parseNoun(p: *Parse) !Node.Index {
         .keyword_delete,
         => try p.parseDelete(),
 
-        .keyword_do,
-        => try p.parseDo(),
-
+        inline .keyword_do,
         .keyword_if,
-        => try p.parseIf(),
-
         .keyword_while,
-        => try p.parseWhile(),
+        => |t| try p.parseStatement(t),
 
         else => null_node,
     };
@@ -1252,53 +1248,21 @@ fn parseDelete(p: *Parse) !Node.Index {
     });
 }
 
-/// DoStatement <- KEYWORD_do LBRACKET Expr (SEMICOLON Expr)* RBRACKET
-fn parseDo(p: *Parse) !Node.Index {
-    const do_token = p.assertToken(.keyword_do);
+/// Statement
+///     <- KEYWORD_do LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+///      | KEYWORD_if LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+///      | KEYWORD_while LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+fn parseStatement(p: *Parse, comptime token_tag: Token.Tag) !Node.Index {
+    const tag = switch (token_tag) {
+        .keyword_do => .do,
+        .keyword_if => .@"if",
+        .keyword_while => .@"while",
+        else => comptime unreachable,
+    };
+    const main_token = p.assertToken(token_tag);
 
-    const do_index = try p.reserveNode(.do);
-    errdefer p.unreserveNode(do_index);
-
-    _ = try p.expectToken(.l_bracket);
-    try p.ends_expr.append(p.gpa, .r_bracket);
-
-    const condition = try p.expectExpr(null);
-
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-    if (p.eatToken(.semicolon)) |_| {
-        {
-            const expr = try p.parseExpr(null);
-            if (expr > 0) try p.scratch.append(p.gpa, expr);
-        }
-
-        while (p.eatToken(.semicolon)) |_| {
-            const expr = try p.expectExpr(null);
-            try p.scratch.append(p.gpa, expr);
-        }
-    }
-
-    _ = try p.expectToken(.r_bracket);
-    assert(p.ends_expr.pop() == .r_bracket);
-
-    const exprs = try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..]));
-    return p.setNode(do_index, .{
-        .tag = .do,
-        .main_token = do_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = exprs,
-        },
-    });
-}
-
-/// IfStatement <- KEYWORD_if LBRACKET Expr (SEMICOLON Expr)* RBRACKET
-fn parseIf(p: *Parse) !Node.Index {
-    const if_token = p.assertToken(.keyword_if);
-
-    const if_index = try p.reserveNode(.@"if");
-    errdefer p.unreserveNode(if_index);
+    const node_index = try p.reserveNode(tag);
+    errdefer p.unreserveNode(node_index);
 
     _ = try p.expectToken(.l_bracket);
     try p.ends_expr.append(p.gpa, .r_bracket);
@@ -1310,8 +1274,8 @@ fn parseIf(p: *Parse) !Node.Index {
 
     _ = try p.expectToken(.semicolon);
     while (true) {
-        const expr = try p.expectExpr(null);
-        try p.scratch.append(p.gpa, expr);
+        const expr = try p.parseExpr(null);
+        try p.scratch.append(p.gpa, if (expr == null_node) try p.parseEmpty() else expr);
         if (p.eatToken(.semicolon)) |_| continue;
         break;
     }
@@ -1320,50 +1284,9 @@ fn parseIf(p: *Parse) !Node.Index {
     assert(p.ends_expr.pop() == .r_bracket);
 
     const exprs = try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..]));
-    return p.setNode(if_index, .{
-        .tag = .@"if",
-        .main_token = if_token,
-        .data = .{
-            .lhs = condition,
-            .rhs = exprs,
-        },
-    });
-}
-
-/// WhileStatement <- KEYWORD_while LBRACKET Expr (SEMICOLON Expr)* RBRACKET
-fn parseWhile(p: *Parse) !Node.Index {
-    const while_token = p.assertToken(.keyword_while);
-
-    const while_index = try p.reserveNode(.@"while");
-    errdefer p.unreserveNode(while_index);
-
-    _ = try p.expectToken(.l_bracket);
-    try p.ends_expr.append(p.gpa, .r_bracket);
-
-    const condition = try p.expectExpr(null);
-
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-    if (p.eatToken(.semicolon)) |_| {
-        {
-            const expr = try p.parseExpr(null);
-            if (expr > 0) try p.scratch.append(p.gpa, expr);
-        }
-
-        while (p.eatToken(.semicolon)) |_| {
-            const expr = try p.expectExpr(null);
-            try p.scratch.append(p.gpa, expr);
-        }
-    }
-
-    _ = try p.expectToken(.r_bracket);
-    assert(p.ends_expr.pop() == .r_bracket);
-
-    const exprs = try p.addExtra(try p.listToSpan(p.scratch.items[scratch_top..]));
-    return p.setNode(while_index, .{
-        .tag = .@"while",
-        .main_token = while_token,
+    return p.setNode(node_index, .{
+        .tag = tag,
+        .main_token = main_token,
         .data = .{
             .lhs = condition,
             .rhs = exprs,

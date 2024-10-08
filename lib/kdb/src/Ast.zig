@@ -378,7 +378,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] + end_offset,
 
         .call,
-        => return tree.fullCall(node).r_bracket,
+        => return tree.fullCall(n).r_bracket,
 
         .apply_unary,
         => n = datas[n].rhs,
@@ -398,35 +398,35 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
 
         .select,
         => {
-            const select = tree.fullSelect(node);
+            const select = tree.fullSelect(n);
             n = if (select.where) |where| where.exprs[where.exprs.len - 1] else select.from;
         },
 
         .exec,
         => {
-            const exec = tree.fullExec(node);
+            const exec = tree.fullExec(n);
             n = if (exec.where) |where| where.exprs[where.exprs.len - 1] else exec.from;
         },
 
         .update,
         => {
-            const update = tree.fullUpdate(node);
+            const update = tree.fullUpdate(n);
             n = if (update.where) |where| where.exprs[where.exprs.len - 1] else update.from;
         },
 
         .delete_rows,
         => {
-            const delete = tree.fullDeleteRows(node);
+            const delete = tree.fullDeleteRows(n);
             n = if (delete.where) |where| where.exprs[where.exprs.len - 1] else delete.from;
         },
 
         .delete_cols,
-        => n = tree.fullDeleteCols(node).from,
+        => n = tree.fullDeleteCols(n).from,
 
         .do,
         .@"if",
         .@"while",
-        => return tree.fullStatement(node).r_bracket,
+        => return tree.fullStatement(n).r_bracket,
     };
 }
 
