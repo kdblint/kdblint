@@ -348,6 +348,7 @@ fn parseNoun(p: *Parse) !Node.Index {
         => try p.parseExprBlock(),
 
         .colon,
+        .colon_colon,
         .plus,
         .plus_colon,
         .minus,
@@ -395,16 +396,6 @@ fn parseNoun(p: *Parse) !Node.Index {
         .one_colon_colon,
         .two_colon,
         => try p.parseOperator(),
-
-        .colon_colon,
-        => try p.addNode(.{
-            .tag = .null,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        }),
 
         .number_literal,
         => try p.parseNumberLiteral(),
@@ -1321,6 +1312,7 @@ fn parseOperator(p: *Parse) !Node.Index {
     const token_tag: Token.Tag = p.peekTag();
     const node_tag: Node.Tag = switch (token_tag) {
         .colon => .colon,
+        .colon_colon => .colon_colon,
         .plus => .plus,
         .plus_colon => .plus_colon,
         .minus => .minus,

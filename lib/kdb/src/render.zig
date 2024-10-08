@@ -131,9 +131,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
         },
 
-        .null,
-        => return renderToken(r, main_tokens[node], space),
-
         .grouped_expression,
         => {
             try renderToken(r, main_tokens[node], .none);
@@ -167,6 +164,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .colon,
+        .colon_colon,
         .plus,
         .plus_colon,
         .minus,

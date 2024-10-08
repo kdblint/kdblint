@@ -173,7 +173,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => return 0,
 
         .empty,
-        .null,
         => return main_tokens[n] - end_offset,
 
         .grouped_expression,
@@ -196,6 +195,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => n = datas[n].lhs,
 
         .colon,
+        .colon_colon,
         .plus,
         .plus_colon,
         .minus,
@@ -298,7 +298,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => return @intCast(tree.tokens.len - 1),
 
         .empty,
-        .null,
         => return main_tokens[n] + end_offset,
 
         .grouped_expression,
@@ -321,6 +320,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => n = datas[n].rhs,
 
         .colon,
+        .colon_colon,
         .plus,
         .plus_colon,
         .minus,
@@ -860,8 +860,6 @@ pub const Node = struct {
         root,
         /// main_token is the next token. Both lhs and rhs unused.
         empty,
-        /// main_token is the `::`. Both lhs and rhs unused.
-        null,
 
         /// `(lhs)`. main_token is the `(`. rhs is the token index of the `)`.
         grouped_expression,
@@ -887,6 +885,8 @@ pub const Node = struct {
 
         /// Both lhs and rhs unused. main_token is the `:`.
         colon,
+        /// Both lhs and rhs unused. main_token is the `::`.
+        colon_colon,
         /// Both lhs and rhs unused. main_token is the `+`.
         plus,
         /// Both lhs and rhs unused. main_token is the `+:`.
@@ -1044,7 +1044,6 @@ pub const Node = struct {
                 => unreachable,
 
                 .empty,
-                .null,
                 => .other,
 
                 .grouped_expression,
@@ -1067,6 +1066,7 @@ pub const Node = struct {
                 => .other,
 
                 .colon,
+                .colon_colon,
                 .plus,
                 .plus_colon,
                 .minus,
