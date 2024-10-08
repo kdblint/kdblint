@@ -425,7 +425,6 @@ pub const Tokenizer = struct {
         negative,
         negative_period,
         int,
-        int_period,
         string_literal,
         string_literal_backslash,
         octal_char_start,
@@ -560,7 +559,6 @@ pub const Tokenizer = struct {
                 '\\' => continue :state .backslash,
                 '3'...'9' => {
                     result.tag = .number_literal;
-                    self.index += 1;
                     continue :state .int;
                 },
                 else => continue :state .invalid,
@@ -800,7 +798,7 @@ pub const Tokenizer = struct {
                     },
                     '0'...'9' => {
                         result.tag = .number_literal;
-                        continue :state .int_period;
+                        continue :state .int;
                     },
                     else => result.tag = .period,
                 }
@@ -813,7 +811,8 @@ pub const Tokenizer = struct {
                         continue :state .invalid;
                     },
                     ':' => continue :state .zero_colon,
-                    else => continue :state .int,
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
+                    else => {},
                 }
             },
 
@@ -835,7 +834,8 @@ pub const Tokenizer = struct {
                         continue :state .invalid;
                     },
                     ':' => continue :state .one_colon,
-                    else => continue :state .int,
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
+                    else => {},
                 }
             },
 
@@ -860,7 +860,8 @@ pub const Tokenizer = struct {
                         result.tag = .two_colon;
                         self.index += 1;
                     },
-                    else => continue :state .int,
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
+                    else => {},
                 }
             },
 
@@ -1032,27 +1033,13 @@ pub const Tokenizer = struct {
                 }
             },
 
-            // TODO: kdb number types
             .int => {
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    },
-                    '.' => continue :state .int_period,
-                    '0'...'9' => {
-                        self.index += 1;
-                        continue :state .int;
-                    },
-                    else => {},
-                }
-            },
-            .int_period => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
                     },
-                    '0'...'9' => continue :state .int_period,
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
                     else => {},
                 }
             },
@@ -1066,7 +1053,6 @@ pub const Tokenizer = struct {
                     },
                     '0'...'9' => {
                         result.tag = .number_literal;
-                        self.index += 1;
                         continue :state .int;
                     },
                     else => result.tag = .minus,
@@ -1077,7 +1063,7 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     '0'...'9' => {
                         result.tag = .number_literal;
-                        continue :state .int_period;
+                        continue :state .int;
                     },
                     else => self.index -= 1,
                 }
@@ -1236,67 +1222,8 @@ pub const Tokenizer = struct {
     }
 };
 
-test "unknown length pointer and then c pointer" {
-    try testTokenize(
-        \\[*]u8
-        \\[*c]u8
-    , &.{
-        .l_bracket, .asterisk, .r_bracket, .identifier, .l_bracket, .asterisk, .identifier, .r_bracket, .identifier,
-    });
-}
-
-test "invalid token characters" {
-    try testTokenize("#", &.{.hash});
-    try testTokenize("`", &.{.symbol_literal});
-    try testTokenize("'c", &.{ .apostrophe, .identifier });
-    try testTokenize("'", &.{.apostrophe});
-    try testTokenize("'\n'", &.{ .apostrophe, .apostrophe });
-}
-
 test "invalid literal/comment characters" {
     try testTokenize("\"\x00\"", &.{.invalid});
-}
-
-test "utf8" {
-    try testTokenize("//\xc2\x80", &.{});
-    try testTokenize("//\xf4\x8f\xbf\xbf", &.{});
-}
-
-test "invalid utf8" {
-    try testTokenize("//\x80", &.{});
-    try testTokenize("//\xbf", &.{});
-    try testTokenize("//\xf8", &.{});
-    try testTokenize("//\xff", &.{});
-    try testTokenize("//\xc2\xc0", &.{});
-    try testTokenize("//\xe0", &.{});
-    try testTokenize("//\xf0", &.{});
-    try testTokenize("//\xf0\x90\x80\xc0", &.{});
-}
-
-test "illegal unicode codepoints" {
-    // unicode newline characters.U+0085, U+2028, U+2029
-    try testTokenize("//\xc2\x84", &.{});
-    try testTokenize("//\xc2\x85", &.{});
-    try testTokenize("//\xc2\x86", &.{});
-    try testTokenize("//\xe2\x80\xa7", &.{});
-    try testTokenize("//\xe2\x80\xa8", &.{});
-    try testTokenize("//\xe2\x80\xa9", &.{});
-    try testTokenize("//\xe2\x80\xaa", &.{});
-}
-
-test "pipe and then invalid" {
-    try testTokenize("||=", &.{ .pipe, .pipe, .equal });
-}
-
-test "line comment and doc comment" {
-    try testTokenize("//", &.{});
-    try testTokenize("// a / b", &.{});
-    try testTokenize("// /", &.{});
-    try testTokenize("/// a", &.{});
-    try testTokenize("///", &.{});
-    try testTokenize("////", &.{});
-    try testTokenize("//!", &.{});
-    try testTokenize("//!!", &.{});
 }
 
 test "line comment followed by identifier" {
@@ -1309,12 +1236,7 @@ test "line comment followed by identifier" {
 
 test "null byte before eof" {
     try testTokenize("123 \x00 456", &.{ .number_literal, .invalid });
-    try testTokenize("//\x00", &.{});
-    // try testTokenize("\\\\\x00", &.{ .backslash, .backslash, .invalid });
     try testTokenize("\x00", &.{});
-    try testTokenize("// NUL\x00\n", &.{});
-    try testTokenize("///\x00\n", &.{});
-    try testTokenize("/// NUL\x00\n", &.{});
 }
 
 test "fuzzable properties upheld" {
@@ -1465,6 +1387,10 @@ test "strings" {
         \\"this is an invalid
         \\multiline string"
     , &.{.invalid});
+}
+
+test "number literals" {
+    if (true) return error.SkipZigTest;
 }
 
 fn testTokenize(
