@@ -88,7 +88,7 @@ fn renderBlock(r: *Render, block: Ast.Node.Index, space: Space) Error!void {
 }
 
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
-    if (node == 0) return renderOnlySpace(r, space);
+    assert(node > 0);
 
     const tree = r.tree;
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
@@ -174,6 +174,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             if (op > 0) try renderExpression(r, op, .none);
             return renderToken(r, main_tokens[node], space);
         },
+
+        .call,
+        => return renderCall(r, node, space),
 
         .apply_unary,
         => {
@@ -661,6 +664,42 @@ fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         try renderExpression(r, param_node, if (i + 1 < params.len) .semicolon_newline else .none);
     }
     return renderToken(r, r_bracket, space);
+}
+
+fn renderCall(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+
+    const call = tree.fullCall(node);
+
+    try renderExpression(r, call.func, .none);
+
+    if (tree.tokensOnSameLine(call.l_bracket, call.r_bracket)) {
+        try renderToken(r, call.l_bracket, .none); // [
+
+        for (call.args) |arg_node| {
+            try renderExpression(r, arg_node, if (tags[arg_node] == .empty) .none else .semicolon);
+        }
+
+        return renderToken(r, call.r_bracket, space); // ]
+    }
+
+    const should_indent = ais.indent_count == 0;
+    if (should_indent) ais.pushIndentNextLine();
+    defer if (should_indent) ais.popIndent();
+
+    try renderToken(r, call.l_bracket, .newline); // [
+
+    for (call.args) |arg_node| {
+        const first_param_token = tree.firstToken(arg_node);
+        if (hasSameLineComment(tree, first_param_token - 1)) {
+            ais.pushIndentOneShot();
+        }
+        try renderExpression(r, arg_node, .semicolon_newline);
+    }
+
+    return renderToken(r, call.r_bracket, space); // ]
 }
 
 fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
