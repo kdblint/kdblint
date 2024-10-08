@@ -236,6 +236,9 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
             }
         },
 
+        .call,
+        => return main_tokens[n],
+
         .apply_unary,
         .apply_binary,
         => n = datas[n].lhs,
@@ -330,6 +333,9 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .backslash_colon,
         => return main_tokens[n] + end_offset,
 
+        .call,
+        => return tree.fullCall(node).r_bracket,
+
         .apply_unary,
         => n = datas[n].rhs,
 
@@ -421,6 +427,32 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
             }
         },
     }
+}
+
+pub fn fullCall(tree: Ast, node: Node.Index) full.Call {
+    assert(tree.nodes.items(.tag)[node] == .call);
+
+    const data: Node.Data = tree.nodes.items(.data)[node];
+    const sub_range = tree.extraData(data.rhs, Node.SubRange);
+
+    const func = data.lhs;
+    const args = tree.extra_data[sub_range.start..sub_range.end];
+
+    const l_bracket = tree.nodes.items(.main_token)[node];
+    const r_bracket = if (args.len > 0)
+        if (tree.nodes.items(.tag)[args[args.len - 1]] == .empty)
+            tree.lastToken(args[args.len - 1])
+        else
+            tree.lastToken(args[args.len - 1]) + 1
+    else
+        l_bracket + 1;
+
+    return .{
+        .func = func,
+        .l_bracket = l_bracket,
+        .args = args,
+        .r_bracket = r_bracket,
+    };
 }
 
 pub fn fullSelect(tree: Ast, node: Node.Index) full.Select {
@@ -624,6 +656,13 @@ pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
 
 /// Fully assembled AST node information.
 pub const full = struct {
+    pub const Call = struct {
+        func: Node.Index,
+        l_bracket: Token.Index,
+        args: []Node.Index,
+        r_bracket: Token.Index,
+    };
+
     pub const Select = struct {
         select_token: Token.Index,
         limit: ?Limit,
@@ -862,6 +901,8 @@ pub const Node = struct {
         /// `lhs\:`. lhs can be omitted. rhs unused. main_token is the `\:`.
         backslash_colon,
 
+        /// `lhs[rhs]`. main_token is the `[`. `SubRange[rhs]`.
+        call,
         /// `lhs rhs`. main_token is unused.
         apply_unary,
         /// `lhs op rhs`. rhs can be omitted. main_token is the operator node.
@@ -967,6 +1008,9 @@ pub const Node = struct {
                 .backslash,
                 .backslash_colon,
                 => .iterator,
+
+                .call,
+                => .other,
 
                 .apply_unary,
                 .apply_binary,
@@ -1878,7 +1922,7 @@ test "table literals" {
             .identifier, .r_bracket, .plus,      .identifier, .r_paren,
         },
         &.{
-            .table_literal, .identifier, .expr_block, .identifier, .apply_unary, .plus, .identifier, .apply_binary,
+            .table_literal, .identifier, .call, .identifier, .plus, .identifier, .apply_binary,
         },
     );
     try testAst(
@@ -1981,9 +2025,8 @@ test "table literals" {
             .r_bracket, .identifier, .l_bracket,  .identifier, .r_bracket,  .plus,      .identifier, .r_paren,
         },
         &.{
-            .table_literal, .identifier, .expr_block, .identifier, .apply_unary, .plus, .identifier,
-            .apply_binary,  .identifier, .expr_block, .identifier, .apply_unary, .plus, .identifier,
-            .apply_binary,
+            .table_literal, .identifier, .call,       .identifier, .plus,       .identifier,   .apply_binary,
+            .identifier,    .call,       .identifier, .plus,       .identifier, .apply_binary,
         },
     );
     try testAst(
@@ -2153,14 +2196,14 @@ test "iterators" {
     try testAst(
         "@\\:[x;y]",
         &.{ .at, .backslash_colon, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
-        &.{ .at, .backslash_colon, .expr_block, .identifier, .identifier, .apply_unary },
+        &.{ .at, .backslash_colon, .call, .identifier, .identifier },
     );
     try testAst(
         "f\\:[x;y]",
         &.{
             .identifier, .backslash_colon, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket,
         },
-        &.{ .identifier, .backslash_colon, .expr_block, .identifier, .identifier, .apply_unary },
+        &.{ .identifier, .backslash_colon, .call, .identifier, .identifier },
     );
     try testAst(
         "x@\\:y",
@@ -2183,6 +2226,14 @@ test "iterators" {
         &.{
             .identifier, .lambda, .identifier, .plus, .identifier, .apply_binary, .slash, .identifier, .apply_binary,
         },
+    );
+    try testAst(
+        "f[x;y]'[z]",
+        &.{
+            .identifier, .l_bracket,  .identifier, .semicolon,  .identifier,
+            .r_bracket,  .apostrophe, .l_bracket,  .identifier, .r_bracket,
+        },
+        &.{ .identifier, .call, .identifier, .identifier, .apostrophe, .call, .identifier },
     );
 }
 
@@ -3062,12 +3113,12 @@ test "call" {
     try testAst(
         "{x}[]",
         &.{ .l_brace, .identifier, .r_brace, .l_bracket, .r_bracket },
-        &.{ .lambda, .identifier, .expr_block, .apply_unary },
+        &.{ .lambda, .identifier, .call },
     );
     try testAst(
         "{x}[1]",
         &.{ .l_brace, .identifier, .r_brace, .l_bracket, .number_literal, .r_bracket },
-        &.{ .lambda, .identifier, .expr_block, .number_literal, .apply_unary },
+        &.{ .lambda, .identifier, .call, .number_literal },
     );
     try testAst(
         "{x+y}[1;a]",
@@ -3076,16 +3127,29 @@ test "call" {
             .l_bracket, .number_literal, .semicolon, .identifier, .r_bracket,
         },
         &.{
-            .lambda,     .identifier,     .plus,       .identifier,  .apply_binary,
-            .expr_block, .number_literal, .identifier, .apply_unary,
+            .lambda, .identifier, .plus, .identifier, .apply_binary, .call, .number_literal, .identifier,
         },
     );
     try testAst(
         "{1}[]-1",
         &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "{x+y}[1] -1",
         &.{
-            .lambda, .number_literal, .expr_block, .apply_unary, .minus, .number_literal, .apply_binary,
+            .l_brace,   .identifier,     .plus,      .identifier,     .r_brace,
+            .l_bracket, .number_literal, .r_bracket, .number_literal,
         },
+        &.{
+            .lambda, .identifier,     .plus,           .identifier,  .apply_binary,
+            .call,   .number_literal, .number_literal, .apply_unary,
+        },
+    );
+    try testAst(
+        "{x}[a;]",
+        &.{ .l_brace, .identifier, .r_brace, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{ .lambda, .identifier, .call, .identifier, .empty },
     );
 }
 

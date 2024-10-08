@@ -444,42 +444,39 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
             const op = try p.parsePrecedence(.iterator, sql_identifier);
             assert(op != null_node);
 
-            if (p.isIterator(op)) {
-                const rhs = try p.parseExpr(sql_identifier);
-                return p.addNode(.{
-                    .tag = .apply_binary,
-                    .main_token = op,
-                    .data = .{
-                        .lhs = lhs,
-                        .rhs = rhs,
-                    },
-                });
-            } else {
-                const rhs = try p.parseVerb(op, sql_identifier);
-                return p.addNode(.{
-                    .tag = .apply_unary,
-                    .main_token = undefined,
-                    .data = .{
-                        .lhs = lhs,
-                        .rhs = rhs,
-                    },
-                });
+            const tags: []Node.Tag = p.nodes.items(.tag);
+            switch (tags[op].getType()) {
+                .iterator,
+                => {
+                    const rhs = try p.parseExpr(sql_identifier);
+                    return p.addNode(.{
+                        .tag = .apply_binary,
+                        .main_token = op,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        },
+                    });
+                },
+                else => {
+                    const rhs = try p.parseVerb(op, sql_identifier);
+                    return p.addNode(.{
+                        .tag = .apply_unary,
+                        .main_token = undefined,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        },
+                    });
+                },
             }
         },
 
         .l_bracket,
         => {
-            const rhs = try p.parsePrecedence(.call, sql_identifier);
-            const apply_unary = try p.addNode(.{
-                .tag = .apply_unary,
-                .main_token = undefined,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = rhs,
-                },
-            });
-
-            return p.parseVerb(apply_unary, sql_identifier);
+            const call = try p.parseCall(lhs);
+            const iterator = try p.parseIterator(call);
+            return p.parseVerb(iterator, sql_identifier);
         },
 
         inline .colon,
@@ -821,6 +818,46 @@ fn parseExprBlock(p: *Parse) !Node.Index {
         .data = .{
             .lhs = try p.addExtra(exprs),
             .rhs = r_bracket,
+        },
+    });
+}
+
+/// Call <- LBRACKET Exprs? RBRACKET
+pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
+    const l_bracket = p.assertToken(.l_bracket);
+
+    try p.ends_expr.append(p.gpa, .r_bracket);
+
+    const call_index = try p.reserveNode(.call);
+    errdefer p.unreserveNode(call_index);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+    const first_expr = try p.parseExpr(null);
+    if (first_expr > 0) {
+        try p.scratch.append(p.gpa, first_expr);
+    } else if (p.peekTag() == .semicolon) {
+        try p.scratch.append(p.gpa, try p.parseEmpty());
+    }
+    while (p.eatToken(.semicolon)) |_| {
+        const expr = try p.parseExpr(null);
+        try p.scratch.append(p.gpa, if (expr == null_node)
+            try p.parseEmpty()
+        else
+            expr);
+    }
+
+    _ = try p.expectToken(.r_bracket);
+    assert(p.ends_expr.pop() == .r_bracket);
+
+    const args = try p.listToSpan(p.scratch.items[scratch_top..]);
+    return p.setNode(call_index, .{
+        .tag = .call,
+        .main_token = l_bracket,
+        .data = .{
+            .lhs = lhs,
+            .rhs = try p.addExtra(args),
         },
     });
 }
@@ -1443,11 +1480,6 @@ fn parseSymbolLiteral(p: *Parse) !Node.Index {
             },
         }),
     }
-}
-
-fn isIterator(p: *Parse, node: Node.Index) bool {
-    const tag: Node.Tag = p.nodes.items(.tag)[node];
-    return tag.getType() == .iterator;
 }
 
 fn eatToken(p: *Parse, tag: Token.Tag) ?Token.Index {
