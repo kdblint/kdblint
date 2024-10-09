@@ -149,7 +149,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .lambda,
         .lambda_semicolon,
-        => return renderLambda(r, node, space),
+        => return renderLambda(r, tree.fullLambda(node), space),
 
         .expr_block,
         => return renderExprBlock(r, node, space),
@@ -568,112 +568,50 @@ fn renderTable(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     unreachable;
 }
 
-fn renderLambda(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
     const tree = r.tree;
-    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const datas: []Ast.Node.Data = tree.nodes.items(.data);
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
 
-    const lambda: Ast.Node.Lambda = tree.extraData(datas[node].lhs, Ast.Node.Lambda);
-    const l_brace = main_tokens[node];
-    assert(token_tags[l_brace] == .l_brace);
-    const r_brace = datas[node].rhs;
-    assert(token_tags[r_brace] == .r_brace);
-    const l_bracket = lambda.l_bracket;
-    const r_bracket = lambda.r_bracket;
-    const has_params = l_bracket > 0;
-    assert((r_bracket > 0) == has_params);
-    const has_semicolon = node_tags[node] == .lambda_semicolon;
-    const body = tree.extra_data[lambda.body_start..lambda.body_end];
+    const single_line_params = if (lambda.params) |params|
+        node_tags[params.params[0]] == .empty or tree.tokensOnSameLine(
+            params.l_bracket,
+            params.r_bracket,
+        )
+    else
+        false;
+    const single_line_body = if (lambda.body.len > 0)
+        tree.tokensOnSameLine(tree.firstToken(lambda.body[0]), tree.lastToken(lambda.body[lambda.body.len - 1]))
+    else
+        false;
 
-    if (has_params) {
-        // lambda has params.
-        try renderToken(r, l_brace, .none);
-        try renderToken(r, l_bracket, .none);
+    try renderToken(r, lambda.l_brace, .none); // {
 
-        const params = tree.extra_data[lambda.params_start..lambda.params_end];
-        switch (params.len) {
-            0 => {},
-            1 => try renderExpression(r, params[0], .none),
-            else => if (tree.tokensOnSameLine(tree.firstToken(params[0]), tree.firstToken(params[1]))) {
-                // Params are on the same line.
-                for (params) |expr| {
-                    try renderExpression(r, expr, .semicolon);
-                }
-            } else {
-                // Params are not on the same line.
-                for (params[0 .. params.len - 1]) |expr| {
-                    try renderExpression(r, expr, .semicolon_newline);
-                }
-                try renderExpression(r, params[params.len - 1], .none);
-            },
+    if (lambda.params) |params| {
+        try renderToken(r, params.l_bracket, .none); // [
+
+        for (params.params, 0..) |expr, i| {
+            try renderExpression(
+                r,
+                expr,
+                if (single_line_params or i + 1 == params.params.len) .semicolon else .semicolon_newline,
+            );
         }
 
-        if (tree.tokensOnSameLine(r_bracket, r_brace)) {
-            // r_bracket ']' and r_brace '}' are on the same line.
-            const params_space: Space = if (tree.mode == .q and
-                body.len > 0 and
-                token_tags[tree.firstToken(body[0])] == .number_literal and
-                tree.tokensOnSameLine(r_bracket, tree.firstToken(body[0])) and
-                tree.tokenSlice(tree.firstToken(body[0]))[0] == '-') .space else .none;
-            try renderToken(r, r_bracket, params_space);
-
-            switch (body.len) {
-                0 => {},
-                1 => try renderExpression(r, body[0], .semicolon),
-                else => {
-                    for (body) |expr| {
-                        try renderExpression(r, expr, .semicolon);
-                    }
-                },
-            }
-            return renderToken(r, r_brace, space);
-        } else {
-            // r_bracket ']' and r_brace '}' are not on the same line.
-            try renderToken(r, r_bracket, .newline);
-
-            switch (body.len) {
-                0 => {},
-                1 => try renderExpression(
-                    r,
-                    body[0],
-                    if (has_semicolon) .semicolon_newline else .semicolon,
-                ),
-                else => if (tree.tokensOnSameLine(tree.firstToken(body[0]), tree.firstToken(body[1]))) {
-                    // Body is on the same line.
-                    for (body) |expr| {
-                        try renderExpression(r, expr, .semicolon);
-                    }
-                } else {
-                    // Body is not on the same line.
-                    for (body[0 .. body.len - 1]) |expr| {
-                        try renderExpression(r, expr, .semicolon_newline);
-                    }
-                    try renderExpression(
-                        r,
-                        body[body.len - 1],
-                        if (has_semicolon) .semicolon_newline else .none,
-                    );
-                },
-            }
-            return renderToken(r, r_brace, space);
-        }
-    } else {
-        // Lambda does not have params.
-        try renderToken(r, l_brace, .none);
-
-        switch (body.len) {
-            0 => {},
-            1 => try renderExpression(r, body[0], .semicolon),
-            else => {
-                for (body) |expr| {
-                    try renderExpression(r, expr, .semicolon);
-                }
-            },
-        }
-        return renderToken(r, r_brace, space);
+        try renderTokenSpace(r, params.r_bracket); // ]
     }
+
+    for (lambda.body, 0..) |expr, i| {
+        try renderExpression(
+            r,
+            expr,
+            if (single_line_body)
+                .semicolon
+            else if (i + 1 < lambda.body.len) .semicolon_newline else if (lambda.has_trailing) .semicolon_newline else .semicolon,
+        );
+    }
+
+    return renderToken(r, lambda.r_brace, space); // }
+
 }
 
 fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {

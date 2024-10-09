@@ -579,7 +579,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
 }
 
 fn parseToken(p: *Parse, token_tag: Token.Tag, node_tag: Node.Tag) !Node.Index {
-    const main_token = p.assertToken(token_tag);
+    const main_token = try p.expectToken(token_tag);
     return p.addNode(.{
         .tag = node_tag,
         .main_token = main_token,
@@ -591,8 +591,7 @@ fn parseToken(p: *Parse, token_tag: Token.Tag, node_tag: Node.Tag) !Node.Index {
 }
 
 fn parseEmpty(p: *Parse) !Node.Index {
-    const token_tags = p.tokens.items(.tag);
-    const tag = token_tags[p.tok_i];
+    const tag: Token.Tag = p.tokens.items(.tag)[p.tok_i];
     assert(tag == .semicolon or tag == .r_paren or tag == .r_bracket);
     return p.addNode(.{
         .tag = .empty,
@@ -639,8 +638,7 @@ fn parseGroup(p: *Parse) !Node.Index {
             try p.parseEmpty()
         else
             expr);
-        if (p.eatToken(.semicolon)) |_| continue;
-        break;
+        _ = p.eatToken(.semicolon) orelse break;
     }
     const r_paren = try p.expectToken(.r_paren);
     assert(p.ends_expr.pop() == .r_paren);
@@ -687,8 +685,7 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
             while (true) {
                 const expr = try p.expectExpr(null);
                 try p.scratch.append(p.gpa, expr);
-                if (p.eatToken(.semicolon)) |_| continue;
-                break;
+                _ = p.eatToken(.semicolon) orelse break;
             }
         }
         _ = try p.expectToken(.r_bracket);
@@ -700,8 +697,7 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
     while (true) {
         const expr = try p.expectExpr(null);
         try p.scratch.append(p.gpa, expr);
-        if (p.eatToken(.semicolon)) |_| continue;
-        break;
+        _ = p.eatToken(.semicolon) orelse break;
     }
     const r_paren = try p.expectToken(.r_paren);
     assert(p.ends_expr.pop() == .r_paren);
@@ -735,17 +731,15 @@ fn parseLambda(p: *Parse) !Node.Index {
     const lambda_index = try p.reserveNode(.lambda);
     errdefer p.unreserveNode(lambda_index);
 
-    var l_bracket: Token.Index = 0;
-    var r_bracket: Token.Index = 0;
-    const params: Node.SubRange = if (p.eatToken(.l_bracket)) |token| params: {
-        l_bracket = token;
+    const params_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(params_top);
 
+    if (p.eatToken(.l_bracket)) |_| {
         try p.ends_expr.append(p.gpa, .r_bracket);
 
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-        if (p.peekTag() != .r_bracket) {
+        if (p.peekTag() == .r_bracket) {
+            try p.scratch.append(p.gpa, try p.parseEmpty());
+        } else {
             while (true) {
                 const node = try p.parseToken(.identifier, .identifier);
                 try p.scratch.append(p.gpa, node);
@@ -753,53 +747,39 @@ fn parseLambda(p: *Parse) !Node.Index {
             }
         }
 
-        r_bracket = try p.expectToken(.r_bracket);
+        _ = try p.expectToken(.r_bracket);
         assert(p.ends_expr.pop() == .r_bracket);
 
-        break :params try p.listToSpan(p.scratch.items[scratch_top..]);
-    } else .{ .start = 0, .end = 0 };
-
-    // Check for negative number after params
-    if (p.mode == .q and params.end > params.start and p.peekTag() == .number_literal) {
-        const loc = p.peekLoc();
-        if (p.source[loc.start] == '-' and p.prevLoc().end == loc.start) {
-            try p.warn(.expected_whitespace);
+        // Check for negative number after params
+        if (p.mode == .q and p.peekTag() == .number_literal) {
+            const loc = p.peekLoc();
+            if (p.source[loc.start] == '-' and p.source[loc.start - 1] == ']') {
+                try p.warn(.expected_whitespace);
+            }
         }
     }
 
-    const body: Node.SubRange = body: {
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-        while (true) {
-            const expr = try p.parseExpr(null);
-            if (expr != null_node) {
-                try p.scratch.append(p.gpa, expr);
-            }
-            if (p.eatToken(.semicolon)) |_| continue;
-            break;
+    const body_top = p.scratch.items.len;
+    while (true) {
+        const expr = try p.parseExpr(null);
+        if (expr != null_node) {
+            try p.scratch.append(p.gpa, expr);
         }
+        _ = p.eatToken(.semicolon) orelse break;
+    }
 
-        break :body try p.listToSpan(p.scratch.items[scratch_top..]);
-    };
     const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_semicolon else .lambda;
-    const r_brace = try p.expectToken(.r_brace);
+    _ = try p.expectToken(.r_brace);
     assert(p.ends_expr.pop() == .r_brace);
 
-    const lambda = try p.addExtra(Node.Lambda{
-        .l_bracket = l_bracket,
-        .r_bracket = r_bracket,
-        .params_start = params.start,
-        .params_end = params.end,
-        .body_start = body.start,
-        .body_end = body.end,
-    });
+    const params = try p.listToSpan(p.scratch.items[params_top..body_top]);
+    const body = try p.listToSpan(p.scratch.items[body_top..]);
     return p.setNode(lambda_index, .{
         .tag = tag,
         .main_token = l_brace,
         .data = .{
-            .lhs = lambda,
-            .rhs = r_brace,
+            .lhs = try p.addExtra(params),
+            .rhs = try p.addExtra(body),
         },
     });
 }
@@ -833,8 +813,7 @@ fn parseExprBlock(p: *Parse) !Node.Index {
                 try p.parseEmpty()
             else
                 expr);
-            if (p.eatToken(.semicolon)) |_| continue;
-            break;
+            _ = p.eatToken(.semicolon) orelse break;
         }
 
         break :exprs try p.listToSpan(p.scratch.items[scratch_top..]);
@@ -973,8 +952,7 @@ fn parseSelect(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{ .by = true, .from = true });
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1002,8 +980,7 @@ fn parseSelect(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1049,8 +1026,7 @@ fn parseExec(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{ .by = true, .from = true });
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1060,8 +1036,7 @@ fn parseExec(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{ .from = true });
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1075,8 +1050,7 @@ fn parseExec(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1115,8 +1089,7 @@ fn parseUpdate(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{ .by = true, .from = true });
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1126,8 +1099,7 @@ fn parseUpdate(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{ .from = true });
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1141,8 +1113,7 @@ fn parseUpdate(p: *Parse) !Node.Index {
         while (true) {
             const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
-            if (p.eatToken(.comma)) |_| continue;
-            break;
+            _ = p.eatToken(.comma) orelse break;
         }
     }
 
@@ -1185,8 +1156,7 @@ fn parseDelete(p: *Parse) !Node.Index {
             while (true) {
                 const expr = try p.expectExpr(.{});
                 try p.scratch.append(p.gpa, expr);
-                if (p.eatToken(.comma)) |_| continue;
-                break;
+                _ = p.eatToken(.comma) orelse break;
             }
         }
 
@@ -1211,8 +1181,7 @@ fn parseDelete(p: *Parse) !Node.Index {
     while (true) {
         const expr = try p.expectExpr(.{ .from = true });
         try p.scratch.append(p.gpa, expr);
-        if (p.eatToken(.comma)) |_| continue;
-        break;
+        _ = p.eatToken(.comma) orelse break;
     }
 
     // From phrase
@@ -1496,8 +1465,7 @@ fn eatIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) ?Token.Index
 }
 
 fn expectIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) !Token.Index {
-    if (p.eatIdentifier(sql_identifier)) |i| return i;
-    return p.failMsg(.{
+    return p.eatIdentifier(sql_identifier) orelse p.failMsg(.{
         .tag = .expected_qsql_token,
         .token = p.tok_i,
         .extra = .{
@@ -1519,8 +1487,7 @@ fn assertToken(p: *Parse, tag: Token.Tag) Token.Index {
 }
 
 fn expectToken(p: *Parse, tag: Token.Tag) !Token.Index {
-    if (p.eatToken(tag)) |token| return token;
-    return p.failExpected(tag);
+    return p.eatToken(tag) orelse p.failExpected(tag);
 }
 
 fn prevTag(p: *Parse) Token.Tag {
