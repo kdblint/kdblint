@@ -151,6 +151,32 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
     return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
 }
 
+pub fn endsBlock(tree: Ast, token_index: Token.Index) bool {
+    const tags: []Token.Tag = tree.tokens.items(.tag);
+    const locs: []Token.Loc = tree.tokens.items(.loc);
+
+    const tag = tags[token_index];
+    std.log.debug("endsBlock - '{s}' {}", .{
+        tree.tokenSlice(token_index),
+        switch (tag) {
+            .eof => true,
+            else => blk: {
+                if (tags[token_index + 1] == .eof) break :blk true;
+                const next_token_start = locs[token_index + 1].start;
+                break :blk next_token_start == tree.source.len or tree.source[next_token_start - 1] == '\n';
+            },
+        },
+    });
+    switch (tag) {
+        .eof => return true,
+        else => {
+            if (tags[token_index + 1] == .eof) return true;
+            const next_token_start = locs[token_index + 1].start;
+            return next_token_start == tree.source.len or tree.source[next_token_start - 1] == '\n';
+        },
+    }
+}
+
 pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
     const tags: []Node.Tag = tree.nodes.items(.tag);
     const datas: []Node.Data = tree.nodes.items(.data);
@@ -1888,7 +1914,6 @@ test "lambda renders on multiple lines" {
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .r_brace },
         &.{ .lambda, .empty, .number_literal },
     );
-    if (true) return error.SkipZigTest;
     try testAstRender(
         \\{[]
         \\  -1;}
@@ -2660,15 +2685,20 @@ test "multiple blocks" {
         },
         &.{ .number_literal, .number_literal },
     );
-    try testAstRender(
-        "1\n\n\n\n\n2",
+    try testAst(
         "1\n2",
         &.{ .number_literal, .number_literal },
         &.{ .number_literal, .number_literal },
     );
     try testAstRender(
+        "1\n\n\n\n\n2",
+        "1\n\n2",
+        &.{ .number_literal, .number_literal },
+        &.{ .number_literal, .number_literal },
+    );
+    try testAstRender(
         ";\n\n\n\n1\n\n\n\n\n2",
-        "1\n2",
+        "1\n\n2",
         &.{ .semicolon, .number_literal, .number_literal },
         &.{ .number_literal, .number_literal },
     );
@@ -2748,11 +2778,9 @@ test "render comments" {
         \\block comment 1
         \\\
         \\  2
-        \\
         \\/
         \\block comment 2
         \\\
-        \\
         \\  3
         \\
         \\/
@@ -2798,11 +2826,9 @@ test "render comments" {
         \\\
         \\
         \\1 /line comment 2
-        \\
         \\/
         \\    block comment 2
         \\\
-        \\
         \\  + /line comment 3
         \\/
         \\        block comment 3
@@ -3702,8 +3728,6 @@ test "render indentation" {
         .list,       .list,       .identifier, .identifier, .identifier, .identifier,
         .identifier, .identifier, .list,       .identifier, .identifier, .identifier,
     });
-
-    if (true) return error.SkipZigTest;
 
     try testAst(
         \\a:{[x;y]
@@ -4993,4 +5017,50 @@ test "while" {
         },
         &.{ .@"while", .identifier, .identifier, .empty, .identifier },
     );
+}
+
+fn testRender(file_path: []const u8) !void {
+    const gpa = std.testing.allocator;
+
+    var dir = try std.fs.openDirAbsolute(@import("test_options").path, .{});
+    defer dir.close();
+    const source_code = try dir.readFileAllocOptions(
+        gpa,
+        file_path,
+        1_000_000,
+        null,
+        @alignOf(u8),
+        0,
+    );
+    defer gpa.free(source_code);
+    var buf: [100]u8 = undefined;
+    const expected_path = try std.fmt.bufPrint(
+        &buf,
+        "{s}.expected.q",
+        .{file_path[0 .. file_path.len - 2]},
+    );
+    const expected_source = try dir.readFileAlloc(gpa, expected_path, 1_000_000);
+    defer gpa.free(expected_source);
+
+    var tree = try Ast.parse(gpa, source_code, .q);
+    defer tree.deinit(gpa);
+
+    // Errors
+    const actual_errors = try gpa.alloc(Error.Tag, tree.errors.len);
+    defer gpa.free(actual_errors);
+    for (tree.errors, 0..) |err, i| actual_errors[i] = err.tag;
+    try std.testing.expectEqualSlices(Error.Tag, &.{}, actual_errors);
+
+    // Render
+    const actual_source = try render(tree, gpa);
+    defer gpa.free(actual_source);
+    try std.testing.expectEqualStrings(expected_source, actual_source);
+}
+
+test "render lambda.q" {
+    try testRender("lambda.q");
+}
+
+test "render number_literal.q" {
+    try testRender("number_list_literal.q");
 }
