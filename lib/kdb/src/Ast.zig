@@ -116,30 +116,19 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) 
 /// should point after the token in the error message.
 pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
     return if (parse_error.token_is_prev)
-        @as(u32, @intCast(tree.tokenSlice(parse_error.token).len))
+        @as(u32, @intCast(tree.tokenLen(parse_error.token)))
     else
         0;
 }
 
 pub fn tokenSlice(tree: Ast, token_index: Token.Index) []const u8 {
-    const token_locs: []Token.Loc = tree.tokens.items(.loc);
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
-    const token_tag = token_tags[token_index];
-
-    // Many tokens can be determined entirely by their tag.
-    if (token_tag.lexeme()) |lexeme| {
-        return lexeme;
-    }
-
-    const token_loc = token_locs[token_index];
-    return tree.source[token_loc.start..token_loc.end];
+    const loc: Token.Loc = tree.tokens.items(.loc)[token_index];
+    return tree.source[loc.start..loc.end];
 }
 
 pub fn tokenLen(tree: Ast, token_index: Token.Index) usize {
-    const token_locs: []Token.Loc = tree.tokens.items(.loc);
-
-    const token_loc = token_locs[token_index];
-    return token_loc.end - token_loc.start;
+    const loc: Token.Loc = tree.tokens.items(.loc)[token_index];
+    return loc.end - loc.start;
 }
 
 pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
@@ -188,6 +177,9 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] - end_offset,
 
         .expr_block,
+        => return main_tokens[n] - end_offset,
+
+        .@"return",
         => return main_tokens[n] - end_offset,
 
         .assign,
@@ -314,6 +306,9 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
 
         .expr_block,
         => return datas[n].rhs + end_offset,
+
+        .@"return",
+        => n = datas[n].lhs,
 
         .assign,
         .global_assign,
@@ -936,6 +931,9 @@ pub const Node = struct {
         /// `[lhs]`. main_token is the `[`. lhs can be omitted. rhs is the token index of the `]`. `SubRange[lhs]`.
         expr_block,
 
+        /// `{:lhs}`. main_token is the `:`.
+        @"return",
+
         /// `lhs : rhs`. main_token is the `:`.
         assign,
         /// `lhs :: rhs`. main_token is the `::`.
@@ -1117,6 +1115,9 @@ pub const Node = struct {
                 => .other,
 
                 .expr_block,
+                => .other,
+
+                .@"return",
                 => .other,
 
                 .assign,
@@ -1320,7 +1321,7 @@ pub fn tokensToSpan(tree: *const Ast, start: Ast.Token.Index, end: Ast.Token.Ind
         end_tok = main;
     }
     const start_off = token_locs[start_tok].start;
-    const end_off = token_locs[end_tok].start + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
+    const end_off = token_locs[end_tok].start + @as(u32, @intCast(tree.tokenLen(end_tok)));
     return Span{
         .start = @intCast(start_off),
         .end = @intCast(end_off),
@@ -1394,10 +1395,11 @@ fn testAstModeRender(
     try std.testing.expectEqual(.eof, actual_token_tags[actual_token_tags.len - 1]);
 
     // Errors
-    const actual_errors = try gpa.alloc(Error.Tag, tree.errors.len);
-    defer gpa.free(actual_errors);
-    for (tree.errors, 0..) |err, i| actual_errors[i] = err.tag;
-    try std.testing.expectEqualSlices(Error.Tag, &.{}, actual_errors);
+    if (tree.errors.len > 0) {
+        std.debug.print("error\n", .{});
+        try @import("root.zig").printAstErrorsToStderr(gpa, tree, "test", .auto);
+        return error.Unexpected;
+    }
 
     // Node tags
     const actual_nodes: []Node.Tag = tree.nodes.items(.tag);
@@ -1921,11 +1923,17 @@ test "lambda renders on multiple lines" {
             .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal,
         },
     );
-    try testAst(
+    try testAstRender(
         \\{[x;
         \\  y;
         \\  z]
         \\  1;2;3;}
+    ,
+        \\{[x;
+        \\  y;
+        \\  z]
+        \\  1;2;3;
+        \\  }
     ,
         &.{
             .l_brace,   .l_bracket,      .identifier, .semicolon,      .identifier, .semicolon,      .identifier,
@@ -3715,11 +3723,10 @@ test "render indentation" {
             .l_bracket,  .identifier, .semicolon,  .identifier, .r_bracket,  .r_brace,
         },
         &.{
-            .identifier,       .assign,     .lambda,     .identifier,  .identifier,   .identifier, .assign,
-            .lambda_semicolon, .identifier, .identifier, .identifier,  .assign,       .lambda,     .identifier,
-            .identifier,       .identifier, .plus,       .identifier,  .apply_binary, .colon,      .identifier,
-            .call,             .identifier, .identifier, .apply_unary, .identifier,   .call,       .identifier,
-            .identifier,
+            .identifier,       .assign,     .lambda,     .identifier, .identifier,   .identifier, .assign,
+            .lambda_semicolon, .identifier, .identifier, .identifier, .assign,       .lambda,     .identifier,
+            .identifier,       .identifier, .plus,       .identifier, .apply_binary, .@"return",  .identifier,
+            .call,             .identifier, .identifier, .identifier, .call,         .identifier, .identifier,
         },
     );
 }

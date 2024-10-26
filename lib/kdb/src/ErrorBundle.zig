@@ -419,7 +419,7 @@ pub const Wip = struct {
                 }
                 const token_locs = tree.tokens.items(.loc);
                 const start = token_locs[item.data.token].start + item.data.byte_offset;
-                const end = start + @as(u32, @intCast(tree.tokenSlice(item.data.token).len)) - item.data.byte_offset;
+                const end = start + @as(u32, @intCast(tree.tokenLen(item.data.token))) - item.data.byte_offset;
                 break :blk Ast.Span{
                     .start = @intCast(start),
                     .end = @intCast(end),
@@ -458,7 +458,7 @@ pub const Wip = struct {
                         }
                         const token_locs = tree.tokens.items(.loc);
                         const start = token_locs[note_item.data.token].start + note_item.data.byte_offset;
-                        const end = start + @as(u32, @intCast(tree.tokenSlice(note_item.data.token).len)) - item.data.byte_offset;
+                        const end = start + @as(u32, @intCast(tree.tokenLen(note_item.data.token))) - item.data.byte_offset;
                         break :blk Ast.Span{
                             .start = @intCast(start),
                             .end = @intCast(end),

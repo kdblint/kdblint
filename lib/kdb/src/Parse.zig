@@ -138,7 +138,7 @@ fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
 }
 
 fn tokenSlice(p: *Parse, token_idex: Token.Index) []const u8 {
-    const loc = p.tokens.items(.loc)[token_idex];
+    const loc: Token.Loc = p.tokens.items(.loc)[token_idex];
     return p.source[loc.start..loc.end];
 }
 
@@ -339,6 +339,8 @@ fn parseNoun(p: *Parse) !Node.Index {
         => try p.parseExprBlock(),
 
         .colon,
+        => try p.parseColon(),
+
         .colon_colon,
         .plus,
         .plus_colon,
@@ -1243,6 +1245,30 @@ fn parseStatement(p: *Parse, comptime token_tag: Token.Tag) !Node.Index {
     });
 }
 
+fn parseColon(p: *Parse) !Node.Index {
+    const in_lambda = for (p.ends_expr.items) |tag| {
+        if (tag == .r_brace) break true;
+    } else false;
+
+    if (in_lambda) {
+        const main_token = p.assertToken(.colon);
+        const return_node = try p.reserveNode(.@"return");
+
+        const lhs = try p.expectExpr(null);
+
+        return p.setNode(return_node, .{
+            .main_token = main_token,
+            .tag = .@"return",
+            .data = .{
+                .lhs = lhs,
+                .rhs = undefined,
+            },
+        });
+    }
+
+    return p.parseToken(.colon, .colon);
+}
+
 /// Operator
 ///     <- PLUS
 ///      / MINUS
@@ -1272,7 +1298,6 @@ fn parseStatement(p: *Parse, comptime token_tag: Token.Tag) !Node.Index {
 fn parseOperator(p: *Parse) !Node.Index {
     const token_tag: Token.Tag = p.peekTag();
     const node_tag: Node.Tag = switch (token_tag) {
-        .colon => .colon,
         .colon_colon => .colon_colon,
         .plus => .plus,
         .plus_colon => .plus_colon,
