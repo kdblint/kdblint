@@ -443,7 +443,6 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
             token_tags[parse_error.token].symbol(),
         }),
 
-        .cannot_project_operator_without_lhs => try writer.writeAll("cannot project operator without lhs"),
         .cannot_apply_operator_directly => try writer.writeAll("cannot apply operator directly"),
         .cannot_apply_iterator_directly => try writer.writeAll("cannot apply iterator directly"),
         .expected_whitespace => try writer.writeAll("expected whitespace"),
@@ -880,7 +879,6 @@ pub const Error = struct {
 
     pub const Tag = enum {
         expected_expr,
-        cannot_project_operator_without_lhs,
         cannot_apply_operator_directly,
         cannot_apply_iterator_directly,
         expected_whitespace,
@@ -907,7 +905,6 @@ pub const Node = struct {
     pub const Type = enum {
         other,
         unary_operator,
-        binary_operator,
         iterator,
     };
 
@@ -1174,7 +1171,7 @@ pub const Node = struct {
                 .one_colon,
                 .one_colon_colon,
                 .two_colon,
-                => .binary_operator,
+                => .unary_operator,
 
                 .apostrophe,
                 .apostrophe_colon,
@@ -1644,46 +1641,55 @@ test "tokenize negative number" {
         &.{ .identifier, .minus, .number_literal },
         &.{ .identifier, .minus, .number_literal, .apply_binary },
     );
-}
 
-// try testAst(
-//     "{-1}[]-1",
-//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
-//     &.{
-//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .sub, .number_literal, .apply_binary,
-//     },
-// );
-// try testAst(
-//     "{-1}[]- 1",
-//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
-//     &.{
-//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .sub, .number_literal, .apply_binary,
-//     },
-// );
-// try testAst(
-//     "{-1}[] - 1",
-//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
-//     &.{
-//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .sub, .number_literal, .apply_binary,
-//     },
-// );
-// try testAst(
-//     "{-1}[] -1",
-//     &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .number_literal },
-//     &.{
-//         .lambda, .lambda_body, .number_literal, .expr_block, .apply_unary, .number_literal, .apply_unary,
-//     },
-// );
-// try testAst(
-//     "([]-1)",
-//     &.{ .l_paren, .l_bracket, .r_bracket, .number_literal, .r_paren },
-//     &.{ .table, .number_literal },
-// );
-// try testAst(
-//     "([x]-1)",
-//     &.{ .l_paren, .l_bracket, .identifier, .r_bracket, .number_literal, .r_paren },
-//     &.{ .table, .identifier, .number_literal },
-// );
+    try testAst(
+        "{-1}[]-1",
+        &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+    );
+    try testAstRender(
+        "{-1}[]- 1",
+        "{-1}[]-1",
+        &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+    );
+    try testAstRender(
+        "{-1}[] - 1",
+        "{-1}[]-1",
+        &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
+        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+    );
+    try testAst(
+        "{-1}[] -1",
+        &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .number_literal },
+        &.{ .lambda, .number_literal, .call, .number_literal, .apply_unary },
+    );
+
+    try testAstMode(
+        .k,
+        "([]-1)",
+        &.{ .l_paren, .l_bracket, .r_bracket, .minus, .number_literal, .r_paren },
+        &.{ .table_literal, .minus, .number_literal, .apply_unary },
+    );
+    try failAstMode(
+        .q,
+        "([]-1)",
+        &.{ .l_paren, .l_bracket, .r_bracket, .minus, .number_literal, .r_paren },
+        &.{.cannot_apply_operator_directly},
+    );
+    try testAstMode(
+        .k,
+        "([x]-1)",
+        &.{ .l_paren, .l_bracket, .identifier, .r_bracket, .minus, .number_literal, .r_paren },
+        &.{ .table_literal, .identifier, .minus, .number_literal, .apply_unary },
+    );
+    try failAstMode(
+        .q,
+        "([x]-1)",
+        &.{ .l_paren, .l_bracket, .identifier, .r_bracket, .minus, .number_literal, .r_paren },
+        &.{.cannot_apply_operator_directly},
+    );
+}
 
 test "lambda renders on same line" {
     try testAst(
@@ -1721,12 +1727,18 @@ test "lambda renders on same line" {
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .r_brace },
         &.{ .lambda, .empty, .number_literal },
     );
-    // try testAstMode(
-    //     .k,
-    //     "{[]-1}",
-    //     &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .r_brace },
-    //     &.{ .lambda, .empty, .number_literal },
-    // );
+    try testAstMode(
+        .k,
+        "{[]-1}",
+        &.{ .l_brace, .l_bracket, .r_bracket, .minus, .number_literal, .r_brace },
+        &.{ .lambda, .empty, .minus, .number_literal, .apply_unary },
+    );
+    try failAstMode(
+        .q,
+        "{[]-1}",
+        &.{ .l_brace, .l_bracket, .r_bracket, .minus, .number_literal, .r_brace },
+        &.{.cannot_apply_operator_directly},
+    );
     try testAst(
         "{[] -1}",
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .r_brace },
@@ -1737,12 +1749,18 @@ test "lambda renders on same line" {
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace },
         &.{ .lambda_semicolon, .empty, .number_literal },
     );
-    // try testAstMode(
-    //     .k,
-    //     "{[]-1;}",
-    //     &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace },
-    //     &.{ .lambda_semicolon, .empty, .number_literal },
-    // );
+    try testAstMode(
+        .k,
+        "{[]-1;}",
+        &.{ .l_brace, .l_bracket, .r_bracket, .minus, .number_literal, .semicolon, .r_brace },
+        &.{ .lambda_semicolon, .empty, .minus, .number_literal, .apply_unary },
+    );
+    try failAstMode(
+        .q,
+        "{[]-1;}",
+        &.{ .l_brace, .l_bracket, .r_bracket, .minus, .number_literal, .semicolon, .r_brace },
+        &.{.cannot_apply_operator_directly},
+    );
     try testAst(
         "{[] -1;}",
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace },
@@ -2274,11 +2292,18 @@ test "operators" {
         &.{ .number_literal, .plus },
         &.{ .number_literal, .plus, .apply_binary },
     );
-    // try failAst(
-    //     "+1",
-    //     &.{ .plus, .number_literal },
-    //     &.{.cannot_project_operator_without_lhs},
-    // );
+    try testAstMode(
+        .k,
+        "+1",
+        &.{ .plus, .number_literal },
+        &.{ .plus, .number_literal, .apply_unary },
+    );
+    try failAstMode(
+        .q,
+        "+1",
+        &.{ .plus, .number_literal },
+        &.{.cannot_apply_operator_directly},
+    );
     try testAst(
         "1+2",
         &.{ .number_literal, .plus, .number_literal },
@@ -2294,11 +2319,18 @@ test "operators" {
         &.{ .l_paren, .number_literal, .plus, .r_paren },
         &.{ .grouped_expression, .number_literal, .plus, .apply_binary },
     );
-    // try failAst(
-    //     "(+1)",
-    //     &.{ .l_paren, .plus, .number_literal, .r_paren },
-    //     &.{.cannot_project_operator_without_lhs},
-    // );
+    try testAstMode(
+        .k,
+        "(+1)",
+        &.{ .l_paren, .plus, .number_literal, .r_paren },
+        &.{ .grouped_expression, .plus, .number_literal, .apply_unary },
+    );
+    try failAstMode(
+        .q,
+        "(+1)",
+        &.{ .l_paren, .plus, .number_literal, .r_paren },
+        &.{.cannot_apply_operator_directly},
+    );
     try testAst(
         "(+)1",
         &.{ .l_paren, .plus, .r_paren, .number_literal },
@@ -2324,12 +2356,12 @@ test "iterators" {
         &.{ .plus, .slash, .number_literal },
         &.{ .plus, .slash, .number_literal, .apply_unary },
     );
-    // try failAstMode(
-    //     .q,
-    //     "+/1",
-    //     &.{ .plus, .slash, .number_literal },
-    //     &.{.cannot_apply_iterator_directly},
-    // );
+    try failAstMode(
+        .q,
+        "+/1",
+        &.{ .plus, .slash, .number_literal },
+        &.{.cannot_apply_iterator_directly},
+    );
     try testAst(
         "1+/1",
         &.{ .number_literal, .plus, .slash, .number_literal },

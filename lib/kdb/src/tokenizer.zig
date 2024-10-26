@@ -238,7 +238,6 @@ pub const Tokenizer = struct {
     buffer: [:0]const u8,
     mode: Mode,
     index: usize,
-    state: TrackingState = .none,
 
     /// For debugging purposes.
     pub fn dump(self: *Tokenizer, token: *const Token) void {
@@ -438,18 +437,9 @@ pub const Tokenizer = struct {
         invalid,
     };
 
-    // TODO: Test reset logic.
-    const TrackingState = enum {
-        none,
-        l_brace,
-        l_bracket,
-        r_bracket,
-    };
-
     /// After this returns invalid, it will reset on the next newline, returning tokens starting from there.
     /// An eof token will always be returned at the end.
     pub fn next(self: *Tokenizer) Token {
-        const prev_state = self.state;
         var result: Token = .{
             .tag = undefined,
             .loc = .{
@@ -496,7 +486,6 @@ pub const Tokenizer = struct {
                 '{' => {
                     result.tag = .l_brace;
                     self.index += 1;
-                    self.state = .l_brace;
                 },
                 '}' => {
                     result.tag = .r_brace;
@@ -505,12 +494,10 @@ pub const Tokenizer = struct {
                 '[' => {
                     result.tag = .l_bracket;
                     self.index += 1;
-                    if (self.state == .l_brace) self.state = .l_bracket;
                 },
                 ']' => {
                     result.tag = .r_bracket;
                     self.index += 1;
-                    if (self.state == .l_bracket) self.state = .r_bracket;
                 },
                 ';' => {
                     result.tag = .semicolon;
@@ -519,7 +506,7 @@ pub const Tokenizer = struct {
                 ':' => continue :state .colon,
                 '+' => continue :state .plus,
                 '-' => {
-                    if (self.index == 0 or self.state == .r_bracket) continue :state .negative;
+                    if (self.index == 0) continue :state .negative;
                     switch (self.buffer[self.index - 1]) {
                         ':', ';', '(', '{', '[', ' ', '\t' => continue :state .negative,
                         else => continue :state .minus,
@@ -1213,9 +1200,6 @@ pub const Tokenizer = struct {
                 }
             },
         }
-
-        // Reset bracket tracking for lambda expressions.
-        if (self.state == prev_state) self.state = .none;
 
         result.loc.end = self.index;
         return result;
