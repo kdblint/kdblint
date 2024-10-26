@@ -145,7 +145,6 @@ fn tokenSlice(p: *Parse, token_idex: Token.Index) []const u8 {
 // TODO: Add tests
 fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     const tags: []Node.Tag = p.nodes.items(.tag);
-    const datas: []Node.Data = p.nodes.items(.data);
     const main_tokens: []Token.Index = p.nodes.items(.main_token);
 
     const tag = tags[lhs];
@@ -154,14 +153,6 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
         .unary_operator => if (p.mode == .q) {
             return p.warnMsg(.{
                 .tag = .cannot_apply_operator_directly,
-                .token = main_tokens[lhs],
-            });
-        },
-
-        // Fail if we are projecting an operator with no lhs.
-        .binary_operator => if (datas[lhs].lhs == null_node) {
-            return p.warnMsg(.{
-                .tag = .cannot_project_operator_without_lhs,
                 .token = main_tokens[lhs],
             });
         },
@@ -469,6 +460,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
                 },
                 else => {
                     const rhs = try p.parseVerb(op, sql_identifier);
+                    try p.validateUnaryApplication(lhs, rhs);
                     return p.addNode(.{
                         .tag = .apply_unary,
                         .main_token = undefined,
