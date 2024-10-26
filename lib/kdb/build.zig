@@ -34,12 +34,16 @@ pub fn build(b: *std.Build) void {
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
+    const test_options = b.addOptions();
+    test_options.addOptionPath("path", b.path("tests"));
+
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .filters = test_filters,
     });
+    lib_unit_tests.root_module.addOptions("test_options", test_options);
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
