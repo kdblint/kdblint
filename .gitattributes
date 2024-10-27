@@ -100,6 +100,7 @@
 # Sources
 *.zig   text eol=lf
 *.zon   text eol=lf
+*.q     text eol=lf
 *.c     text diff=cpp
 *.cc    text diff=cpp
 *.cxx   text diff=cpp
