@@ -5069,4 +5069,5 @@ test "render call.q" {
     if (true) return error.SkipZigTest;
     try testRender("call_0.q");
     try testRender("call_1.q");
+    try testRender("call_2.q");
 }
