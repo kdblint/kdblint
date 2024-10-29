@@ -3385,6 +3385,23 @@ test "call" {
     );
 }
 
+test "projection" {
+    try testAst(
+        "{x+y}[1;]",
+        &.{
+            .l_brace, .identifier, .plus, .identifier, .r_brace, .l_bracket, .number_literal, .semicolon, .r_bracket,
+        },
+        &.{ .lambda, .identifier, .plus, .identifier, .apply_binary, .call, .number_literal, .empty },
+    );
+    try testAst(
+        "{x+y}[;2]",
+        &.{
+            .l_brace, .identifier, .plus, .identifier, .r_brace, .l_bracket, .semicolon, .number_literal, .r_bracket,
+        },
+        &.{ .lambda, .identifier, .plus, .identifier, .apply_binary, .call, .empty, .number_literal },
+    );
+}
+
 test "mismatched parens/braces/brackets" {
     try failAst(")", &.{.r_paren}, &.{.expected_expr});
     try failAst("}", &.{.r_brace}, &.{.expected_expr});

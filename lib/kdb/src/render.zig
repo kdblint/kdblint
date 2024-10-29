@@ -696,7 +696,6 @@ fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
 fn renderCall(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
-    const tags: []Ast.Node.Tag = tree.nodes.items(.tag);
 
     const call = tree.fullCall(node);
 
@@ -706,7 +705,7 @@ fn renderCall(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         try renderToken(r, call.l_bracket, .none); // [
 
         for (call.args) |arg_node| {
-            try renderExpression(r, arg_node, if (tags[arg_node] == .empty) .none else .semicolon);
+            try renderExpression(r, arg_node, .semicolon);
         }
 
         return renderToken(r, call.r_bracket, space); // ]
