@@ -2459,6 +2459,11 @@ test "iterators" {
         },
     );
     try testAst(
+        "x f[1]/y",
+        &.{ .identifier, .identifier, .l_bracket, .number_literal, .r_bracket, .slash, .identifier },
+        &.{ .identifier, .identifier, .call, .number_literal, .slash, .identifier, .apply_binary },
+    );
+    try testAst(
         "f[x;y]'[z]",
         &.{
             .identifier, .l_bracket,  .identifier, .semicolon,  .identifier,

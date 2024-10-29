@@ -424,6 +424,10 @@ fn parseNoun(p: *Parse) !Node.Index {
 
         else => null_node,
     };
+    if (p.peekTag() == .l_bracket) {
+        const call = try p.parseCall(noun);
+        return p.parseIterator(call);
+    }
     return p.parseIterator(noun);
 }
 
