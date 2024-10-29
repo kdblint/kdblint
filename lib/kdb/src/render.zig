@@ -88,7 +88,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
 
-    const needs_indent = ais.indent_next_line == 0;
+    const needs_indent = ais.indent_next_line == 0 and ais.indent_count == 0;
     if (needs_indent) ais.pushIndentNextLine();
     defer if (needs_indent) ais.popIndent();
 
@@ -564,7 +564,12 @@ fn renderTable(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
 fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
     const tree = r.tree;
+    const ais = r.ais;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+
+    const needs_indent = ais.indent_next_line == 0;
+    if (needs_indent) ais.pushIndentNextLine();
+    defer if (needs_indent) ais.popIndent();
 
     if (lambda.params) |params| {
         const single_line_lambda = tree.tokensOnSameLine(lambda.l_brace, lambda.r_brace);
@@ -696,29 +701,20 @@ fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
 fn renderCall(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
+    const ais = r.ais;
 
     const call = tree.fullCall(node);
 
+    const needs_indent = ais.indent_next_line == 0 and ais.indent_count > 0;
+    if (needs_indent) ais.pushIndentNextLine();
+    defer if (needs_indent) ais.popIndent();
+
     try renderExpression(r, call.func, .none);
 
-    if (tree.tokensOnSameLine(call.l_bracket, call.r_bracket)) {
-        try renderToken(r, call.l_bracket, .none); // [
-
-        for (call.args) |arg_node| {
-            try renderExpression(r, arg_node, .semicolon);
-        }
-
-        return renderToken(r, call.r_bracket, space); // ]
-    }
-
-    try renderToken(r, call.l_bracket, .newline); // [
+    try renderToken(r, call.l_bracket, .none); // [
 
     for (call.args) |arg_node| {
-        const first_param_token = tree.firstToken(arg_node);
-        if (hasSameLineComment(tree, first_param_token - 1)) {
-            // ais.pushIndentOneShot();
-        }
-        try renderExpression(r, arg_node, .semicolon_newline);
+        try renderExpression(r, arg_node, .semicolon);
     }
 
     return renderToken(r, call.r_bracket, space); // ]

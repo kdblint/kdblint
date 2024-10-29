@@ -156,17 +156,6 @@ pub fn endsBlock(tree: Ast, token_index: Token.Index) bool {
     const locs: []Token.Loc = tree.tokens.items(.loc);
 
     const tag = tags[token_index];
-    std.log.debug("endsBlock - '{s}' {}", .{
-        tree.tokenSlice(token_index),
-        switch (tag) {
-            .eof => true,
-            else => blk: {
-                if (tags[token_index + 1] == .eof) break :blk true;
-                const next_token_start = locs[token_index + 1].start;
-                break :blk next_token_start == tree.source.len or tree.source[next_token_start - 1] == '\n';
-            },
-        },
-    });
     switch (tag) {
         .eof => return true,
         else => {
@@ -278,7 +267,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         },
 
         .call,
-        => return main_tokens[n],
+        => n = datas[n].lhs,
 
         .apply_unary,
         .apply_binary,
@@ -5093,7 +5082,6 @@ test "render number_literal.q" {
 }
 
 test "render call.q" {
-    if (true) return error.SkipZigTest;
     try testRender("call_0.q");
     try testRender("call_1.q");
     try testRender("call_2.q");
