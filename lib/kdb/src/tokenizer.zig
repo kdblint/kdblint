@@ -238,6 +238,7 @@ pub const Tokenizer = struct {
     buffer: [:0]const u8,
     mode: Mode,
     index: usize,
+    prev_tag: Token.Tag = undefined,
 
     /// For debugging purposes.
     pub fn dump(self: *Tokenizer, token: *const Token) void {
@@ -440,6 +441,12 @@ pub const Tokenizer = struct {
     /// After this returns invalid, it will reset on the next newline, returning tokens starting from there.
     /// An eof token will always be returned at the end.
     pub fn next(self: *Tokenizer) Token {
+        const token = self.nextImpl();
+        self.prev_tag = token.tag;
+        return token;
+    }
+
+    fn nextImpl(self: *Tokenizer) Token {
         var result: Token = .{
             .tag = undefined,
             .loc = .{
@@ -508,8 +515,72 @@ pub const Tokenizer = struct {
                 '-' => {
                     if (self.index == 0) continue :state .negative;
                     switch (self.buffer[self.index - 1]) {
-                        ':', ';', '(', '{', '[', ' ', '\t' => continue :state .negative,
-                        else => continue :state .minus,
+                        ' ', '\t' => continue :state .negative,
+                        else => switch (self.prev_tag) {
+                            .l_paren,
+                            .l_brace,
+                            .l_bracket,
+                            .semicolon,
+
+                            .colon,
+                            .colon_colon,
+                            .plus,
+                            .plus_colon,
+                            .minus,
+                            .minus_colon,
+                            .asterisk,
+                            .asterisk_colon,
+                            .percent,
+                            .percent_colon,
+                            .ampersand,
+                            .ampersand_colon,
+                            .pipe,
+                            .pipe_colon,
+                            .caret,
+                            .caret_colon,
+                            .equal,
+                            .equal_colon,
+                            .angle_bracket_left,
+                            .angle_bracket_left_colon,
+                            .angle_bracket_left_equal,
+                            .angle_bracket_left_right,
+                            .angle_bracket_right,
+                            .angle_bracket_right_colon,
+                            .angle_bracket_right_equal,
+                            .dollar,
+                            .dollar_colon,
+                            .comma,
+                            .comma_colon,
+                            .hash,
+                            .hash_colon,
+                            .underscore,
+                            .underscore_colon,
+                            .tilde,
+                            .tilde_colon,
+                            .bang,
+                            .bang_colon,
+                            .question_mark,
+                            .question_mark_colon,
+                            .at,
+                            .at_colon,
+                            .period,
+                            .period_colon,
+                            .zero_colon,
+                            .zero_colon_colon,
+                            .one_colon,
+                            .one_colon_colon,
+                            .two_colon,
+
+                            .apostrophe,
+                            .apostrophe_colon,
+                            .slash,
+                            .slash_colon,
+                            .backslash,
+                            .backslash_colon,
+                            => continue :state .negative,
+
+                            else => continue :state .minus,
+                        },
                     }
                 },
                 '*' => continue :state .asterisk,
@@ -1373,6 +1444,25 @@ test "strings" {
     , &.{.invalid});
 }
 
+test "negative number literals" {
+    try testTokenize("-1", &.{.number_literal});
+    try testTokenize("--1", &.{ .minus, .number_literal });
+    try testTokenize("---1", &.{ .minus, .minus, .number_literal });
+
+    try testTokenizeMode(.k, "x_-1", &.{ .identifier, .underscore, .number_literal });
+    try testTokenizeMode(.q, "x_-1", &.{ .identifier, .minus, .number_literal });
+
+    try testTokenizeMode(.k, "`symbol_-1", &.{
+        .symbol_literal, .underscore, .number_literal,
+    });
+    try testTokenizeMode(.q, "`symbol_-1", &.{
+        .symbol_literal, .minus, .number_literal,
+    });
+
+    try testTokenize(".-1", &.{ .period, .number_literal });
+    try testTokenize("0.-1", &.{ .number_literal, .minus, .number_literal });
+}
+
 test "number literals" {
     if (true) return error.SkipZigTest;
 }
@@ -1395,15 +1485,22 @@ fn testTokenizeMode(
     source: [:0]const u8,
     expected_token_tags: []const Token.Tag,
 ) !void {
+    const gpa = std.testing.allocator;
+
     var tokenizer = Tokenizer.init(source, mode);
-    for (expected_token_tags) |expected_token_tag| {
+    var tokens: std.ArrayList(Token.Tag) = .init(gpa);
+    defer tokens.deinit();
+    const last_token = while (true) {
         const token = tokenizer.next();
-        try std.testing.expectEqual(expected_token_tag, token.tag);
-    }
+        if (token.tag == .eof) break token;
+        try tokens.append(token.tag);
+    };
+
+    try std.testing.expectEqualSlices(Token.Tag, expected_token_tags, tokens.items);
+
     // Last token should always be eof, even when the last token was invalid,
     // in which case the tokenizer is in an invalid state, which can only be
     // recovered by opinionated means outside the scope of this implementation.
-    const last_token = tokenizer.next();
     try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
     try std.testing.expectEqual(source.len, last_token.loc.start);
     try std.testing.expectEqual(source.len, last_token.loc.end);
