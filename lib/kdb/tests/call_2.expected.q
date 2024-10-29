@@ -1209,8 +1209,8 @@
 
 {[]
   f[ /comment
-  x; /comment
-  y]}
+    x; /comment
+    y]}
 
 {[]
   f[ /comment
