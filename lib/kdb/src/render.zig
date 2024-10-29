@@ -151,9 +151,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => return renderExprBlock(r, node, space),
 
         .@"return",
+        .signal,
         => {
             try renderToken(r, main_tokens[node], .none);
-            return renderExpression(r, datas[node].lhs, space);
+            return renderExpression(r, datas[node].rhs, space);
         },
 
         .assign,
