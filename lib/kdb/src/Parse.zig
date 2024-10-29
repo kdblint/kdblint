@@ -390,6 +390,9 @@ fn parseNoun(p: *Parse) !Node.Index {
         .two_colon,
         => try p.parseOperator(),
 
+        .apostrophe,
+        => try p.parseApostrophe(),
+
         .number_literal,
         => try p.parseNumberLiteral(),
 
@@ -1255,8 +1258,8 @@ fn parseColon(p: *Parse) !Node.Index {
         const return_node = try p.reserveNode(.@"return");
         errdefer p.unreserveNode(return_node);
 
-        const lhs = try p.parseExpr(null);
-        if (lhs == null_node) {
+        const expr = try p.parseExpr(null);
+        if (expr == null_node) {
             return p.setNode(return_node, .{
                 .main_token = main_token,
                 .tag = .colon,
@@ -1271,8 +1274,8 @@ fn parseColon(p: *Parse) !Node.Index {
             .main_token = main_token,
             .tag = .@"return",
             .data = .{
-                .lhs = lhs,
-                .rhs = undefined,
+                .lhs = undefined,
+                .rhs = expr,
             },
         });
     }
@@ -1359,6 +1362,23 @@ fn parseOperator(p: *Parse) !Node.Index {
         else => unreachable,
     };
     return p.parseToken(token_tag, node_tag);
+}
+
+fn parseApostrophe(p: *Parse) !Node.Index {
+    const main_token = p.assertToken(.apostrophe);
+    const signal_node = try p.reserveNode(.signal);
+    errdefer p.unreserveNode(signal_node);
+
+    const expr = try p.expectExpr(null);
+
+    return p.setNode(signal_node, .{
+        .main_token = main_token,
+        .tag = .signal,
+        .data = .{
+            .lhs = undefined,
+            .rhs = expr,
+        },
+    });
 }
 
 /// Iterator

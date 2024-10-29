@@ -206,6 +206,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] - end_offset,
 
         .@"return",
+        .signal,
         => return main_tokens[n] - end_offset,
 
         .assign,
@@ -334,7 +335,8 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => return datas[n].rhs + end_offset,
 
         .@"return",
-        => n = datas[n].lhs,
+        .signal,
+        => n = datas[n].rhs,
 
         .assign,
         .global_assign,
@@ -957,8 +959,10 @@ pub const Node = struct {
         /// `[lhs]`. main_token is the `[`. lhs can be omitted. rhs is the token index of the `]`. `SubRange[lhs]`.
         expr_block,
 
-        /// `{:lhs}`. main_token is the `:`.
+        /// `{:rhs}`. main_token is the `:`.
         @"return",
+        /// `'rhs`. main_token is the `'`.
+        signal,
 
         /// `lhs : rhs`. main_token is the `:`.
         assign,
@@ -1144,6 +1148,7 @@ pub const Node = struct {
                 => .other,
 
                 .@"return",
+                .signal,
                 => .other,
 
                 .assign,
