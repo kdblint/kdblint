@@ -429,7 +429,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
     assert(lhs != null_node);
 
     const tag = p.peekTag();
-    if (p.ends_expr.items.len > 0 and tag == p.ends_expr.items[p.ends_expr.items.len - 1]) return lhs;
+    if (p.ends_expr.getLastOrNull()) |ends_expr| if (tag == ends_expr) return lhs;
 
     switch (tag) {
         .l_paren,
@@ -1253,8 +1253,19 @@ fn parseColon(p: *Parse) !Node.Index {
     if (in_lambda) {
         const main_token = p.assertToken(.colon);
         const return_node = try p.reserveNode(.@"return");
+        errdefer p.unreserveNode(return_node);
 
-        const lhs = try p.expectExpr(null);
+        const lhs = try p.parseExpr(null);
+        if (lhs == null_node) {
+            return p.setNode(return_node, .{
+                .main_token = main_token,
+                .tag = .colon,
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        }
 
         return p.setNode(return_node, .{
             .main_token = main_token,
