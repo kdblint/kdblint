@@ -299,7 +299,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
     const tags: []Node.Tag = tree.nodes.items(.tag);
     const datas: []Node.Data = tree.nodes.items(.data);
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
-    const end_offset: Token.Index = 0;
+    var end_offset: Token.Index = 0;
     var n = node;
     while (true) switch (tags[n]) {
         .root,
@@ -316,9 +316,18 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .table_literal,
         => return datas[n].rhs + end_offset,
 
-        .lambda,
+        inline .lambda,
         .lambda_semicolon,
-        => return tree.fullLambda(n).r_brace,
+        => |t| {
+            const body = blk: {
+                const sub_range = tree.extraData(datas[n].rhs, Node.SubRange);
+                break :blk tree.extra_data[sub_range.start..sub_range.end];
+            };
+
+            if (t == .lambda_semicolon) end_offset += 1;
+            if (tags[body[body.len - 1]] != .empty) end_offset += 1;
+            n = body[body.len - 1];
+        },
 
         .expr_block,
         => return datas[n].rhs + end_offset,
@@ -390,7 +399,15 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] + end_offset,
 
         .call,
-        => return tree.fullCall(n).r_bracket,
+        => {
+            const args = blk: {
+                const sub_range = tree.extraData(datas[n].rhs, Node.SubRange);
+                break :blk tree.extra_data[sub_range.start..sub_range.end];
+            };
+
+            if (tags[args[args.len - 1]] != .empty) end_offset += 1;
+            n = args[args.len - 1];
+        },
 
         .apply_unary,
         => n = datas[n].rhs,
@@ -410,35 +427,47 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
 
         .select,
         => {
-            const select = tree.fullSelect(n);
-            n = if (select.where) |where| where.exprs[where.exprs.len - 1] else select.from;
+            const select = tree.extraData(datas[n].lhs, Node.Select);
+            const where_exprs = tree.extra_data[select.where_start..select.where_end];
+            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else select.from;
         },
 
         .exec,
         => {
-            const exec = tree.fullExec(n);
-            n = if (exec.where) |where| where.exprs[where.exprs.len - 1] else exec.from;
+            const exec = tree.extraData(datas[n].lhs, Node.Exec);
+            const where_exprs = tree.extra_data[exec.where_start..exec.where_end];
+            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else exec.from;
         },
 
         .update,
         => {
-            const update = tree.fullUpdate(n);
-            n = if (update.where) |where| where.exprs[where.exprs.len - 1] else update.from;
+            const update = tree.extraData(datas[n].lhs, Node.Update);
+            const where_exprs = tree.extra_data[update.by_start..update.where_start];
+            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else update.from;
         },
 
         .delete_rows,
         => {
-            const delete = tree.fullDeleteRows(n);
-            n = if (delete.where) |where| where.exprs[where.exprs.len - 1] else delete.from;
+            const delete = tree.extraData(datas[n].lhs, Node.DeleteRows);
+            const where_exprs = tree.extra_data[delete.where_start..delete.where_end];
+            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else delete.from;
         },
 
         .delete_cols,
-        => n = tree.fullDeleteCols(n).from,
+        => n = tree.extraData(datas[n].lhs, Node.DeleteCols).from,
 
         .do,
         .@"if",
         .@"while",
-        => return tree.fullStatement(n).r_bracket,
+        => {
+            const body = blk: {
+                const sub_range = tree.extraData(datas[n].rhs, Node.SubRange);
+                break :blk tree.extra_data[sub_range.start..sub_range.end];
+            };
+
+            if (tags[body[body.len - 1]] != .empty) end_offset += 1;
+            n = body[body.len - 1];
+        },
     };
 }
 
@@ -457,7 +486,6 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
 
         .cannot_apply_operator_directly => try writer.writeAll("cannot apply operator directly"),
         .cannot_apply_iterator_directly => try writer.writeAll("cannot apply iterator directly"),
-        .expected_whitespace => try writer.writeAll("expected whitespace"),
 
         .cannot_combine_limit_expression_and_distinct,
         => try writer.writeAll("Cannot combine limit expression and distinct in select statement"),
@@ -485,11 +513,11 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
 }
 
 pub fn fullLambda(tree: Ast, node: Node.Index) full.Lambda {
-    const node_tags: []Node.Tag = tree.nodes.items(.tag);
-    assert(node_tags[node] == .lambda or node_tags[node] == .lambda_semicolon);
+    const tags: []Node.Tag = tree.nodes.items(.tag);
+    assert(tags[node] == .lambda or tags[node] == .lambda_semicolon);
 
     const data: Node.Data = tree.nodes.items(.data)[node];
-    const has_trailing = node_tags[node] == .lambda_semicolon;
+    const has_trailing = tags[node] == .lambda_semicolon;
 
     const params = blk: {
         const sub_range = tree.extraData(data.lhs, Node.SubRange);
@@ -502,19 +530,17 @@ pub fn fullLambda(tree: Ast, node: Node.Index) full.Lambda {
 
     const l_brace = tree.nodes.items(.main_token)[node];
     const r_bracket: ?Token.Index = if (params.len > 0)
-        if (node_tags[params[params.len - 1]] == .empty)
+        if (tags[params[params.len - 1]] == .empty)
             tree.lastToken(params[params.len - 1])
         else
             tree.lastToken(params[params.len - 1]) + 1
     else
         null;
     const offset: u32 = if (has_trailing) 1 else 0;
-    const r_brace = if (body.len > 0)
-        tree.lastToken(body[body.len - 1]) + 1 + offset
-    else if (r_bracket) |rb|
-        rb + 1 + offset
+    const r_brace = if (tags[body[body.len - 1]] == .empty)
+        tree.lastToken(body[body.len - 1]) + offset
     else
-        l_brace + 1 + offset;
+        tree.lastToken(body[body.len - 1]) + 1 + offset;
 
     const full_params: ?full.Lambda.Params = if (r_bracket) |rb| .{
         .l_bracket = tree.firstToken(params[0]) - 1,
@@ -532,7 +558,8 @@ pub fn fullLambda(tree: Ast, node: Node.Index) full.Lambda {
 }
 
 pub fn fullCall(tree: Ast, node: Node.Index) full.Call {
-    assert(tree.nodes.items(.tag)[node] == .call);
+    const tags: []Node.Tag = tree.nodes.items(.tag);
+    assert(tags[node] == .call);
 
     const data: Node.Data = tree.nodes.items(.data)[node];
     const sub_range = tree.extraData(data.rhs, Node.SubRange);
@@ -541,13 +568,10 @@ pub fn fullCall(tree: Ast, node: Node.Index) full.Call {
     const args = tree.extra_data[sub_range.start..sub_range.end];
 
     const l_bracket = tree.nodes.items(.main_token)[node];
-    const r_bracket = if (args.len > 0)
-        if (tree.nodes.items(.tag)[args[args.len - 1]] == .empty)
-            tree.lastToken(args[args.len - 1])
-        else
-            tree.lastToken(args[args.len - 1]) + 1
+    const r_bracket = if (tags[args[args.len - 1]] == .empty)
+        tree.lastToken(args[args.len - 1])
     else
-        l_bracket + 1;
+        tree.lastToken(args[args.len - 1]) + 1;
 
     return .{
         .func = func,
@@ -730,8 +754,8 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
 }
 
 pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const tags: []Node.Tag = tree.nodes.items(.tag);
+    assert(tags[node] == .do or tags[node] == .@"if" or tags[node] == .@"while");
 
     const data = tree.nodes.items(.data)[node];
 
@@ -741,15 +765,10 @@ pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
 
     const main_token = tree.nodes.items(.main_token)[node];
     const l_bracket = main_token + 1;
-    const r_bracket = if (body.len > 0)
-        if (tags[body[body.len - 1]] == .empty)
-            tree.lastToken(body[body.len - 1])
-        else
-            tree.lastToken(body[body.len - 1]) + 1
-    else blk: {
-        const last_token = tree.lastToken(condition);
-        break :blk if (token_tags[last_token + 1] == .r_bracket) last_token + 1 else last_token + 2;
-    };
+    const r_bracket = if (tags[body[body.len - 1]] == .empty)
+        tree.lastToken(body[body.len - 1])
+    else
+        tree.lastToken(body[body.len - 1]) + 1;
 
     return .{
         .main_token = main_token,
@@ -893,7 +912,6 @@ pub const Error = struct {
         expected_expr,
         cannot_apply_operator_directly,
         cannot_apply_iterator_directly,
-        expected_whitespace,
 
         cannot_combine_limit_expression_and_distinct,
         cannot_define_where_cond_in_delete_cols,
@@ -1411,7 +1429,23 @@ fn testAstModeRender(
 
     // Token tags
     const actual_token_tags: []Token.Tag = tree.tokens.items(.tag);
-    try std.testing.expectEqualSlices(Token.Tag, expected_tokens, actual_token_tags[0 .. actual_token_tags.len - 1]);
+    try std.testing.expectEqualSlices(
+        Token.Tag,
+        expected_tokens,
+        actual_token_tags[0 .. actual_token_tags.len - 1],
+    );
+    if (expected_tokens.len > 0) {
+        const tags: []Token.Tag = tree.tokens.items(.tag);
+        const blocks = tree.rootDecls();
+        if (expected_tokens[0] != .semicolon) try std.testing.expectEqual(
+            expected_tokens[0],
+            tags[tree.firstToken(blocks[0])],
+        );
+        if (expected_tokens[expected_tokens.len - 1] != .semicolon) try std.testing.expectEqual(
+            expected_tokens[expected_tokens.len - 1],
+            tags[tree.lastToken(blocks[blocks.len - 1])],
+        );
+    }
     try std.testing.expectEqual(.eof, actual_token_tags[actual_token_tags.len - 1]);
 
     // Errors
@@ -1544,22 +1578,22 @@ test "tokenize negative number" {
     try testAst(
         "{}-1",
         &.{ .l_brace, .r_brace, .minus, .number_literal },
-        &.{ .lambda, .minus, .number_literal, .apply_binary },
+        &.{ .lambda, .empty, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "{}-.1",
         &.{ .l_brace, .r_brace, .minus, .number_literal },
-        &.{ .lambda, .minus, .number_literal, .apply_binary },
+        &.{ .lambda, .empty, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "{} -1",
         &.{ .l_brace, .r_brace, .number_literal },
-        &.{ .lambda, .number_literal, .apply_unary },
+        &.{ .lambda, .empty, .number_literal, .apply_unary },
     );
     try testAst(
         "{} -.1",
         &.{ .l_brace, .r_brace, .number_literal },
-        &.{ .lambda, .number_literal, .apply_unary },
+        &.{ .lambda, .empty, .number_literal, .apply_unary },
     );
     try testAst(
         "[-1]",
@@ -1667,24 +1701,24 @@ test "tokenize negative number" {
     try testAst(
         "{-1}[]-1",
         &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
-        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+        &.{ .lambda, .number_literal, .call, .empty, .minus, .number_literal, .apply_binary },
     );
     try testAstRender(
         "{-1}[]- 1",
         "{-1}[]-1",
         &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
-        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+        &.{ .lambda, .number_literal, .call, .empty, .minus, .number_literal, .apply_binary },
     );
     try testAstRender(
         "{-1}[] - 1",
         "{-1}[]-1",
         &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
-        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+        &.{ .lambda, .number_literal, .call, .empty, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "{-1}[] -1",
         &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .number_literal },
-        &.{ .lambda, .number_literal, .call, .number_literal, .apply_unary },
+        &.{ .lambda, .number_literal, .call, .empty, .number_literal, .apply_unary },
     );
 
     try testAstMode(
@@ -1717,7 +1751,7 @@ test "lambda renders on same line" {
     try testAst(
         "{}",
         &.{ .l_brace, .r_brace },
-        &.{.lambda},
+        &.{ .lambda, .empty },
     );
     try testAst(
         "{1}",
@@ -1742,7 +1776,7 @@ test "lambda renders on same line" {
     try testAst(
         "{[]}",
         &.{ .l_brace, .l_bracket, .r_bracket, .r_brace },
-        &.{ .lambda, .empty },
+        &.{ .lambda, .empty, .empty },
     );
     try testAst(
         "{[]1}",
@@ -1804,7 +1838,7 @@ test "lambda renders on same line" {
     try testAst(
         "{[x]}",
         &.{ .l_brace, .l_bracket, .identifier, .r_bracket, .r_brace },
-        &.{ .lambda, .identifier },
+        &.{ .lambda, .identifier, .empty },
     );
     try testAst(
         "{[x]1}",
@@ -1833,11 +1867,8 @@ test "lambda renders on same line" {
     );
     try testAst(
         "{[x;y]}",
-        &.{
-            .l_brace,    .l_bracket, .identifier, .semicolon,
-            .identifier, .r_bracket, .r_brace,
-        },
-        &.{ .lambda, .identifier, .identifier },
+        &.{ .l_brace, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket, .r_brace },
+        &.{ .lambda, .identifier, .identifier, .empty },
     );
     try testAst(
         "{[x;y]1}",
@@ -1878,28 +1909,26 @@ test "lambda renders on multiple lines" {
         \\  }
     ,
         &.{ .l_brace, .l_bracket, .r_bracket, .r_brace },
-        &.{ .lambda, .empty },
+        &.{ .lambda, .empty, .empty },
     );
     try testAstRender(
         \\{[]
         \\  ;}
     ,
         \\{[]
+        \\  ;
         \\  }
     ,
         &.{ .l_brace, .l_bracket, .r_bracket, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty },
+        &.{ .lambda_semicolon, .empty, .empty },
     );
-    try testAstRender(
+    try testAst(
         \\{[]
         \\  ;
         \\  }
     ,
-        \\{[]
-        \\  }
-    ,
         &.{ .l_brace, .l_bracket, .r_bracket, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty },
+        &.{ .lambda_semicolon, .empty, .empty },
     );
     try testAst(
         \\{[]
@@ -3339,7 +3368,7 @@ test "call" {
     try testAst(
         "{x}[]",
         &.{ .l_brace, .identifier, .r_brace, .l_bracket, .r_bracket },
-        &.{ .lambda, .identifier, .call },
+        &.{ .lambda, .identifier, .call, .empty },
     );
     try testAst(
         "{x}[1]",
@@ -3359,7 +3388,7 @@ test "call" {
     try testAst(
         "{1}[]-1",
         &.{ .l_brace, .number_literal, .r_brace, .l_bracket, .r_bracket, .minus, .number_literal },
-        &.{ .lambda, .number_literal, .call, .minus, .number_literal, .apply_binary },
+        &.{ .lambda, .number_literal, .call, .empty, .minus, .number_literal, .apply_binary },
     );
     try testAst(
         "{x+y}[1] -1",
@@ -4917,10 +4946,10 @@ test "do" {
         &.{ .keyword_do, .identifier },
         &.{.expected_token},
     );
-    try testAst(
+    try failAst(
         "do[a]",
         &.{ .keyword_do, .l_bracket, .identifier, .r_bracket },
-        &.{ .do, .identifier },
+        &.{.expected_token},
     );
     try testAst(
         "do[a;]",
@@ -4960,10 +4989,10 @@ test "if" {
         &.{ .keyword_if, .identifier },
         &.{.expected_token},
     );
-    try testAst(
+    try failAst(
         "if[a]",
         &.{ .keyword_if, .l_bracket, .identifier, .r_bracket },
-        &.{ .@"if", .identifier },
+        &.{.expected_token},
     );
     try testAst(
         "if[a;]",
@@ -5003,10 +5032,10 @@ test "while" {
         &.{ .keyword_while, .identifier },
         &.{.expected_token},
     );
-    try testAst(
+    try failAst(
         "while[a]",
         &.{ .keyword_while, .l_bracket, .identifier, .r_bracket },
-        &.{ .@"while", .identifier },
+        &.{.expected_token},
     );
     try testAst(
         "while[a;]",
