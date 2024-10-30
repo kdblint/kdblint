@@ -2623,47 +2623,6 @@ fn testParseErrorSettings(settings: Ast.ParseSettings, source: [:0]const u8, exp
     try std.testing.expectEqualSlices(Ast.Error.Tag, expected_tags, errors);
 }
 
-test "call - explicit projection" {
-    try testParse("{x+y}[;]", &.{
-        .implicit_return,
-        .call,
-        .lambda,
-        .add,
-        .identifier,
-        .identifier,
-    }, "({x+y};::;::)");
-    try testParse("{x+y}[1;]", &.{
-        .implicit_return,
-        .call,
-        .long_literal,
-        .lambda,
-        .add,
-        .identifier,
-        .identifier,
-    }, "({x+y};1;::)");
-    try testParse("{x+y}[;2]", &.{
-        .implicit_return,
-        .call,
-        .long_literal,
-        .lambda,
-        .add,
-        .identifier,
-        .identifier,
-    }, "({x+y};::;2)");
-}
-
-test "call - implicit projection" {
-    try testParse("{x+y}[1]", &.{
-        .implicit_return,
-        .call_one,
-        .long_literal,
-        .lambda,
-        .add,
-        .identifier,
-        .identifier,
-    }, "({x+y};1)");
-}
-
 test "os" {
     try testParse("\\ls", &.{ .implicit_return, .os }, "(.,[\"\\\\\"];\"ls\")");
     try testParse("\\ls arg", &.{ .implicit_return, .os }, "(.,[\"\\\\\"];\"ls arg\")");

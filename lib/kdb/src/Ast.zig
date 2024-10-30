@@ -3381,6 +3381,11 @@ test "call" {
 
 test "projection" {
     try testAst(
+        "{x+y}[;]",
+        &.{ .l_brace, .identifier, .plus, .identifier, .r_brace, .l_bracket, .semicolon, .r_bracket },
+        &.{ .lambda, .identifier, .plus, .identifier, .apply_binary, .call, .empty, .empty },
+    );
+    try testAst(
         "{x+y}[1;]",
         &.{
             .l_brace, .identifier, .plus, .identifier, .r_brace, .l_bracket, .number_literal, .semicolon, .r_bracket,
