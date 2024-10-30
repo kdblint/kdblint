@@ -424,11 +424,7 @@ fn parseNoun(p: *Parse) !Node.Index {
 
         else => null_node,
     };
-    if (p.peekTag() == .l_bracket) {
-        const call = try p.parseCall(noun);
-        return p.parseIterator(call);
-    }
-    return p.parseIterator(noun);
+    return p.parseCall(noun);
 }
 
 /// Verb <- Expr*
@@ -480,13 +476,6 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
                     });
                 },
             }
-        },
-
-        .l_bracket,
-        => {
-            const call = try p.parseCall(lhs);
-            const iterator = try p.parseIterator(call);
-            return p.parseVerb(iterator, sql_identifier);
         },
 
         inline .colon,
@@ -832,8 +821,10 @@ fn parseExprBlock(p: *Parse) !Node.Index {
     });
 }
 
-/// Call <- LBRACKET Exprs? RBRACKET
+/// Call <- (LBRACKET Exprs? RBRACKET)*
 pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
+    if (p.peekTag() != .l_bracket) return p.parseIterator(lhs);
+
     const l_bracket = p.assertToken(.l_bracket);
 
     try p.ends_expr.append(p.gpa, .r_bracket);
@@ -862,14 +853,14 @@ pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
     assert(p.ends_expr.pop() == .r_bracket);
 
     const args = try p.listToSpan(p.scratch.items[scratch_top..]);
-    return p.setNode(call_index, .{
+    return p.parseCall(p.setNode(call_index, .{
         .tag = .call,
         .main_token = l_bracket,
         .data = .{
             .lhs = lhs,
             .rhs = try p.addExtra(args),
         },
-    });
+    }));
 }
 
 fn parseSelect(p: *Parse) !Node.Index {
@@ -1392,7 +1383,7 @@ fn parseApostrophe(p: *Parse) !Node.Index {
 ///      / SLASH_COLON
 ///      / BACKSLASH
 ///      / BACKSLASH_COLON)*
-fn parseIterator(p: *Parse, lhs: Node.Index) !Node.Index {
+fn parseIterator(p: *Parse, lhs: Node.Index) Error!Node.Index {
     const token_tag = p.peekTag();
     const node_tag: Node.Tag = switch (token_tag) {
         .apostrophe => .apostrophe,
@@ -1411,7 +1402,7 @@ fn parseIterator(p: *Parse, lhs: Node.Index) !Node.Index {
             .rhs = undefined,
         },
     });
-    return p.parseIterator(iterator);
+    return p.parseCall(iterator);
 }
 
 /// NumberLiteral <- NUMBER_LITERAL+
