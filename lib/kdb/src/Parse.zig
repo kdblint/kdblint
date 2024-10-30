@@ -582,7 +582,7 @@ fn parseToken(p: *Parse, token_tag: Token.Tag, node_tag: Node.Tag) !Node.Index {
 
 fn parseEmpty(p: *Parse) !Node.Index {
     const tag: Token.Tag = p.tokens.items(.tag)[p.tok_i];
-    assert(tag == .semicolon or tag == .r_paren or tag == .r_bracket);
+    assert(tag == .semicolon or tag == .r_paren or tag == .r_brace or tag == .r_bracket);
     return p.addNode(.{
         .tag = .empty,
         .main_token = p.tok_i,
@@ -739,23 +739,14 @@ fn parseLambda(p: *Parse) !Node.Index {
 
         _ = try p.expectToken(.r_bracket);
         assert(p.ends_expr.pop() == .r_bracket);
-
-        // Check for negative number after params
-        if (p.mode == .q and p.peekTag() == .number_literal) {
-            const loc = p.peekLoc();
-            if (p.source[loc.start] == '-' and p.source[loc.start - 1] == ']') {
-                try p.warn(.expected_whitespace);
-            }
-        }
     }
 
     const body_top = p.scratch.items.len;
     while (true) {
         const expr = try p.parseExpr(null);
-        if (expr != null_node) {
-            try p.scratch.append(p.gpa, expr);
-        }
+        try p.scratch.append(p.gpa, if (expr == null_node) try p.parseEmpty() else expr);
         _ = p.eatToken(.semicolon) orelse break;
+        if (p.peekTag() == .r_brace) break;
     }
 
     const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_semicolon else .lambda;
@@ -821,7 +812,7 @@ fn parseExprBlock(p: *Parse) !Node.Index {
     });
 }
 
-/// Call <- (LBRACKET Exprs? RBRACKET)*
+/// Call <- (LBRACKET Expr (SEMICOLON Expr)* RBRACKET)*
 pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
     if (p.peekTag() != .l_bracket) return p.parseIterator(lhs);
 
@@ -835,18 +826,10 @@ pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const first_expr = try p.parseExpr(null);
-    if (first_expr > 0) {
-        try p.scratch.append(p.gpa, first_expr);
-    } else if (p.peekTag() == .semicolon) {
-        try p.scratch.append(p.gpa, try p.parseEmpty());
-    }
-    while (p.eatToken(.semicolon)) |_| {
+    while (true) {
         const expr = try p.parseExpr(null);
-        try p.scratch.append(p.gpa, if (expr == null_node)
-            try p.parseEmpty()
-        else
-            expr);
+        try p.scratch.append(p.gpa, if (expr == null_node) try p.parseEmpty() else expr);
+        _ = p.eatToken(.semicolon) orelse break;
     }
 
     _ = try p.expectToken(.r_bracket);
@@ -1201,9 +1184,9 @@ fn parseDelete(p: *Parse) !Node.Index {
 }
 
 /// Statement
-///     <- KEYWORD_do LBRACKET Expr (SEMICOLON Expr)* RBRACKET
-///      | KEYWORD_if LBRACKET Expr (SEMICOLON Expr)* RBRACKET
-///      | KEYWORD_while LBRACKET Expr (SEMICOLON Expr)* RBRACKET
+///     <- KEYWORD_do LBRACKET Expr (SEMICOLON Expr)+ RBRACKET
+///      | KEYWORD_if LBRACKET Expr (SEMICOLON Expr)+ RBRACKET
+///      | KEYWORD_while LBRACKET Expr (SEMICOLON Expr)+ RBRACKET
 fn parseStatement(p: *Parse, comptime token_tag: Token.Tag) !Node.Index {
     const tag = switch (token_tag) {
         .keyword_do => .do,
@@ -1220,13 +1203,15 @@ fn parseStatement(p: *Parse, comptime token_tag: Token.Tag) !Node.Index {
     try p.ends_expr.append(p.gpa, .r_bracket);
 
     const condition = try p.expectExpr(null);
+    _ = try p.expectToken(.semicolon);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-    while (p.eatToken(.semicolon)) |_| {
+    while (true) {
         const expr = try p.parseExpr(null);
         try p.scratch.append(p.gpa, if (expr == null_node) try p.parseEmpty() else expr);
+        _ = p.eatToken(.semicolon) orelse break;
     }
 
     _ = try p.expectToken(.r_bracket);
