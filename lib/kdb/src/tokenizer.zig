@@ -397,6 +397,15 @@ pub const Token = struct {
             };
         }
 
+        test "Token tags which have a known lexeme tokenize as expected" {
+            inline for (std.meta.fields(Token.Tag)) |field| {
+                const tag: Token.Tag = @enumFromInt(field.value);
+                if (comptime tag.lexeme()) |l| {
+                    try testTokenize("(" ++ l ++ ")", &.{ .l_paren, tag, .r_paren });
+                }
+            }
+        }
+
         pub fn symbol(tag: Tag) []const u8 {
             return tag.lexeme() orelse switch (tag) {
                 .number_literal => "a number literal",
@@ -405,9 +414,17 @@ pub const Token = struct {
                 .identifier => "an identifier",
                 .builtin => "a builtin function",
                 .invalid => "invalid bytes",
+                .eob => "EOB",
                 .eof => "EOF",
-                else => unreachable,
+                else => if (@import("builtin").is_test) @panic(@tagName(tag)) else unreachable,
             };
+        }
+
+        test "Token tags are not unreachable when calling symbol()" {
+            inline for (std.meta.fields(Token.Tag)) |field| {
+                const tag: Token.Tag = @enumFromInt(field.value);
+                _ = tag.symbol();
+            }
         }
 
         pub fn isKeyword(tag: Tag) bool {
@@ -1297,6 +1314,10 @@ pub const Tokenizer = struct {
                         result.tag = .number_literal;
                         continue :state .int;
                     },
+                    ':' => {
+                        result.tag = .minus_colon;
+                        self.index += 1;
+                    },
                     else => result.tag = .minus,
                 }
             },
@@ -1647,6 +1668,310 @@ test "negative number literals" {
 
     try testTokenize(".-1", &.{ .period, .number_literal });
     try testTokenize("0.-1", &.{ .number_literal, .minus, .number_literal });
+}
+
+test "tokenize blocks" {
+    try testTokenize("1", &.{.number_literal});
+    try testTokenize("1\n", &.{.number_literal});
+    try testTokenize("1\n2", &.{ .number_literal, .number_literal });
+    try testTokenize("1\n 2", &.{ .number_literal, .number_literal });
+    try testTokenize("1 \n2", &.{ .number_literal, .number_literal });
+    try testTokenize("1 \n 2", &.{ .number_literal, .number_literal });
+    try testTokenize("1 \n2 ", &.{ .number_literal, .number_literal });
+    try testTokenize("1 \n 2 ", &.{ .number_literal, .number_literal });
+    try testTokenize("1;", &.{ .number_literal, .semicolon });
+    try testTokenize("1 ;", &.{ .number_literal, .semicolon });
+    try testTokenize("1;2", &.{ .number_literal, .semicolon, .number_literal });
+    try testTokenize("1 ;2", &.{ .number_literal, .semicolon, .number_literal });
+    try testTokenize("1; 2", &.{ .number_literal, .semicolon, .number_literal });
+    try testTokenize("1 ; 2", &.{ .number_literal, .semicolon, .number_literal });
+    try testTokenize("(1;2)", &.{
+        .l_paren, .number_literal, .semicolon, .number_literal, .r_paren,
+    });
+    try testTokenize("((1;2);3)", &.{
+        .l_paren, .l_paren,   .number_literal, .semicolon, .number_literal,
+        .r_paren, .semicolon, .number_literal, .r_paren,
+    });
+    try testTokenize("{1;2}", &.{
+        .l_brace, .number_literal, .semicolon, .number_literal, .r_brace,
+    });
+    try testTokenize("{{1;2};3}", &.{
+        .l_brace, .l_brace,   .number_literal, .semicolon, .number_literal,
+        .r_brace, .semicolon, .number_literal, .r_brace,
+    });
+    try testTokenize("[1;2]", &.{
+        .l_bracket, .number_literal, .semicolon, .number_literal, .r_bracket,
+    });
+    try testTokenize("[[1;2];3]", &.{
+        .l_bracket, .l_bracket, .number_literal, .semicolon, .number_literal,
+        .r_bracket, .semicolon, .number_literal, .r_bracket,
+    });
+    try testTokenize("(1;\n2;3)", &.{
+        .l_paren, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_paren,
+    });
+    try testTokenize("(1; \n2;3)", &.{
+        .l_paren, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_paren,
+    });
+    try testTokenize("(1;\n 2;3)", &.{
+        .l_paren, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_paren,
+    });
+    try testTokenize("(1; \n 2;3)", &.{
+        .l_paren, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_paren,
+    });
+}
+
+test "tokenize starting comment" {
+    if (true) return error.SkipZigTest;
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\/ and has some comments
+        \\/
+        \\inside.
+        \\\
+        \\ it also continues after
+        \\ some comments and ends
+        \\here
+    , &.{.identifier});
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\\
+        \\trailing comment
+    , &.{});
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\\d .
+        \\identifier
+    , &.{.identifier});
+    try testTokenize(
+        \\ this is a starting
+        \\ comment that spans
+        \\ multiple lines
+        \\\ d .
+        \\identifier
+    , &.{.identifier});
+}
+
+test "tokenize block comment" {
+    try testTokenize(
+        \\1
+        \\/
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
+        \\\
+        \\1
+    , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\1
+        \\/
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
+        \\\
+        \\ 2
+    , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\(1;
+        \\/
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
+        \\\
+        \\2)
+    , &.{ .l_paren, .number_literal, .semicolon, .number_literal, .r_paren });
+    try testTokenize(
+        \\(1;
+        \\/
+        \\block comment 1
+        \\\
+        \\/
+        \\block comment 2
+        \\\
+        \\ 2)
+    , &.{ .l_paren, .number_literal, .semicolon, .number_literal, .r_paren });
+}
+
+test "tokenize line comment" {
+    try testTokenize("1 /line comment", &.{.number_literal});
+    try testTokenize("1 / line comment", &.{.number_literal});
+    try testTokenize("1/not a line comment", &.{
+        .number_literal, .slash, .builtin, .identifier, .identifier, .identifier,
+    });
+    try testTokenize("1/ not a line comment", &.{
+        .number_literal, .slash, .builtin, .identifier, .identifier, .identifier,
+    });
+    try testTokenize(
+        \\1 /line comment 1
+        \\/line comment 2
+        \\2
+    , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\1 /line comment 1
+        \\ /line comment 2
+        \\2
+    , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\1 /line comment 1
+        \\/line comment 2
+        \\ 2
+    , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\1 /line comment 1
+        \\ /line comment 2
+        \\ 2
+    , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\/line comment 2
+        \\2)
+    , &.{ .l_paren, .number_literal, .semicolon, .number_literal, .r_paren });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\ /line comment 2
+        \\2)
+    , &.{ .l_paren, .number_literal, .semicolon, .number_literal, .r_paren });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\/line comment 2
+        \\ 2)
+    , &.{ .l_paren, .number_literal, .semicolon, .number_literal, .r_paren });
+    try testTokenize(
+        \\(1; /line comment 1
+        \\ /line comment 2
+        \\ 2)
+    , &.{ .l_paren, .number_literal, .semicolon, .number_literal, .r_paren });
+}
+
+test "tokenize trailing comment" {
+    if (true) return error.SkipZigTest;
+    try testTokenize(
+        \\1
+        \\\
+        \\this is a
+        \\trailing comment
+    , &.{.number_literal});
+    try testTokenize(
+        \\1
+        \\\ this is not a trailing comment
+        \\1
+    , &.{ .number_literal, .invalid, .number_literal });
+}
+
+test "tokenize OS" {
+    if (true) return error.SkipZigTest;
+    try testTokenize(
+        \\\ls
+    , &.{});
+    try testTokenize(
+        \\\ls /not a comment
+    , &.{});
+    try testTokenize(
+        \\\ls .
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\ ls
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\ ls
+        \\1
+    , &.{.number_literal});
+    try testTokenize(
+        \\\ls
+        \\/line comment
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\ /line comment
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/line comment
+        \\1
+    , &.{.number_literal});
+    try testTokenize(
+        \\1
+        \\/line comment
+        \\ 2
+    , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\\ls
+        \\/line comment
+        \\ ls
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/line comment
+        \\ ls
+        \\/line comment
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/line comment
+        \\ ls
+        \\/line comment
+        \\ ls
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+        \\/
+        \\block comment
+        \\\
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\\
+        \\ trailing comment
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+        \\\
+        \\ trailing comment
+    , &.{});
+    try testTokenize(
+        \\\ls
+        \\\
+        \\this is a trailing comment
+    , &.{});
 }
 
 test "number literals" {
