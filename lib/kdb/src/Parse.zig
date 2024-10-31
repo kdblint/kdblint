@@ -405,6 +405,9 @@ fn parseNoun(p: *Parse) !Node.Index {
         .identifier,
         => try p.parseToken(.identifier, .identifier),
 
+        .builtin,
+        => try p.parseToken(.builtin, .builtin),
+
         .keyword_select,
         => try p.parseSelect(),
 
@@ -860,7 +863,7 @@ fn parseSelect(p: *Parse) !Node.Index {
     var ascending = false;
     var limit_expr: Node.Index = 0;
     var order_tok: Token.Index = 0;
-    if (p.eatIdentifier(.{ .distinct = true })) |_| {
+    if (p.eatBuiltin("distinct")) |_| {
         distinct = true;
     } else if (p.eatToken(.l_bracket)) |_| {
         try p.ends_expr.append(p.gpa, .r_bracket);
@@ -916,7 +919,7 @@ fn parseSelect(p: *Parse) !Node.Index {
         _ = try p.expectToken(.r_bracket);
         assert(p.ends_expr.pop() == .r_bracket);
 
-        if (p.peekIdentifier(.{ .distinct = true })) |_| {
+        if (p.peekBuiltin("distinct")) |_| {
             try p.warn(.cannot_combine_limit_expression_and_distinct);
         }
     }
@@ -951,7 +954,7 @@ fn parseSelect(p: *Parse) !Node.Index {
 
     // Where phrase
     const where_top = p.scratch.items.len;
-    if (p.eatIdentifier(.{ .where = true })) |_| {
+    if (p.eatBuiltin("where")) |_| {
         while (true) {
             const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
@@ -1021,7 +1024,7 @@ fn parseExec(p: *Parse) !Node.Index {
 
     // Where phrase
     const where_top = p.scratch.items.len;
-    if (p.eatIdentifier(.{ .where = true })) |_| {
+    if (p.eatBuiltin("where")) |_| {
         while (true) {
             const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
@@ -1084,7 +1087,7 @@ fn parseUpdate(p: *Parse) !Node.Index {
 
     // Where phrase
     const where_top = p.scratch.items.len;
-    if (p.eatIdentifier(.{ .where = true })) |_| {
+    if (p.eatBuiltin("where")) |_| {
         while (true) {
             const expr = try p.expectExpr(.{});
             try p.scratch.append(p.gpa, expr);
@@ -1127,7 +1130,7 @@ fn parseDelete(p: *Parse) !Node.Index {
 
         // Where phrase
         const where_top = p.scratch.items.len;
-        if (p.eatIdentifier(.{ .where = true })) |_| {
+        if (p.eatBuiltin("where")) |_| {
             while (true) {
                 const expr = try p.expectExpr(.{});
                 try p.scratch.append(p.gpa, expr);
@@ -1163,7 +1166,7 @@ fn parseDelete(p: *Parse) !Node.Index {
     _ = try p.expectIdentifier(.{ .from = true });
     const from_expr = try p.expectExpr(.{ .where = true });
 
-    if (p.peekIdentifier(.{ .where = true })) |_| {
+    if (p.peekBuiltin("where")) |_| {
         return p.fail(.cannot_define_where_cond_in_delete_cols);
     }
 
@@ -1464,18 +1467,22 @@ const SqlIdentifier = packed struct(u8) {
     by: bool = false,
     from: bool = false,
     where: bool = false,
-    distinct: bool = false,
-    _: u4 = 0,
+    _: u5 = 0,
 };
 
 fn peekIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) ?Token.Index {
     const tag = p.peekTag();
-    if (tag == .identifier) {
-        const slice = p.tokenSlice(p.tok_i);
-        if (sql_identifier.by and std.mem.eql(u8, slice, "by")) return p.tok_i;
-        if (sql_identifier.from and std.mem.eql(u8, slice, "from")) return p.tok_i;
-        if (sql_identifier.where and std.mem.eql(u8, slice, "where")) return p.tok_i;
-        if (sql_identifier.distinct and std.mem.eql(u8, slice, "distinct")) return p.tok_i;
+    switch (tag) {
+        .identifier => {
+            const slice = p.tokenSlice(p.tok_i);
+            if (sql_identifier.by and std.mem.eql(u8, slice, "by")) return p.tok_i;
+            if (sql_identifier.from and std.mem.eql(u8, slice, "from")) return p.tok_i;
+        },
+        .builtin => {
+            const slice = p.tokenSlice(p.tok_i);
+            if (sql_identifier.where and std.mem.eql(u8, slice, "where")) return p.tok_i;
+        },
+        else => {},
     }
     return null;
 }
@@ -1497,16 +1504,32 @@ fn expectIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) !Token.In
         .tag = .expected_qsql_token,
         .token = p.tok_i,
         .extra = .{
-            .expected_string = if (sql_identifier.by)
+            .expected_string = comptime if (sql_identifier.by)
                 "by"
             else if (sql_identifier.from)
                 "from"
             else if (sql_identifier.where)
-                "where"
-            else
-                comptime unreachable,
+                "where",
         },
     });
+}
+
+fn peekBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
+    comptime assert(Token.isBuiltin(builtin));
+    if (p.peekTag() == .builtin) {
+        const slice = p.tokenSlice(p.tok_i);
+        if (std.mem.eql(u8, slice, builtin)) return p.tok_i;
+    }
+    return null;
+}
+
+fn eatBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
+    comptime assert(Token.isBuiltin(builtin));
+    if (p.peekBuiltin(builtin)) |i| {
+        _ = p.nextToken();
+        return i;
+    }
+    return null;
 }
 
 fn assertToken(p: *Parse, tag: Token.Tag) Token.Index {
