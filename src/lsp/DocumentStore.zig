@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const tracy = @import("tracy");
 const zls = @import("zls");
 const URI = zls.URI;
-const kdb = @import("../kdb.zig");
+const kdb = @import("kdb");
 const Ast = kdb.Ast;
 const offsets = @import("offsets.zig");
 const Config = @import("Config.zig");
@@ -530,7 +530,7 @@ pub fn uriFromImportStr(allocator: std.mem.Allocator, handle: *Handle, import_st
 fn getParseSettings(self: DocumentStore, uri: Uri) Ast.ParseSettings {
     return .{
         .version = self.config.kdb_version,
-        .language = if (std.mem.endsWith(u8, uri, ".k")) .k else .q,
+        .mode = if (std.mem.endsWith(u8, uri, ".k")) .k else .q,
     };
 }
 

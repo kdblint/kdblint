@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
+const Timer = std.time.Timer;
 
 const kdb = @import("root.zig");
 pub const Token = kdb.Token;
@@ -21,6 +22,9 @@ extra_data: []Node.Index,
 mode: Mode = .q,
 
 errors: []const Error,
+
+tokenize_duration: u64,
+parse_duration: u64,
 
 pub const ByteOffset = u32;
 
@@ -51,11 +55,23 @@ pub const RenderError = error{
     OutOfMemory,
 };
 
-pub const Mode = enum { q, k };
+pub const Version = enum {
+    @"4.0",
+};
+
+pub const Mode = enum {
+    k,
+    q,
+};
+
+pub const ParseSettings = struct {
+    version: Version,
+    mode: Mode,
+};
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!Ast {
+pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast {
     var tokens: std.MultiArrayList(Token) = .{};
     defer tokens.deinit(gpa);
 
@@ -63,16 +79,20 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     const estimated_token_count = source.len / 8;
     try tokens.ensureTotalCapacity(gpa, estimated_token_count);
 
-    var tokenizer = Tokenizer.init(source, mode);
-    while (true) {
-        const token = tokenizer.next();
-        try tokens.append(gpa, token);
-        if (token.tag == .eof) break;
-    }
+    const tokenize_duration: u64 = tokenize: {
+        var timer = Timer.start() catch null;
+        var tokenizer = Tokenizer.init(source, settings.mode);
+        while (true) {
+            const token = tokenizer.next();
+            try tokens.append(gpa, token);
+            if (token.tag == .eof) break;
+        }
+        break :tokenize if (timer) |*t| t.read() else 0;
+    };
 
     var parser: Parse = .{
         .gpa = gpa,
-        .mode = mode,
+        .mode = settings.mode,
         .source = source,
         .tokens = tokens,
     };
@@ -83,16 +103,22 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     const estimated_node_count = (tokens.len + 2) / 2;
     try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
 
-    try parser.parseRoot();
+    const parse_duration: u64 = parse: {
+        var timer = Timer.start() catch null;
+        try parser.parseRoot();
+        break :parse if (timer) |*t| t.read() else 0;
+    };
 
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
         .source = source,
-        .mode = mode,
+        .mode = settings.mode,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
         .errors = try parser.errors.toOwnedSlice(gpa),
+        .tokenize_duration = tokenize_duration,
+        .parse_duration = parse_duration,
     };
 }
 
@@ -1426,7 +1452,10 @@ fn testAstModeRender(
 ) !void {
     const gpa = std.testing.allocator;
 
-    var tree = try Ast.parse(gpa, source_code, mode);
+    var tree = try Ast.parse(gpa, source_code, .{
+        .mode = mode,
+        .version = .@"4.0",
+    });
     defer tree.deinit(gpa);
 
     // Token tags
@@ -1501,12 +1530,19 @@ fn failAstMode(
 ) !void {
     const gpa = std.testing.allocator;
 
-    var tree = try Ast.parse(gpa, source_code, mode);
+    var tree = try Ast.parse(gpa, source_code, .{
+        .mode = mode,
+        .version = .@"4.0",
+    });
     defer tree.deinit(gpa);
 
     // Token tags
     const actual_tokens: []Token.Tag = tree.tokens.items(.tag);
-    try std.testing.expectEqualSlices(Token.Tag, expected_tokens, actual_tokens[0 .. actual_tokens.len - 1]);
+    try std.testing.expectEqualSlices(
+        Token.Tag,
+        expected_tokens,
+        actual_tokens[0 .. actual_tokens.len - 1],
+    );
     try std.testing.expectEqual(.eof, actual_tokens[actual_tokens.len - 1]);
 
     // Errors
@@ -5113,7 +5149,10 @@ fn testRender(file_path: []const u8) !void {
     const expected_source = try dir.readFileAlloc(gpa, expected_path, 1_000_000);
     defer gpa.free(expected_source);
 
-    var tree = try Ast.parse(gpa, source_code, .q);
+    var tree = try Ast.parse(gpa, source_code, .{
+        .mode = .q,
+        .version = .@"4.0",
+    });
     defer tree.deinit(gpa);
 
     // Errors

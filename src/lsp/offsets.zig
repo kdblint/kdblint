@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const zls = @import("zls");
 const types = zls.types;
 
-const kdb = @import("../kdb.zig");
+const kdb = @import("kdb");
 const Ast = kdb.Ast;
 const Token = Ast.Token;
 
