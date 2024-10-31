@@ -255,6 +255,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .string_literal,
         .symbol_literal,
         .identifier,
+        .builtin,
         => return renderToken(r, main_tokens[node], space),
 
         .number_list_literal,
@@ -1086,7 +1087,7 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         => tags[token2] == .number_literal and r.tree.tokenSlice(token2)[0] == '-',
 
         .number_literal,
-        => tags[token2] == .identifier,
+        => tags[token2] == .identifier or tags[token2] == .builtin, // TODO: What about number_literal keyword?
 
         .symbol_literal,
         => switch (tags[token2]) {
@@ -1102,6 +1103,7 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
             .number_literal,
             .symbol_literal,
             .identifier,
+            .builtin,
             => true,
 
             // Depends on language.
@@ -1109,14 +1111,20 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
             .underscore_colon,
             => r.tree.mode == .q and r.tree.tokenLen(token1) > 1,
 
-            else => false,
+            else => false, // TODO: What about symbol_literal keyword?
         },
 
         .identifier,
-        => tags[token2] == .number_literal or tags[token2] == .identifier or tags[token2].isKeyword(),
+        .builtin,
+        => switch (tags[token2]) {
+            .number_literal, .identifier, .builtin => true,
+            else => tags[token2].isKeyword(),
+        },
 
-        inline else => |t| t.isKeyword() and
-            (tags[token2] == .number_literal or tags[token2] == .identifier or tags[token2].isKeyword()),
+        inline else => |t| t.isKeyword() and switch (tags[token2]) {
+            .number_literal, .identifier, .builtin => true,
+            else => false, // TODO: What about keyword keyword?
+        },
     };
 }
 
