@@ -2,12 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const process = std.process;
-const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const zls = @import("zls");
-const tracy = @import("tracy");
+const kdb = @import("kdb");
 const build_options = @import("build_options");
 
 pub const std_options: std.Options = .{
@@ -52,25 +51,24 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var args = try std.process.argsWithAllocator(arena);
+    var args = try process.argsWithAllocator(arena);
 
     return mainArgs(gpa, &args);
 }
 
-fn mainArgs(gpa: Allocator, args: *std.process.ArgIterator) !void {
+fn mainArgs(gpa: Allocator, args: *process.ArgIterator) !void {
     assert(args.skip());
     const cmd = args.next() orelse {
         try io.getStdOut().writeAll(usage ++ "\n");
         fatal("expected command argument", .{});
     };
-    std.log.debug("cmd = {s}", .{cmd});
 
     if (mem.eql(u8, cmd, "lsp")) {
         return @import("lsp.zig").main(gpa, args);
         // } else if (mem.eql(u8, cmd, "ast-check")) {
         // return @import("ast_check.zig").main(gpa, arena, args);
     } else if (mem.eql(u8, cmd, "fmt")) {
-        return @import("fmt.zig").main(args);
+        return kdb.fmt(gpa, args);
     } else if (mem.eql(u8, cmd, "version")) {
         return io.getStdOut().writeAll(build_options.version ++ "\n");
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {

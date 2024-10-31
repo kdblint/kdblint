@@ -9,13 +9,27 @@ pub fn build(b: *std.Build) !void {
 
     const options = try getOptions(b);
 
+    const kdb = b.dependency("kdb", .{});
+    const kdb_module = kdb.module("kdb");
+
+    const zls = b.dependency("zls", .{});
+    const zls_module = zls.module("zls");
+    const tracy_module = zls.module("tracy");
+
+    const known_folders = zls.builder.dependency("known_folders", .{});
+    const known_folders_module = known_folders.module("known-folders");
+
     const exe = b.addExecutable(.{
         .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-    addImports(b, exe, options);
+    exe.root_module.addImport("kdb", kdb_module);
+    exe.root_module.addImport("zls", zls_module);
+    exe.root_module.addImport("tracy", tracy_module);
+    exe.root_module.addImport("known_folders", known_folders_module);
+    exe.root_module.addOptions("build_options", options);
 
     const check_step = b.step("check", "Compile project without build artifacts");
     check_step.dependOn(&exe.step);
@@ -23,7 +37,9 @@ pub fn build(b: *std.Build) !void {
     const install_exe = b.addInstallArtifact(exe, .{
         .dest_dir = .{
             .override = .{
-                .custom = b.fmt("../dist/{s}/{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
+                .custom = b.fmt("../dist/{s}/{s}", .{
+                    @tagName(target.result.os.tag), @tagName(target.result.cpu.arch),
+                }),
             },
         },
     });
@@ -41,20 +57,39 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
+    const test_filters = b.option(
+        []const []const u8,
+        "test-filter",
+        "Skip tests that do not match any filter",
+    ) orelse &[0][]const u8{};
 
     const unit_tests = b.addTest(.{
+        .name = "lsp",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
         .filters = test_filters,
     });
-    addImports(b, unit_tests, options);
+    unit_tests.root_module.addImport("kdb", kdb_module);
+    unit_tests.root_module.addImport("zls", zls_module);
+    unit_tests.root_module.addImport("tracy", tracy_module);
+    unit_tests.root_module.addImport("known_folders", known_folders_module);
+    unit_tests.root_module.addOptions("build_options", options);
 
-    const run_exe_unit_tests = b.addRunArtifact(unit_tests);
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+
+    const kdb_unit_tests = @import("kdb").addTest(
+        kdb.builder,
+        target,
+        optimize,
+        test_filters,
+    );
+
+    const run_kdb_unit_tests = b.addRunArtifact(kdb_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
+    test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_kdb_unit_tests.step);
 }
 
 const AddCompilerStepOptions = struct {
@@ -70,7 +105,9 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
             std.debug.print("error: version info cannot be retrieved from git.", .{});
             std.process.exit(1);
         }
-        const version_string = b.fmt("{d}.{d}.{d}", .{ kdblint_version.major, kdblint_version.minor, kdblint_version.patch });
+        const version_string = b.fmt("{d}.{d}.{d}", .{
+            kdblint_version.major, kdblint_version.minor, kdblint_version.patch,
+        });
 
         var code: u8 = undefined;
         const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
@@ -91,7 +128,9 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
             0 => {
                 // Tagged release version (e.g. 0.10.0).
                 if (!std.mem.eql(u8, git_describe, version_string)) {
-                    std.debug.print("kdbLint version '{s}' does not match git tag '{s}'\n", .{ version_string, git_describe });
+                    std.debug.print("kdbLint version '{s}' does not match git tag '{s}'\n", .{
+                        version_string, git_describe,
+                    });
                     std.process.exit(1);
                 }
                 break :v version_string;
@@ -105,7 +144,9 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
 
                 const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
                 if (kdblint_version.order(ancestor_ver) != .gt) {
-                    std.debug.print("kdbLint version '{}' must be greater than tagged ancestor '{}'\n", .{ kdblint_version, ancestor_ver });
+                    std.debug.print("kdbLint version '{}' must be greater than tagged ancestor '{}'\n", .{
+                        kdblint_version, ancestor_ver,
+                    });
                     std.process.exit(1);
                 }
 
@@ -134,19 +175,4 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
     options.addOption(std.SemanticVersion, "semver", semver);
 
     return options;
-}
-
-fn addImports(b: *std.Build, step: *std.Build.Step.Compile, options: *std.Build.Step.Options) void {
-    const zls = b.dependency("zls", .{});
-    const zls_module = zls.module("zls");
-    const tracy_module = zls.module("tracy");
-
-    const known_folders = zls.builder.dependency("known_folders", .{});
-    const known_folders_module = known_folders.module("known-folders");
-
-    step.root_module.addImport("zls", zls_module);
-    step.root_module.addImport("tracy", tracy_module);
-    step.root_module.addImport("known_folders", known_folders_module);
-
-    step.root_module.addOptions("build_options", options);
 }

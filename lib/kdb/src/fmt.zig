@@ -1,10 +1,12 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
-const kdb = @import("kdb");
+const kdb = @import("root.zig");
 const Ast = kdb.Ast;
 const Color = kdb.Color;
 
@@ -24,6 +26,7 @@ const usage =
     \\  -h, --help              Print this help and exit
     \\  --color [auto|off|on]   Enable or disable colored error messages
     \\  --stdin                 Format code from stdin; output to stdout
+    \\  --stdout                Output formatted code to stdout
     \\  --check                 List non-conforming files and exit with an error
     \\                          if the list is non-empty
     // \\  --ast-check             Run kdblint ast-check on every file
@@ -37,21 +40,32 @@ const Fmt = struct {
     check_ast: bool,
     color: Color,
     gpa: Allocator,
-    arena: Allocator,
     out_buffer: std.ArrayList(u8),
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
+var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{
+    .stack_trace_frames = switch (builtin.mode) {
+        .Debug => 10,
+        else => 0,
+    },
+}) = .{};
+
 pub fn main() !void {
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const gpa = general_purpose_allocator.allocator();
+    defer _ = general_purpose_allocator.deinit();
+    var arena_instance: std.heap.ArenaAllocator = .init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
-    const gpa = arena;
 
-    var args = try process.argsWithAllocator(gpa);
-    _ = args.next();
+    var args = try std.process.argsWithAllocator(arena);
+    assert(args.skip());
 
+    return mainArgs(gpa, &args);
+}
+
+pub fn mainArgs(gpa: Allocator, args: *std.process.ArgIterator) !void {
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var stdout_flag: bool = false;
@@ -104,7 +118,10 @@ pub fn main() !void {
         };
         defer gpa.free(source_code);
 
-        var tree = Ast.parse(gpa, source_code, .q) catch |err| {
+        var tree = Ast.parse(gpa, source_code, .{
+            .mode = .q,
+            .version = .@"4.0",
+        }) catch |err| {
             fatal("error parsing stdin: {}", .{err});
         };
         defer tree.deinit(gpa);
@@ -162,7 +179,10 @@ pub fn main() !void {
         source_file.close();
         file_closed = true;
 
-        var tree = Ast.parse(gpa, source_code, .q) catch |err| {
+        var tree = Ast.parse(gpa, source_code, .{
+            .mode = .q,
+            .version = .@"4.0",
+        }) catch |err| {
             fatal("error parsing {s}: {}", .{ file_path, err });
         };
         defer tree.deinit(gpa);
@@ -188,7 +208,6 @@ pub fn main() !void {
 
     var fmt = Fmt{
         .gpa = gpa,
-        .arena = arena,
         .seen = Fmt.SeenMap.init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
@@ -331,7 +350,10 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var tree = try Ast.parse(gpa, source_code, .q);
+    var tree = try Ast.parse(gpa, source_code, .{
+        .mode = .q,
+        .version = .@"4.0",
+    });
     defer tree.deinit(gpa);
 
     if (tree.errors.len != 0) {

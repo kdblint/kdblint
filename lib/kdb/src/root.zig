@@ -12,6 +12,8 @@ pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const Zir = @import("Zir.zig");
 
+pub const fmt = @import("fmt.zig").mainArgs;
+
 pub const Color = enum {
     /// Determine whether stderr is a terminal or not automatically.
     auto,

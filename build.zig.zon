@@ -2,6 +2,9 @@
     .name = "zig-kdblint",
     .version = "0.1.0",
     .dependencies = .{
+        .kdb = .{
+            .path = "lib/kdb",
+        },
         .zls = .{
             .url = "git+https://github.com/zigtools/zls.git#383aedf34e6ac2ce41dada1926eb04c28a8af4f9",
             .hash = "1220c25c95df6f21906d63e776468fa86539d334cf0e38b54e53f7c2ba2efb4bf440",
