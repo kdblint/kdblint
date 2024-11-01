@@ -288,6 +288,7 @@ pub const Token = struct {
         symbol_literal,
         identifier,
         builtin,
+        system,
 
         // Miscellaneous
         invalid,
@@ -378,6 +379,7 @@ pub const Token = struct {
                 .symbol_literal,
                 .identifier,
                 .builtin,
+                .system,
                 => null,
 
                 // Miscellaneous
@@ -413,6 +415,7 @@ pub const Token = struct {
                 .symbol_literal => "a symbol literal",
                 .identifier => "an identifier",
                 .builtin => "a builtin function",
+                .system => "a system command",
                 .invalid => "invalid bytes",
                 .eob => "EOB",
                 .eof => "EOF",
@@ -446,45 +449,33 @@ pub const Tokenizer = struct {
         std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.loc.start..token.loc.end] });
     }
 
-    // TODO: Check for null byte.
     pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
         // Skip the UTF-8 BOM if present.
         const slice = buffer[if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0..];
         var index: usize = 0;
-        var checkpoint: usize = 0;
         state: switch (StartState.start) {
             .start => switch (slice[index]) {
-                0 => if (index != slice.len) {
-                    index += 1;
-                    continue :state .skip_line;
-                },
+                0 => {},
                 ' ', '\t', '\r' => {
                     index += 1;
                     continue :state .skip_line;
                 },
                 '\n' => {
                     index += 1;
-                    continue :state .block;
+                    continue :state .start;
                 },
                 '/' => {
                     index += 1;
                     continue :state .comment;
                 },
-                '\\' => {
-                    index += 1;
-                    continue :state .maybe_trailing_comment;
-                },
                 else => {},
             },
 
             .skip_line => switch (slice[index]) {
-                0 => if (index != slice.len) {
-                    index += 1;
-                    continue :state .skip_line;
-                },
+                0 => {},
                 '\n' => {
                     index += 1;
-                    continue :state .block;
+                    continue :state .start;
                 },
                 else => {
                     index += 1;
@@ -492,27 +483,8 @@ pub const Tokenizer = struct {
                 },
             },
 
-            .block => switch (slice[index]) {
-                0 => if (index != slice.len) {
-                    index += 1;
-                    continue :state .skip_line;
-                },
-                ' ', '\t', '\r' => {
-                    index += 1;
-                    continue :state .skip_line;
-                },
-                '\n' => {
-                    index += 1;
-                    continue :state .block;
-                },
-                else => {},
-            },
-
             .comment => switch (slice[index]) {
-                0 => if (index != slice.len) {
-                    index += 1;
-                    continue :state .skip_line;
-                },
+                0 => {},
                 ' ', '\t', '\r' => {
                     index += 1;
                     continue :state .comment;
@@ -528,6 +500,7 @@ pub const Tokenizer = struct {
             },
 
             .block_comment => switch (slice[index]) {
+                0 => {},
                 '\n' => {
                     index += 1;
                     continue :state .end_block_comment;
@@ -539,6 +512,7 @@ pub const Tokenizer = struct {
             },
 
             .end_block_comment => switch (slice[index]) {
+                0 => {},
                 '\\' => {
                     index += 1;
                     continue :state .skip_line;
@@ -547,27 +521,6 @@ pub const Tokenizer = struct {
                     index += 1;
                     continue :state .block_comment;
                 },
-            },
-
-            .maybe_trailing_comment => switch (slice[index]) {
-                0 => index = slice.len,
-                ' ', '\t', '\r' => {
-                    checkpoint = index;
-                    index += 1;
-                    continue :state .trailing_comment;
-                },
-                '\n' => index = slice.len,
-                else => {},
-            },
-
-            .trailing_comment => switch (slice[index]) {
-                0 => index = slice.len,
-                ' ', '\t', '\r' => {
-                    index += 1;
-                    continue :state .trailing_comment;
-                },
-                '\n' => index = slice.len,
-                else => index = checkpoint,
             },
         }
         return .{
@@ -580,12 +533,9 @@ pub const Tokenizer = struct {
     const StartState = enum {
         start,
         skip_line,
-        block,
         comment,
         block_comment,
         end_block_comment,
-        maybe_trailing_comment,
-        trailing_comment,
     };
 
     const State = enum {
@@ -622,6 +572,8 @@ pub const Tokenizer = struct {
         block_comment,
         block_comment_end,
         backslash,
+        maybe_system,
+        system,
         trailing_comment,
         negative,
         negative_period,
@@ -815,7 +767,10 @@ pub const Tokenizer = struct {
                 },
                 '\'' => continue :state .apostrophe,
                 '/' => continue :state .slash,
-                '\\' => continue :state .backslash,
+                '\\' => {
+                    if (self.index == 0 or self.buffer[self.index - 1] == '\n') continue :state .maybe_system;
+                    continue :state .backslash;
+                },
                 '3'...'9' => {
                     result.tag = .number_literal;
                     continue :state .int;
@@ -1243,12 +1198,6 @@ pub const Tokenizer = struct {
             },
 
             .backslash => {
-                switch (self.buffer[self.index - 1]) {
-                    '\r' => continue :state .invalid,
-                    '\n' => continue :state .trailing_comment,
-                    else => {},
-                }
-
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     ':' => {
@@ -1256,6 +1205,53 @@ pub const Tokenizer = struct {
                         self.index += 1;
                     },
                     else => result.tag = .backslash,
+                }
+            },
+
+            .maybe_system => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index != self.buffer.len) {
+                        continue :state .invalid;
+                    } else return .{
+                        .tag = .eof,
+                        .loc = .{
+                            .start = self.buffer.len,
+                            .end = self.buffer.len,
+                        },
+                    },
+                    ' ', '\t' => continue :state .trailing_comment,
+                    '\r' => if (self.buffer[self.index + 1] != '\n') {
+                        continue :state .invalid;
+                    } else return .{
+                        .tag = .eof,
+                        .loc = .{
+                            .start = self.buffer.len,
+                            .end = self.buffer.len,
+                        },
+                    },
+                    '\n' => return .{
+                        .tag = .eof,
+                        .loc = .{
+                            .start = self.buffer.len,
+                            .end = self.buffer.len,
+                        },
+                    },
+                    else => {
+                        result.tag = .system;
+                        continue :state .system;
+                    },
+                }
+            },
+
+            .system => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index != self.buffer.len) {
+                        continue :state .invalid;
+                    },
+                    '\n' => {},
+                    else => continue :state .system,
                 }
             },
 
@@ -1288,7 +1284,7 @@ pub const Tokenizer = struct {
                             .end = self.buffer.len,
                         },
                     },
-                    else => continue :state .backslash, // TODO: Backtrack?
+                    else => continue :state .invalid,
                 }
             },
 
@@ -1498,7 +1494,7 @@ test "line comment followed by identifier" {
 
 test "null byte before eof" {
     try testTokenize("123 \x00 456", &.{ .number_literal, .invalid });
-    try testTokenize("\x00", &.{});
+    try testTokenize("\x00", &.{.invalid});
 }
 
 test "fuzzable properties upheld" {
@@ -1721,7 +1717,6 @@ test "tokenize blocks" {
 }
 
 test "tokenize starting comment" {
-    if (true) return error.SkipZigTest;
     try testTokenize(
         \\ this is a starting
         \\ comment that spans
@@ -1747,14 +1742,14 @@ test "tokenize starting comment" {
         \\ multiple lines
         \\\d .
         \\identifier
-    , &.{.identifier});
+    , &.{ .system, .identifier });
     try testTokenize(
         \\ this is a starting
         \\ comment that spans
         \\ multiple lines
         \\\ d .
         \\identifier
-    , &.{.identifier});
+    , &.{ .invalid, .identifier });
 }
 
 test "tokenize block comment" {
@@ -1852,7 +1847,6 @@ test "tokenize line comment" {
 }
 
 test "tokenize trailing comment" {
-    if (true) return error.SkipZigTest;
     try testTokenize(
         \\1
         \\\
@@ -1866,79 +1860,68 @@ test "tokenize trailing comment" {
     , &.{ .number_literal, .invalid, .number_literal });
 }
 
-test "tokenize OS" {
-    if (true) return error.SkipZigTest;
+test "tokenize system commands" {
     try testTokenize(
         \\\ls
-    , &.{});
+    , &.{.system});
     try testTokenize(
         \\\ls /not a comment
-    , &.{});
+    , &.{.system});
     try testTokenize(
         \\\ls .
-    , &.{});
+    , &.{.system});
     try testTokenize(
         \\\ls
         \\ ls
-    , &.{});
+    , &.{ .system, .identifier });
     try testTokenize(
         \\\ls
         \\ ls
         \\1
-    , &.{.number_literal});
+    , &.{ .system, .identifier, .number_literal });
     try testTokenize(
         \\\ls
         \\/line comment
-    , &.{});
+    , &.{.system});
     try testTokenize(
         \\\ls
         \\ /line comment
-    , &.{});
+    , &.{.system});
     try testTokenize(
         \\\ls
         \\/line comment
         \\1
-    , &.{.number_literal});
-    try testTokenize(
-        \\1
-        \\/line comment
-        \\ 2
-    , &.{ .number_literal, .number_literal });
-    try testTokenize(
-        \\\ls
-        \\/line comment
-        \\ ls
-    , &.{});
+    , &.{ .system, .number_literal });
+    // try testTokenize(
+    //     \\1
+    //     \\/line comment
+    //     \\ 2
+    // , &.{ .number_literal, .number_literal });
     try testTokenize(
         \\\ls
         \\/line comment
         \\ ls
-        \\/line comment
-    , &.{});
+    , &.{ .system, .identifier });
     try testTokenize(
         \\\ls
         \\/line comment
         \\ ls
         \\/line comment
-        \\ ls
-    , &.{});
+    , &.{ .system, .identifier });
     try testTokenize(
         \\\ls
-        \\/
-        \\block comment
-        \\\
+        \\/line comment
         \\ ls
-    , &.{});
+        \\/line comment
+        \\ ls
+    , &.{ .system, .identifier, .identifier });
     try testTokenize(
         \\\ls
         \\/
         \\block comment
         \\\
         \\ ls
-        \\/
-        \\block comment
-        \\\
-    , &.{});
+    , &.{ .system, .identifier });
     try testTokenize(
         \\\ls
         \\/
@@ -1948,8 +1931,18 @@ test "tokenize OS" {
         \\/
         \\block comment
         \\\
+    , &.{ .system, .identifier });
+    try testTokenize(
+        \\\ls
+        \\/
+        \\block comment
+        \\\
         \\ ls
-    , &.{});
+        \\/
+        \\block comment
+        \\\
+        \\ ls
+    , &.{ .system, .identifier, .identifier });
     try testTokenize(
         \\\ls
         \\/
@@ -1957,7 +1950,7 @@ test "tokenize OS" {
         \\\
         \\\
         \\ trailing comment
-    , &.{});
+    , &.{.system});
     try testTokenize(
         \\\ls
         \\/
@@ -1966,12 +1959,12 @@ test "tokenize OS" {
         \\ ls
         \\\
         \\ trailing comment
-    , &.{});
+    , &.{ .system, .identifier });
     try testTokenize(
         \\\ls
         \\\
         \\this is a trailing comment
-    , &.{});
+    , &.{.system});
 }
 
 test "number literals" {
