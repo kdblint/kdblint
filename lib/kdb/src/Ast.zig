@@ -5211,6 +5211,30 @@ test "cond" {
     );
 }
 
+test "apply builtins" {
+    try testAst(
+        "first x",
+        &.{ .builtin, .identifier },
+        &.{ .builtin, .identifier, .apply_unary },
+    );
+    try testAst(
+        "first[x]",
+        &.{ .builtin, .l_bracket, .identifier, .r_bracket },
+        &.{ .builtin, .call, .identifier },
+    );
+
+    try testAst(
+        "first each x",
+        &.{ .builtin, .builtin, .identifier },
+        &.{ .builtin, .builtin, .identifier, .apply_binary },
+    );
+    try testAst(
+        "each[first;x]",
+        &.{ .builtin, .l_bracket, .builtin, .semicolon, .identifier, .r_bracket },
+        &.{ .builtin, .call, .builtin, .identifier },
+    );
+}
+
 fn testRender(file_path: []const u8) !void {
     const gpa = std.testing.allocator;
 
