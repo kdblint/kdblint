@@ -312,6 +312,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .do,
         .@"if",
         .@"while",
+        .cond,
         => return renderStatement(r, r.tree.fullStatement(node), space),
     }
 }
@@ -775,7 +776,7 @@ fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
 }
 
 fn renderStatement(r: *Render, data: Ast.full.Statement, space: Space) Error!void {
-    try renderTokenSpace(r, data.main_token); // do/if/while
+    try renderTokenSpace(r, data.main_token); // do/if/while/$
 
     try renderToken(r, data.l_bracket, .none); // [
 

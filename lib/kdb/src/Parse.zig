@@ -824,8 +824,8 @@ pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
 
     try p.ends_expr.append(p.gpa, .r_bracket);
 
-    const call_index = try p.reserveNode(.call);
-    errdefer p.unreserveNode(call_index);
+    const node_index = try p.reserveNode(.call);
+    errdefer p.unreserveNode(node_index);
 
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -839,13 +839,38 @@ pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
     _ = try p.expectToken(.r_bracket);
     assert(p.ends_expr.pop() == .r_bracket);
 
-    const args = try p.listToSpan(p.scratch.items[scratch_top..]);
-    return p.parseCall(p.setNode(call_index, .{
+    const args = p.scratch.items[scratch_top..];
+
+    // Special case for $-if
+    if (p.nodes.items(.tag)[lhs] == .dollar and args.len > 2) {
+        const main_tokens = p.nodes.items(.main_token);
+
+        // Ensure condition node is set
+        const condition = args[0];
+        if (p.nodes.items(.tag)[condition] == .empty) return p.failMsg(.{
+            .tag = .expected_expr,
+            .token = main_tokens[condition],
+        });
+
+        const main_token = main_tokens[lhs];
+        p.unreserveNode(lhs);
+
+        return p.parseCall(p.setNode(node_index, .{
+            .tag = .cond,
+            .main_token = main_token,
+            .data = .{
+                .lhs = condition,
+                .rhs = try p.addExtra(try p.listToSpan(args[1..])),
+            },
+        }));
+    }
+
+    return p.parseCall(p.setNode(node_index, .{
         .tag = .call,
         .main_token = l_bracket,
         .data = .{
             .lhs = lhs,
-            .rhs = try p.addExtra(args),
+            .rhs = try p.addExtra(try p.listToSpan(args)),
         },
     }));
 }
