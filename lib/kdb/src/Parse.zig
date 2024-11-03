@@ -405,8 +405,11 @@ fn parseNoun(p: *Parse) !Node.Index {
         .identifier,
         => try p.parseToken(.identifier, .identifier),
 
-        .builtin,
-        => try p.parseToken(.builtin, .builtin),
+        .prefix_builtin,
+        => try p.parseToken(.prefix_builtin, .builtin),
+
+        .infix_builtin,
+        => try p.parseToken(.infix_builtin, .builtin),
 
         .keyword_select,
         => try p.parseSelect(),
@@ -444,6 +447,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .string_literal,
         .symbol_literal,
         .identifier,
+        .prefix_builtin,
         .keyword_select,
         .keyword_exec,
         .keyword_update,
@@ -547,7 +551,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        .builtin,
+        .infix_builtin,
         => {
             const op = try p.parsePrecedence(.iterator, sql_identifier);
             assert(op != null_node);
@@ -1504,7 +1508,7 @@ fn peekIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) ?Token.Inde
             if (sql_identifier.by and std.mem.eql(u8, slice, "by")) return p.tok_i;
             if (sql_identifier.from and std.mem.eql(u8, slice, "from")) return p.tok_i;
         },
-        .builtin => {
+        .prefix_builtin => {
             const slice = p.tokenSlice(p.tok_i);
             if (sql_identifier.where and std.mem.eql(u8, slice, "where")) return p.tok_i;
         },
@@ -1541,8 +1545,8 @@ fn expectIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) !Token.In
 }
 
 fn peekBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
-    comptime assert(Token.isBuiltin(builtin));
-    if (p.peekTag() == .builtin) {
+    comptime assert(Token.getBuiltin(builtin) == .prefix);
+    if (p.peekTag() == .prefix_builtin) {
         const slice = p.tokenSlice(p.tok_i);
         if (std.mem.eql(u8, slice, builtin)) return p.tok_i;
     }
@@ -1550,7 +1554,7 @@ fn peekBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
 }
 
 fn eatBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
-    comptime assert(Token.isBuiltin(builtin));
+    comptime assert(Token.getBuiltin(builtin) == .prefix);
     if (p.peekBuiltin(builtin)) |i| {
         _ = p.nextToken();
         return i;
