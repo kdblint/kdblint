@@ -318,6 +318,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .do,
         .@"if",
         .@"while",
+        .cond,
         => return main_tokens[n] + end_offset,
     };
 }
@@ -487,6 +488,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .do,
         .@"if",
         .@"while",
+        .cond,
         => {
             const body = blk: {
                 const sub_range = tree.extraData(datas[n].rhs, Node.SubRange);
@@ -783,7 +785,7 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
 
 pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
     const tags: []Node.Tag = tree.nodes.items(.tag);
-    assert(tags[node] == .do or tags[node] == .@"if" or tags[node] == .@"while");
+    assert(tags[node] == .do or tags[node] == .@"if" or tags[node] == .@"while" or tags[node] == .cond);
 
     const data = tree.nodes.items(.data)[node];
 
@@ -1157,6 +1159,8 @@ pub const Node = struct {
         @"if",
         /// `while[lhs;rhs]`. main_token is the `while`. `SubRange[rhs]`.
         @"while",
+        /// `$[lhs;rhs]`. main_token is the `$`. `SubRange[rhs]`.
+        cond,
 
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
@@ -1273,6 +1277,7 @@ pub const Node = struct {
                 .do,
                 .@"if",
                 .@"while",
+                .cond,
                 => .other,
             };
         }
@@ -1458,6 +1463,13 @@ fn testAstModeRender(
     });
     defer tree.deinit(gpa);
 
+    // Errors
+    if (tree.errors.len > 0) {
+        std.debug.print("error\n", .{});
+        try @import("root.zig").printAstErrorsToStderr(gpa, tree, "test", .auto);
+        return error.Unexpected;
+    }
+
     // Token tags
     const actual_token_tags: []Token.Tag = tree.tokens.items(.tag);
     try std.testing.expectEqualSlices(
@@ -1479,17 +1491,15 @@ fn testAstModeRender(
     }
     try std.testing.expectEqual(.eof, actual_token_tags[actual_token_tags.len - 1]);
 
-    // Errors
-    if (tree.errors.len > 0) {
-        std.debug.print("error\n", .{});
-        try @import("root.zig").printAstErrorsToStderr(gpa, tree, "test", .auto);
-        return error.Unexpected;
-    }
-
     // Node tags
-    const actual_nodes: []Node.Tag = tree.nodes.items(.tag);
-    try std.testing.expectEqualSlices(Node.Tag, expected_nodes, actual_nodes[1..]);
-    try std.testing.expectEqual(.root, actual_nodes[0]);
+    var actual_nodes = std.ArrayList(Node.Tag).init(gpa);
+    defer actual_nodes.deinit();
+    for (tree.nodes.items(.tag)[1..]) |tag| {
+        if (tag == .root) continue; // Unreserved node
+        try actual_nodes.append(tag);
+    }
+    try std.testing.expectEqualSlices(Node.Tag, expected_nodes, actual_nodes.items);
+    try std.testing.expectEqual(.root, tree.nodes.items(.tag)[0]);
 
     // Render
     const actual_source = try render(tree, gpa);
@@ -5123,6 +5133,81 @@ test "while" {
             .semicolon,     .semicolon, .identifier, .r_bracket,
         },
         &.{ .@"while", .identifier, .identifier, .empty, .identifier },
+    );
+}
+
+test "cond" {
+    try testAst(
+        "$[]",
+        &.{ .dollar, .l_bracket, .r_bracket },
+        &.{ .dollar, .call, .empty },
+    );
+    try testAst(
+        "$[x]",
+        &.{ .dollar, .l_bracket, .identifier, .r_bracket },
+        &.{ .dollar, .call, .identifier },
+    );
+    try testAst(
+        "$[;]",
+        &.{ .dollar, .l_bracket, .semicolon, .r_bracket },
+        &.{ .dollar, .call, .empty, .empty },
+    );
+    try testAst(
+        "$[;y]",
+        &.{ .dollar, .l_bracket, .semicolon, .identifier, .r_bracket },
+        &.{ .dollar, .call, .empty, .identifier },
+    );
+    try testAst(
+        "$[x;]",
+        &.{ .dollar, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{ .dollar, .call, .identifier, .empty },
+    );
+    try testAst(
+        "$[x;y]",
+        &.{ .dollar, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .dollar, .call, .identifier, .identifier },
+    );
+    try failAst(
+        "$[;;]",
+        &.{ .dollar, .l_bracket, .semicolon, .semicolon, .r_bracket },
+        &.{.expected_expr},
+    );
+    try failAst(
+        "$[;;z]",
+        &.{ .dollar, .l_bracket, .semicolon, .semicolon, .identifier, .r_bracket },
+        &.{.expected_expr},
+    );
+    try failAst(
+        "$[;y;]",
+        &.{ .dollar, .l_bracket, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{.expected_expr},
+    );
+    try failAst(
+        "$[;y;z]",
+        &.{ .dollar, .l_bracket, .semicolon, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{.expected_expr},
+    );
+    try testAst(
+        "$[x;;]",
+        &.{ .dollar, .l_bracket, .identifier, .semicolon, .semicolon, .r_bracket },
+        &.{ .cond, .identifier, .empty, .empty },
+    );
+    try testAst(
+        "$[x;;z]",
+        &.{ .dollar, .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .r_bracket },
+        &.{ .cond, .identifier, .empty, .identifier },
+    );
+    try testAst(
+        "$[x;y;]",
+        &.{ .dollar, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .cond, .identifier, .identifier, .empty },
+    );
+    try testAst(
+        "$[x;y;z]",
+        &.{
+            .dollar, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
+        },
+        &.{ .cond, .identifier, .identifier, .identifier },
     );
 }
 
