@@ -393,6 +393,13 @@ fn parseNoun(p: *Parse) !Node.Index {
         .apostrophe,
         => try p.parseApostrophe(),
 
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => try p.parseIterator(null_node),
+
         .number_literal,
         => try p.parseNumberLiteral(),
 
@@ -1379,14 +1386,24 @@ fn parseOperator(p: *Parse) !Node.Index {
 
 fn parseApostrophe(p: *Parse) !Node.Index {
     const main_token = p.assertToken(.apostrophe);
-    const signal_node = try p.reserveNode(.signal);
-    errdefer p.unreserveNode(signal_node);
+    const node_index = try p.reserveNode(.signal);
+    errdefer p.unreserveNode(node_index);
 
-    const expr = try p.expectExpr(null);
+    const expr = try p.parseExpr(null);
+    if (expr == null_node) {
+        return p.setNode(node_index, .{
+            .tag = .apostrophe,
+            .main_token = main_token,
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        });
+    }
 
-    return p.setNode(signal_node, .{
-        .main_token = main_token,
+    return p.setNode(node_index, .{
         .tag = .signal,
+        .main_token = main_token,
         .data = .{
             .lhs = undefined,
             .rhs = expr,
