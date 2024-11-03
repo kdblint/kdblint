@@ -2195,14 +2195,14 @@ test "table literals" {
     );
     try testAst(
         "([]b+sum a)",
-        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .plus, .builtin, .identifier, .r_paren },
+        &.{ .l_paren, .l_bracket, .r_bracket, .identifier, .plus, .prefix_builtin, .identifier, .r_paren },
         &.{ .table_literal, .identifier, .plus, .builtin, .identifier, .apply_unary, .apply_binary },
     );
     try testAst(
         "([]sum[a]+b)",
         &.{
-            .l_paren,    .l_bracket, .r_bracket, .builtin,    .l_bracket,
-            .identifier, .r_bracket, .plus,      .identifier, .r_paren,
+            .l_paren,    .l_bracket, .r_bracket, .prefix_builtin, .l_bracket,
+            .identifier, .r_bracket, .plus,      .identifier,     .r_paren,
         },
         &.{ .table_literal, .builtin, .call, .identifier, .plus, .identifier, .apply_binary },
     );
@@ -2217,8 +2217,8 @@ test "table literals" {
     try testAst(
         "([]til 10;x1:1;2)",
         &.{
-            .l_paren,    .l_bracket, .r_bracket,      .builtin,   .number_literal, .semicolon,
-            .identifier, .colon,     .number_literal, .semicolon, .number_literal, .r_paren,
+            .l_paren,    .l_bracket, .r_bracket,      .prefix_builtin, .number_literal, .semicolon,
+            .identifier, .colon,     .number_literal, .semicolon,      .number_literal, .r_paren,
         },
         &.{
             .table_literal, .builtin, .number_literal, .apply_unary,
@@ -2228,8 +2228,8 @@ test "table literals" {
     try testAst(
         "([]a;a::til 10)",
         &.{
-            .l_paren,    .l_bracket,   .r_bracket, .identifier,     .semicolon,
-            .identifier, .colon_colon, .builtin,   .number_literal, .r_paren,
+            .l_paren,    .l_bracket,   .r_bracket,      .identifier,     .semicolon,
+            .identifier, .colon_colon, .prefix_builtin, .number_literal, .r_paren,
         },
         &.{
             .table_literal, .identifier, .identifier, .global_assign, .builtin, .number_literal, .apply_unary,
@@ -2291,8 +2291,8 @@ test "table literals" {
     try testAst(
         "([b+sum a]b+sum a)",
         &.{
-            .l_paren,   .l_bracket,  .identifier, .plus,    .builtin,    .identifier,
-            .r_bracket, .identifier, .plus,       .builtin, .identifier, .r_paren,
+            .l_paren,   .l_bracket,  .identifier, .plus,           .prefix_builtin, .identifier,
+            .r_bracket, .identifier, .plus,       .prefix_builtin, .identifier,     .r_paren,
         },
         &.{
             .table_literal, .identifier, .plus,    .builtin,    .identifier,  .apply_unary,  .apply_binary,
@@ -2302,8 +2302,9 @@ test "table literals" {
     try testAst(
         "([sum[a]+b]sum[a]+b)",
         &.{
-            .l_paren,   .l_bracket, .builtin,   .l_bracket,  .identifier, .r_bracket, .plus,       .identifier,
-            .r_bracket, .builtin,   .l_bracket, .identifier, .r_bracket,  .plus,      .identifier, .r_paren,
+            .l_paren,   .l_bracket,  .prefix_builtin, .l_bracket,      .identifier, .r_bracket,
+            .plus,      .identifier, .r_bracket,      .prefix_builtin, .l_bracket,  .identifier,
+            .r_bracket, .plus,       .identifier,     .r_paren,
         },
         &.{
             .table_literal, .builtin, .call,       .identifier, .plus,       .identifier,   .apply_binary,
@@ -2324,8 +2325,8 @@ test "table literals" {
     try testAst(
         "([til 10;x1:1;2]til 10;x1:1;2)",
         &.{
-            .l_paren,        .l_bracket, .builtin,        .number_literal, .semicolon,      .identifier,     .colon,
-            .number_literal, .semicolon, .number_literal, .r_bracket,      .builtin,        .number_literal, .semicolon,
+            .l_paren,        .l_bracket, .prefix_builtin, .number_literal, .semicolon,      .identifier,     .colon,
+            .number_literal, .semicolon, .number_literal, .r_bracket,      .prefix_builtin, .number_literal, .semicolon,
             .identifier,     .colon,     .number_literal, .semicolon,      .number_literal, .r_paren,
         },
         &.{
@@ -2337,8 +2338,8 @@ test "table literals" {
     try testAst(
         "([a;a::til 10]a;a::til 10)",
         &.{
-            .l_paren,        .l_bracket, .identifier, .semicolon, .identifier, .colon_colon, .builtin,
-            .number_literal, .r_bracket, .identifier, .semicolon, .identifier, .colon_colon, .builtin,
+            .l_paren,        .l_bracket, .identifier, .semicolon, .identifier, .colon_colon, .prefix_builtin,
+            .number_literal, .r_bracket, .identifier, .semicolon, .identifier, .colon_colon, .prefix_builtin,
             .number_literal, .r_paren,
         },
         &.{
@@ -2628,27 +2629,27 @@ test "nested paren/bracket/brace" {
 test "select/exec/update/delete whitespace" {
     try testAst(
         "first select from x",
-        &.{ .builtin, .keyword_select, .identifier, .identifier },
+        &.{ .prefix_builtin, .keyword_select, .identifier, .identifier },
         &.{ .builtin, .select, .identifier, .apply_unary },
     );
     try testAst(
         "first exec from x",
-        &.{ .builtin, .keyword_exec, .identifier, .identifier },
+        &.{ .prefix_builtin, .keyword_exec, .identifier, .identifier },
         &.{ .builtin, .exec, .identifier, .apply_unary },
     );
     try testAst(
         "first update from x",
-        &.{ .builtin, .keyword_update, .identifier, .identifier },
+        &.{ .prefix_builtin, .keyword_update, .identifier, .identifier },
         &.{ .builtin, .update, .identifier, .apply_unary },
     );
     try testAst(
         "first delete from x",
-        &.{ .builtin, .keyword_delete, .identifier, .identifier },
+        &.{ .prefix_builtin, .keyword_delete, .identifier, .identifier },
         &.{ .builtin, .delete_rows, .identifier, .apply_unary },
     );
     try testAst(
         "first delete a from x",
-        &.{ .builtin, .keyword_delete, .identifier, .identifier, .identifier },
+        &.{ .prefix_builtin, .keyword_delete, .identifier, .identifier, .identifier },
         &.{ .builtin, .delete_cols, .identifier, .identifier, .apply_unary },
     );
 }
@@ -4130,9 +4131,9 @@ test "select/exec/update/delete with commas" {
     try testAst(
         "select(a,b),c by(d,e),f from x where(g,h),i",
         &.{
-            .keyword_select, .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
-            .identifier,     .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
-            .identifier,     .identifier, .builtin,    .l_paren, .identifier, .comma,   .identifier, .r_paren,
+            .keyword_select, .l_paren,    .identifier,     .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .l_paren,    .identifier,     .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .identifier, .prefix_builtin, .l_paren, .identifier, .comma,   .identifier, .r_paren,
             .comma,          .identifier,
         },
         &.{
@@ -4145,9 +4146,9 @@ test "select/exec/update/delete with commas" {
     try testAst(
         "exec(a,b),c by(d,e),f from x where(g,h),i",
         &.{
-            .keyword_exec, .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
-            .identifier,   .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
-            .identifier,   .identifier, .builtin,    .l_paren, .identifier, .comma,   .identifier, .r_paren,
+            .keyword_exec, .l_paren,    .identifier,     .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,   .l_paren,    .identifier,     .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,   .identifier, .prefix_builtin, .l_paren, .identifier, .comma,   .identifier, .r_paren,
             .comma,        .identifier,
         },
         &.{
@@ -4160,9 +4161,9 @@ test "select/exec/update/delete with commas" {
     try testAst(
         "update(a,b),c by(d,e),f from x where(g,h),i",
         &.{
-            .keyword_update, .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
-            .identifier,     .l_paren,    .identifier, .comma,   .identifier, .r_paren, .comma,      .identifier,
-            .identifier,     .identifier, .builtin,    .l_paren, .identifier, .comma,   .identifier, .r_paren,
+            .keyword_update, .l_paren,    .identifier,     .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .l_paren,    .identifier,     .comma,   .identifier, .r_paren, .comma,      .identifier,
+            .identifier,     .identifier, .prefix_builtin, .l_paren, .identifier, .comma,   .identifier, .r_paren,
             .comma,          .identifier,
         },
         &.{
@@ -4175,8 +4176,8 @@ test "select/exec/update/delete with commas" {
     try testAst(
         "delete from x where(g,h),i",
         &.{
-            .keyword_delete, .identifier, .identifier, .builtin, .l_paren,    .identifier,
-            .comma,          .identifier, .r_paren,    .comma,   .identifier,
+            .keyword_delete, .identifier, .identifier, .prefix_builtin, .l_paren,    .identifier,
+            .comma,          .identifier, .r_paren,    .comma,          .identifier,
         },
         &.{
             .delete_rows, .identifier, .grouped_expression, .identifier,
@@ -4252,76 +4253,79 @@ test "select" {
     );
     try testAst(
         "select from x where e",
-        &.{ .keyword_select, .identifier, .identifier, .builtin, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select from x where e,f",
-        &.{ .keyword_select, .identifier, .identifier, .builtin, .identifier, .comma, .identifier },
+        &.{
+            .keyword_select, .identifier, .identifier, .prefix_builtin, .identifier, .comma, .identifier,
+        },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a from x where e",
-        &.{ .keyword_select, .identifier, .identifier, .identifier, .builtin, .identifier },
+        &.{ .keyword_select, .identifier, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a,b from x where e,f",
         &.{
-            .keyword_select, .identifier, .comma,      .identifier, .identifier,
-            .identifier,     .builtin,    .identifier, .comma,      .identifier,
+            .keyword_select, .identifier,     .comma,      .identifier, .identifier,
+            .identifier,     .prefix_builtin, .identifier, .comma,      .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by from x where e,f",
         &.{
-            .keyword_select, .identifier, .identifier, .identifier, .builtin, .identifier, .comma, .identifier,
+            .keyword_select, .identifier, .identifier, .identifier, .prefix_builtin, .identifier, .comma, .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a by from x where e",
         &.{
-            .keyword_select, .identifier, .identifier, .identifier, .identifier, .builtin, .identifier,
+            .keyword_select, .identifier, .identifier, .identifier, .identifier, .prefix_builtin, .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a,b by from x where e,f",
         &.{
-            .keyword_select, .identifier, .comma,      .identifier, .identifier, .identifier,
-            .identifier,     .builtin,    .identifier, .comma,      .identifier,
+            .keyword_select, .identifier,     .comma,      .identifier, .identifier, .identifier,
+            .identifier,     .prefix_builtin, .identifier, .comma,      .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by c from x where e",
         &.{
-            .keyword_select, .identifier, .identifier, .identifier, .identifier, .builtin, .identifier,
+            .keyword_select, .identifier, .identifier, .identifier, .identifier, .prefix_builtin, .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select by c,d from x where e,f",
         &.{
-            .keyword_select, .identifier, .identifier, .comma, .identifier, .identifier,
-            .identifier,     .builtin,    .identifier, .comma, .identifier,
+            .keyword_select, .identifier,     .identifier, .comma, .identifier, .identifier,
+            .identifier,     .prefix_builtin, .identifier, .comma, .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a by c from x where e",
         &.{
-            .keyword_select, .identifier, .identifier, .identifier, .identifier, .identifier, .builtin, .identifier,
+            .keyword_select, .identifier, .identifier,     .identifier,
+            .identifier,     .identifier, .prefix_builtin, .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "select a,b by c,d from x where e,f",
         &.{
-            .keyword_select, .identifier, .comma,      .identifier, .identifier, .identifier, .comma,
-            .identifier,     .identifier, .identifier, .builtin,    .identifier, .comma,      .identifier,
+            .keyword_select, .identifier, .comma,      .identifier,     .identifier, .identifier, .comma,
+            .identifier,     .identifier, .identifier, .prefix_builtin, .identifier, .comma,      .identifier,
         },
         &.{
             .select, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
@@ -4409,33 +4413,33 @@ test "select" {
 
     try testAst(
         "select distinct from x",
-        &.{ .keyword_select, .builtin, .identifier, .identifier },
+        &.{ .keyword_select, .prefix_builtin, .identifier, .identifier },
         &.{ .select, .identifier },
     );
     try testAst(
         "select distinct a from x",
-        &.{ .keyword_select, .builtin, .identifier, .identifier, .identifier },
+        &.{ .keyword_select, .prefix_builtin, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select distinct by from x",
-        &.{ .keyword_select, .builtin, .identifier, .identifier, .identifier },
+        &.{ .keyword_select, .prefix_builtin, .identifier, .identifier, .identifier },
         &.{ .select, .identifier },
     );
     try testAst(
         "select distinct a by from x",
-        &.{ .keyword_select, .builtin, .identifier, .identifier, .identifier, .identifier },
+        &.{ .keyword_select, .prefix_builtin, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select distinct by b from x",
-        &.{ .keyword_select, .builtin, .identifier, .identifier, .identifier, .identifier },
+        &.{ .keyword_select, .prefix_builtin, .identifier, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
     );
     try testAst(
         "select distinct a by b from x",
         &.{
-            .keyword_select, .builtin, .identifier, .identifier, .identifier, .identifier, .identifier,
+            .keyword_select, .prefix_builtin, .identifier, .identifier, .identifier, .identifier, .identifier,
         },
         &.{ .select, .identifier, .identifier, .identifier },
     );
@@ -4455,7 +4459,7 @@ test "select" {
     try failAst(
         "select[1]distinct from x",
         &.{
-            .keyword_select, .l_bracket, .number_literal, .r_bracket, .builtin, .identifier, .identifier,
+            .keyword_select, .l_bracket, .number_literal, .r_bracket, .prefix_builtin, .identifier, .identifier,
         },
         &.{.cannot_combine_limit_expression_and_distinct},
     );
@@ -4702,85 +4706,88 @@ test "exec" {
     );
     try testAst(
         "exec from x where e",
-        &.{ .keyword_exec, .identifier, .identifier, .builtin, .identifier },
+        &.{ .keyword_exec, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{ .exec, .identifier, .identifier },
     );
     try testAst(
         "exec from x where e,f",
-        &.{ .keyword_exec, .identifier, .identifier, .builtin, .identifier, .comma, .identifier },
+        &.{
+            .keyword_exec, .identifier, .identifier, .prefix_builtin, .identifier, .comma, .identifier,
+        },
         &.{ .exec, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec a from x where e",
-        &.{ .keyword_exec, .identifier, .identifier, .identifier, .builtin, .identifier },
+        &.{ .keyword_exec, .identifier, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{ .exec, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec a:a from x where e",
         &.{
-            .keyword_exec, .identifier, .colon, .identifier, .identifier, .identifier, .builtin, .identifier,
+            .keyword_exec, .identifier, .colon, .identifier, .identifier, .identifier, .prefix_builtin, .identifier,
         },
         &.{ .exec, .identifier, .assign, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec a,b from x where e,f",
         &.{
-            .keyword_exec, .identifier, .comma,      .identifier, .identifier,
-            .identifier,   .builtin,    .identifier, .comma,      .identifier,
+            .keyword_exec, .identifier,     .comma,      .identifier, .identifier,
+            .identifier,   .prefix_builtin, .identifier, .comma,      .identifier,
         },
         &.{ .exec, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec by c from x where e",
         &.{
-            .keyword_exec, .identifier, .identifier, .identifier, .identifier, .builtin, .identifier,
+            .keyword_exec, .identifier, .identifier, .identifier, .identifier, .prefix_builtin, .identifier,
         },
         &.{ .exec, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec by c:c from x where e",
         &.{
-            .keyword_exec, .identifier, .identifier, .colon,      .identifier,
-            .identifier,   .identifier, .builtin,    .identifier,
+            .keyword_exec, .identifier, .identifier,     .colon,      .identifier,
+            .identifier,   .identifier, .prefix_builtin, .identifier,
         },
         &.{ .exec, .identifier, .assign, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec by c,d from x where e,f",
         &.{
-            .keyword_exec, .identifier, .identifier, .comma, .identifier, .identifier,
-            .identifier,   .builtin,    .identifier, .comma, .identifier,
+            .keyword_exec, .identifier,     .identifier, .comma, .identifier, .identifier,
+            .identifier,   .prefix_builtin, .identifier, .comma, .identifier,
         },
         &.{ .exec, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec a by c from x where e",
         &.{
-            .keyword_exec, .identifier, .identifier, .identifier, .identifier, .identifier, .builtin, .identifier,
+            .keyword_exec, .identifier, .identifier,     .identifier,
+            .identifier,   .identifier, .prefix_builtin, .identifier,
         },
         &.{ .exec, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec a:a by c from x where e",
         &.{
-            .keyword_exec, .identifier, .colon,      .identifier, .identifier,
-            .identifier,   .identifier, .identifier, .builtin,    .identifier,
+            .keyword_exec, .identifier, .colon,      .identifier,     .identifier,
+            .identifier,   .identifier, .identifier, .prefix_builtin, .identifier,
         },
         &.{ .exec, .identifier, .assign, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec a by c:c from x where e",
         &.{
-            .keyword_exec, .identifier, .identifier, .identifier, .colon,
-            .identifier,   .identifier, .identifier, .builtin,    .identifier,
+            .keyword_exec, .identifier, .identifier, .identifier,     .colon,
+            .identifier,   .identifier, .identifier, .prefix_builtin, .identifier,
         },
         &.{ .exec, .identifier, .identifier, .assign, .identifier, .identifier, .identifier },
     );
     try testAst(
         "exec a:a by c:c from x where e",
         &.{
-            .keyword_exec, .identifier, .colon,      .identifier, .identifier, .identifier,
-            .colon,        .identifier, .identifier, .identifier, .builtin,    .identifier,
+            .keyword_exec, .identifier, .colon,      .identifier, .identifier,     .identifier,
+            .colon,        .identifier, .identifier, .identifier, .prefix_builtin, .identifier,
         },
         &.{
             .exec, .identifier, .assign, .identifier, .identifier, .assign, .identifier, .identifier, .identifier,
@@ -4789,8 +4796,8 @@ test "exec" {
     try testAst(
         "exec a,b by c,d from x where e,f",
         &.{
-            .keyword_exec, .identifier, .comma,      .identifier, .identifier, .identifier, .comma,
-            .identifier,   .identifier, .identifier, .builtin,    .identifier, .comma,      .identifier,
+            .keyword_exec, .identifier, .comma,      .identifier,     .identifier, .identifier, .comma,
+            .identifier,   .identifier, .identifier, .prefix_builtin, .identifier, .comma,      .identifier,
         },
         &.{
             .exec, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
@@ -4903,29 +4910,30 @@ test "update" {
     );
     try testAst(
         "update a from x where e",
-        &.{ .keyword_update, .identifier, .identifier, .identifier, .builtin, .identifier },
+        &.{ .keyword_update, .identifier, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{ .update, .identifier, .identifier, .identifier },
     );
     try testAst(
         "update a,b from x where e,f",
         &.{
-            .keyword_update, .identifier, .comma,      .identifier, .identifier,
-            .identifier,     .builtin,    .identifier, .comma,      .identifier,
+            .keyword_update, .identifier,     .comma,      .identifier, .identifier,
+            .identifier,     .prefix_builtin, .identifier, .comma,      .identifier,
         },
         &.{ .update, .identifier, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "update a by c from x where e",
         &.{
-            .keyword_update, .identifier, .identifier, .identifier, .identifier, .identifier, .builtin, .identifier,
+            .keyword_update, .identifier, .identifier,     .identifier,
+            .identifier,     .identifier, .prefix_builtin, .identifier,
         },
         &.{ .update, .identifier, .identifier, .identifier, .identifier },
     );
     try testAst(
         "update a,b by c,d from x where e,f",
         &.{
-            .keyword_update, .identifier, .comma,      .identifier, .identifier, .identifier, .comma,
-            .identifier,     .identifier, .identifier, .builtin,    .identifier, .comma,      .identifier,
+            .keyword_update, .identifier, .comma,      .identifier,     .identifier, .identifier, .comma,
+            .identifier,     .identifier, .identifier, .prefix_builtin, .identifier, .comma,      .identifier,
         },
         &.{
             .update, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier, .identifier,
@@ -4979,12 +4987,14 @@ test "delete rows" {
     );
     try testAst(
         "delete from x where a",
-        &.{ .keyword_delete, .identifier, .identifier, .builtin, .identifier },
+        &.{ .keyword_delete, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{ .delete_rows, .identifier, .identifier },
     );
     try testAst(
         "delete from x where a,b",
-        &.{ .keyword_delete, .identifier, .identifier, .builtin, .identifier, .comma, .identifier },
+        &.{
+            .keyword_delete, .identifier, .identifier, .prefix_builtin, .identifier, .comma, .identifier,
+        },
         &.{ .delete_rows, .identifier, .identifier, .identifier },
     );
 }
@@ -5002,7 +5012,7 @@ test "delete columns" {
     );
     try failAst(
         "delete a from x where b",
-        &.{ .keyword_delete, .identifier, .identifier, .identifier, .builtin, .identifier },
+        &.{ .keyword_delete, .identifier, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{.cannot_define_where_cond_in_delete_cols},
     );
 }
@@ -5213,25 +5223,145 @@ test "cond" {
 
 test "apply builtins" {
     try testAst(
+        "f x",
+        &.{ .identifier, .identifier },
+        &.{ .identifier, .identifier, .apply_unary },
+    );
+    try testAst(
         "first x",
-        &.{ .builtin, .identifier },
+        &.{ .prefix_builtin, .identifier },
         &.{ .builtin, .identifier, .apply_unary },
+    );
+
+    try testAst(
+        "f[x]",
+        &.{ .identifier, .l_bracket, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier },
     );
     try testAst(
         "first[x]",
-        &.{ .builtin, .l_bracket, .identifier, .r_bracket },
+        &.{ .prefix_builtin, .l_bracket, .identifier, .r_bracket },
         &.{ .builtin, .call, .identifier },
     );
 
     try testAst(
+        "f each x",
+        &.{ .identifier, .infix_builtin, .identifier },
+        &.{ .identifier, .builtin, .identifier, .apply_binary },
+    );
+    try testAst(
         "first each x",
-        &.{ .builtin, .builtin, .identifier },
+        &.{ .prefix_builtin, .infix_builtin, .identifier },
         &.{ .builtin, .builtin, .identifier, .apply_binary },
+    );
+
+    try testAst(
+        "each[f;x]",
+        &.{ .infix_builtin, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .builtin, .call, .identifier, .identifier },
     );
     try testAst(
         "each[first;x]",
-        &.{ .builtin, .l_bracket, .builtin, .semicolon, .identifier, .r_bracket },
+        &.{ .infix_builtin, .l_bracket, .prefix_builtin, .semicolon, .identifier, .r_bracket },
         &.{ .builtin, .call, .builtin, .identifier },
+    );
+
+    try testAst(
+        "f[x],/:y",
+        &.{ .identifier, .l_bracket, .identifier, .r_bracket, .comma, .slash_colon, .identifier },
+        &.{ .identifier, .call, .identifier, .comma, .slash_colon, .identifier, .apply_binary },
+    );
+    try testAst(
+        "first[x],/:y",
+        &.{ .prefix_builtin, .l_bracket, .identifier, .r_bracket, .comma, .slash_colon, .identifier },
+        &.{ .builtin, .call, .identifier, .comma, .slash_colon, .identifier, .apply_binary },
+    );
+
+    try testAst(
+        "f[x],/:f y",
+        &.{
+            .identifier, .l_bracket, .identifier, .r_bracket, .comma, .slash_colon, .identifier, .identifier,
+        },
+        &.{
+            .identifier, .call,       .identifier,  .comma,        .slash_colon,
+            .identifier, .identifier, .apply_unary, .apply_binary,
+        },
+    );
+    try testAst(
+        "first[x],/:first y",
+        &.{
+            .prefix_builtin, .l_bracket, .identifier, .r_bracket, .comma, .slash_colon, .prefix_builtin, .identifier,
+        },
+        &.{
+            .builtin, .call,       .identifier,  .comma,        .slash_colon,
+            .builtin, .identifier, .apply_unary, .apply_binary,
+        },
+    );
+
+    try testAst(
+        "f g[x],/:y",
+        &.{
+            .identifier, .identifier, .l_bracket, .identifier, .r_bracket, .comma, .slash_colon, .identifier,
+        },
+        &.{
+            .identifier,  .identifier, .call,         .identifier,  .comma,
+            .slash_colon, .identifier, .apply_binary, .apply_unary,
+        },
+    );
+    try testAst(
+        "f first[x],/:y",
+        &.{
+            .identifier, .prefix_builtin, .l_bracket, .identifier, .r_bracket, .comma, .slash_colon, .identifier,
+        },
+        &.{
+            .identifier, .builtin, .call, .identifier, .comma, .slash_colon, .identifier, .apply_binary, .apply_unary,
+        },
+    );
+
+    try testAst(
+        "f g[x],/:f y",
+        &.{
+            .identifier, .identifier,  .l_bracket,  .identifier, .r_bracket,
+            .comma,      .slash_colon, .identifier, .identifier,
+        },
+        &.{
+            .identifier, .identifier, .call,        .identifier,   .comma,       .slash_colon,
+            .identifier, .identifier, .apply_unary, .apply_binary, .apply_unary,
+        },
+    );
+    try testAst(
+        "f first[x],/:first y",
+        &.{
+            .identifier, .prefix_builtin, .l_bracket,      .identifier, .r_bracket,
+            .comma,      .slash_colon,    .prefix_builtin, .identifier,
+        },
+        &.{
+            .identifier, .builtin,    .call,        .identifier,   .comma,       .slash_colon,
+            .builtin,    .identifier, .apply_unary, .apply_binary, .apply_unary,
+        },
+    );
+
+    try testAst(
+        "f x@'y",
+        &.{ .identifier, .identifier, .at, .apostrophe, .identifier },
+        &.{ .identifier, .identifier, .at, .apostrophe, .identifier, .apply_binary, .apply_unary },
+    );
+    try testAst(
+        "f first@'y",
+        &.{ .identifier, .prefix_builtin, .at, .apostrophe, .identifier },
+        &.{ .identifier, .builtin, .at, .apostrophe, .identifier, .apply_binary, .apply_unary },
+    );
+    try testAst(
+        "sum first@'y",
+        &.{ .prefix_builtin, .prefix_builtin, .at, .apostrophe, .identifier },
+        &.{ .builtin, .builtin, .at, .apostrophe, .identifier, .apply_binary, .apply_unary },
+    );
+
+    if (true) return error.SkipZigTest;
+    try testAst(
+        "f each[x]y",
+        &.{ .identifier, .infix_builtin, .l_bracket, .identifier, .r_bracket, .identifier },
+        &.{ .identifier, .builtin, .call, .identifier, .identifier, .apply_unary, .apply_unary },
     );
 }
 
