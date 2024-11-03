@@ -1091,20 +1091,20 @@ pub const Tokenizer = struct {
             },
 
             .slash => {
-                switch (self.buffer[self.index - 1]) {
-                    ' ', '\t' => continue :state .line_comment,
-                    '\r' => continue :state .invalid,
-                    '\n' => continue :state .block_comment_start,
-                    else => {},
-                }
-
-                self.index += 1;
-                switch (self.buffer[self.index]) {
+                switch (self.buffer[self.index + 1]) {
                     ':' => {
                         result.tag = .slash_colon;
-                        self.index += 1;
+                        self.index += 2;
                     },
-                    else => result.tag = .slash,
+                    else => switch (self.buffer[self.index - 1]) {
+                        ' ', '\t' => continue :state .line_comment,
+                        '\r' => continue :state .invalid,
+                        '\n' => continue :state .block_comment_start,
+                        else => {
+                            result.tag = .slash;
+                            self.index += 1;
+                        },
+                    },
                 }
             },
 
@@ -1892,11 +1892,11 @@ test "tokenize system commands" {
         \\/line comment
         \\1
     , &.{ .system, .number_literal });
-    // try testTokenize(
-    //     \\1
-    //     \\/line comment
-    //     \\ 2
-    // , &.{ .number_literal, .number_literal });
+    try testTokenize(
+        \\1
+        \\/line comment
+        \\ 2
+    , &.{ .number_literal, .number_literal });
     try testTokenize(
         \\\ls
         \\/line comment
