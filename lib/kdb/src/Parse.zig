@@ -444,6 +444,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .string_literal,
         .symbol_literal,
         .identifier,
+        .builtin,
         .keyword_select,
         .keyword_exec,
         .keyword_update,
