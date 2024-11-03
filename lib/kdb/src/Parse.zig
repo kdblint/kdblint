@@ -444,7 +444,6 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .string_literal,
         .symbol_literal,
         .identifier,
-        .builtin,
         .keyword_select,
         .keyword_exec,
         .keyword_update,
@@ -548,6 +547,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .one_colon,
         .one_colon_colon,
         .two_colon,
+        .builtin,
         => {
             const op = try p.parsePrecedence(.iterator, sql_identifier);
             assert(op != null_node);
