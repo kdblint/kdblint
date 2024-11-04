@@ -253,51 +253,8 @@ fn parseBlock(p: *Parse) !Node.Index {
     return expr;
 }
 
-const Precedence = enum(u8) {
-    stop,
-    none,
-    iterator,
-    call,
-
-    _,
-};
-
-const oper_table = std.enums.directEnumArrayDefault(
-    Token.Tag,
-    Precedence,
-    .none,
-    0,
-    .{
-        .l_bracket = .call,
-
-        .apostrophe = .iterator,
-        .apostrophe_colon = .iterator,
-        .slash = .iterator,
-        .slash_colon = .iterator,
-        .backslash = .iterator,
-        .backslash_colon = .iterator,
-
-        .r_paren = .stop,
-        .r_brace = .stop,
-        .r_bracket = .stop,
-        .semicolon = .stop,
-        .eob = .stop,
-        .eof = .stop,
-    },
-);
-
 /// Expr <- Noun Verb*
-fn parseExpr(p: *Parse, comptime sql_identifier: ?SqlIdentifier) !Node.Index {
-    return p.parsePrecedence(.none, sql_identifier);
-}
-
-fn expectExpr(p: *Parse, comptime sql_identifier: ?SqlIdentifier) !Token.Index {
-    const expr = try p.parseExpr(sql_identifier);
-    if (expr != null_node) return expr;
-    return p.fail(.expected_expr);
-}
-
-fn parsePrecedence(p: *Parse, min_prec: Precedence, comptime sql_identifier: ?SqlIdentifier) Error!Node.Index {
+fn parseExpr(p: *Parse, comptime sql_identifier: ?SqlIdentifier) Error!Node.Index {
     if (sql_identifier) |sql_id| if (p.peekIdentifier(sql_id)) |_| return null_node;
     var node = try p.parseNoun();
     if (node == null_node) {
@@ -305,16 +262,24 @@ fn parsePrecedence(p: *Parse, min_prec: Precedence, comptime sql_identifier: ?Sq
     }
 
     while (true) {
-        if (sql_identifier) |sql_id| if (p.peekIdentifier(sql_id)) |_| break;
-        const prec: Precedence = if (sql_identifier != null and p.peekTag() == .comma)
-            .stop
-        else
-            oper_table[@intFromEnum(p.peekTag())];
-        if (@intFromEnum(min_prec) > @intFromEnum(prec)) break;
+        if (sql_identifier) |sql_id| {
+            if (p.peekIdentifier(sql_id)) |_| break;
+            if (p.peekTag() == .comma) break;
+        }
+        switch (p.peekTag()) {
+            .r_paren, .r_brace, .r_bracket, .semicolon, .eob, .eof => break,
+            else => {},
+        }
         node = try p.parseVerb(node, sql_identifier);
     }
 
     return node;
+}
+
+fn expectExpr(p: *Parse, comptime sql_identifier: ?SqlIdentifier) !Token.Index {
+    const expr = try p.parseExpr(sql_identifier);
+    if (expr != null_node) return expr;
+    return p.fail(.expected_expr);
 }
 
 /// Noun
@@ -460,8 +425,8 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .keyword_update,
         .keyword_delete,
         => {
-            const op = try p.parsePrecedence(.iterator, sql_identifier);
-            if (op == null_node) return lhs;
+            const op = try p.parseNoun();
+            assert(op != null_node);
 
             const tags: []Node.Tag = p.nodes.items(.tag);
             switch (tags[op].getType()) {
@@ -558,9 +523,8 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        .infix_builtin,
         => {
-            const op = try p.parsePrecedence(.iterator, sql_identifier);
+            const op = try p.parseNoun();
             assert(op != null_node);
 
             const rhs = try p.parseExpr(sql_identifier);
@@ -572,6 +536,39 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
                     .rhs = rhs,
                 },
             });
+        },
+
+        .infix_builtin,
+        => {
+            const op = try p.parseNoun();
+            assert(op != null_node);
+
+            const tags: []Node.Tag = p.nodes.items(.tag);
+            switch (tags[op]) {
+                .builtin => {
+                    const rhs = try p.parseExpr(sql_identifier);
+                    return p.addNode(.{
+                        .tag = .apply_binary,
+                        .main_token = op,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        },
+                    });
+                },
+                else => {
+                    const rhs = try p.parseVerb(op, sql_identifier);
+                    try p.validateUnaryApplication(lhs, rhs);
+                    return p.addNode(.{
+                        .tag = .apply_unary,
+                        .main_token = undefined,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        },
+                    });
+                },
+            }
         },
 
         .semicolon,
