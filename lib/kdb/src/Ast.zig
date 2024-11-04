@@ -5357,7 +5357,11 @@ test "apply builtins" {
         &.{ .builtin, .builtin, .at, .apostrophe, .identifier, .apply_binary, .apply_unary },
     );
 
-    if (true) return error.SkipZigTest;
+    try testAst(
+        "f each[x;y]",
+        &.{ .identifier, .infix_builtin, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .builtin, .call, .identifier, .identifier, .apply_unary },
+    );
     try testAst(
         "f each[x]y",
         &.{ .identifier, .infix_builtin, .l_bracket, .identifier, .r_bracket, .identifier },
