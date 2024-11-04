@@ -770,14 +770,14 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
     const data = tree.nodes.items(.data)[node];
     const delete = tree.extraData(data.lhs, Node.DeleteCols);
 
-    const select_exprs = tree.extra_data[delete.select_start..delete.select_end];
+    const select_tokens = tree.extra_data[delete.select_token_start..delete.select_token_end];
 
     const delete_token = tree.nodes.items(.main_token)[node];
     const from_token = tree.firstToken(delete.from) - 1;
 
     return .{
         .delete_token = delete_token,
-        .select = select_exprs,
+        .select_tokens = select_tokens,
         .from_token = from_token,
         .from = delete.from,
     };
@@ -912,7 +912,7 @@ pub const full = struct {
 
     pub const DeleteCols = struct {
         delete_token: Token.Index,
-        select: []Node.Index,
+        select_tokens: []Token.Index,
         from_token: Token.Index,
         from: Node.Index,
     };
@@ -1360,9 +1360,9 @@ pub const Node = struct {
 
     pub const DeleteCols = struct {
         /// Index into extra_data.
-        select_start: Index,
+        select_token_start: Index,
         /// Index into extra_data.
-        select_end: Index,
+        select_token_end: Index,
         from: Index,
     };
 };
@@ -2472,20 +2472,17 @@ test "iterators" {
     );
 
     try testAst(
-        \\(\:)
-    ,
+        "(\\:)",
         &.{ .l_paren, .backslash_colon, .r_paren },
         &.{ .grouped_expression, .backslash_colon },
     );
     try testAst(
-        \\@\:
-    ,
+        "@\\:",
         &.{ .at, .backslash_colon },
         &.{ .at, .backslash_colon },
     );
     try testAst(
-        \\f\:
-    ,
+        "f\\:",
         &.{ .identifier, .backslash_colon },
         &.{ .identifier, .backslash_colon },
     );
@@ -2540,8 +2537,7 @@ test "iterators" {
 
 test "chained iterators" {
     try testAst(
-        \\0 1 2,/:\:10 20 30
-    ,
+        "0 1 2,/:\\:10 20 30",
         &.{
             .number_literal,  .number_literal, .number_literal, .comma,          .slash_colon,
             .backslash_colon, .number_literal, .number_literal, .number_literal,
@@ -2650,7 +2646,7 @@ test "select/exec/update/delete whitespace" {
     try testAst(
         "first delete a from x",
         &.{ .prefix_builtin, .keyword_delete, .identifier, .identifier, .identifier },
-        &.{ .builtin, .delete_cols, .identifier, .identifier, .apply_unary },
+        &.{ .builtin, .delete_cols, .identifier, .apply_unary },
     );
 }
 
@@ -4184,16 +4180,13 @@ test "select/exec/update/delete with commas" {
             .comma,       .identifier, .apply_binary,       .identifier,
         },
     );
-    try testAst(
+    try failAst(
         "delete(a,b),c from x",
         &.{
             .keyword_delete, .l_paren, .identifier, .comma,      .identifier,
             .r_paren,        .comma,   .identifier, .identifier, .identifier,
         },
-        &.{
-            .delete_cols, .grouped_expression, .identifier, .comma,
-            .identifier,  .apply_binary,       .identifier, .identifier,
-        },
+        &.{.expected_token},
     );
 }
 
@@ -4207,6 +4200,11 @@ test "select" {
         "select a from x",
         &.{ .keyword_select, .identifier, .identifier, .identifier },
         &.{ .select, .identifier, .identifier },
+    );
+    try testAst(
+        "select first a from x",
+        &.{ .keyword_select, .prefix_builtin, .identifier, .identifier, .identifier },
+        &.{ .select, .builtin, .identifier, .apply_unary, .identifier },
     );
     try testAst(
         "select a,b from x",
@@ -4645,6 +4643,11 @@ test "exec" {
         &.{ .exec, .identifier, .identifier },
     );
     try testAst(
+        "exec first a from x",
+        &.{ .keyword_exec, .prefix_builtin, .identifier, .identifier, .identifier },
+        &.{ .exec, .builtin, .identifier, .apply_unary, .identifier },
+    );
+    try testAst(
         "exec a:a from x",
         &.{ .keyword_exec, .identifier, .colon, .identifier, .identifier, .identifier },
         &.{ .exec, .identifier, .assign, .identifier, .identifier },
@@ -4891,6 +4894,11 @@ test "update" {
         &.{ .update, .identifier, .identifier },
     );
     try testAst(
+        "update first a from x",
+        &.{ .keyword_update, .prefix_builtin, .identifier, .identifier, .identifier },
+        &.{ .update, .builtin, .identifier, .apply_unary, .identifier },
+    );
+    try testAst(
         "update a,b from x",
         &.{ .keyword_update, .identifier, .comma, .identifier, .identifier, .identifier },
         &.{ .update, .identifier, .identifier, .identifier },
@@ -5003,12 +5011,17 @@ test "delete columns" {
     try testAst(
         "delete a from x",
         &.{ .keyword_delete, .identifier, .identifier, .identifier },
-        &.{ .delete_cols, .identifier, .identifier },
+        &.{ .delete_cols, .identifier },
+    );
+    try failAst(
+        "delete first a from x",
+        &.{ .keyword_delete, .prefix_builtin, .identifier, .identifier, .identifier },
+        &.{.expected_token},
     );
     try testAst(
         "delete a,b from x",
         &.{ .keyword_delete, .identifier, .comma, .identifier, .identifier, .identifier },
-        &.{ .delete_cols, .identifier, .identifier, .identifier },
+        &.{ .delete_cols, .identifier },
     );
     try failAst(
         "delete a from x where b",

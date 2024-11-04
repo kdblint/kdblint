@@ -409,6 +409,8 @@ fn parseNoun(p: *Parse) !Node.Index {
 fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier) !Node.Index {
     assert(lhs != null_node);
 
+    if (sql_identifier) |sql_id| if (p.peekIdentifier(sql_id)) |_| return lhs;
+
     const tag = p.peekTag();
     if (p.ends_expr.getLastOrNull()) |ends_expr| if (tag == ends_expr) return lhs;
 
@@ -1191,8 +1193,8 @@ fn parseDelete(p: *Parse) !Node.Index {
     // Select phrase
     const select_top = p.scratch.items.len;
     while (true) {
-        const expr = try p.expectExpr(.{ .from = true });
-        try p.scratch.append(p.gpa, expr);
+        const identifier = try p.expectToken(.identifier);
+        try p.scratch.append(p.gpa, identifier);
         _ = p.eatToken(.comma) orelse break;
     }
 
@@ -1206,8 +1208,8 @@ fn parseDelete(p: *Parse) !Node.Index {
 
     const select = try p.listToSpan(p.scratch.items[select_top..]);
     const delete_node: Node.DeleteCols = .{
-        .select_start = select.start,
-        .select_end = select.end,
+        .select_token_start = select.start,
+        .select_token_end = select.end,
         .from = from_expr,
     };
     return p.setNode(delete_index, .{

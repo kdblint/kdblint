@@ -746,6 +746,10 @@ fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
         for (data.select) |expr| {
             try renderExpression(r, expr, .comma);
         }
+    } else if (@hasField(@TypeOf(data), "select_tokens")) {
+        for (data.select_tokens) |token| {
+            try renderToken(r, token, .comma);
+        }
     }
 
     if (@hasField(@TypeOf(data), "by")) {
@@ -1079,6 +1083,7 @@ fn renderComments(r: *Render, start: usize, end: usize, ends_block: bool) Error!
     return true;
 }
 
+// TODO: Add unit tests.
 fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
     const tags: []Token.Tag = r.tree.tokens.items(.tag);
     return switch (tags[token1]) {
@@ -1089,8 +1094,20 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
 
         .number_literal,
         => switch (tags[token2]) {
-            .identifier, .prefix_builtin, .infix_builtin => true,
-            else => false, // TODO: What about number_literal keyword?
+            .period,
+            .period_colon,
+            .zero_colon,
+            .zero_colon_colon,
+            .one_colon,
+            .one_colon_colon,
+            .two_colon,
+            .number_literal,
+            .identifier,
+            .prefix_builtin,
+            .infix_builtin,
+            => true,
+
+            else => tags[token2].isKeyword(),
         },
 
         .symbol_literal,
@@ -1112,24 +1129,52 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
             => true,
 
             // Depends on language.
-            .underscore,
-            .underscore_colon,
-            => r.tree.mode == .q and r.tree.tokenLen(token1) > 1,
+            .underscore, .underscore_colon => r.tree.mode == .q and r.tree.tokenLen(token1) > 1,
 
-            else => false, // TODO: What about symbol_literal keyword?
+            else => tags[token2].isKeyword(),
         },
 
         .identifier,
         .prefix_builtin,
         .infix_builtin,
         => switch (tags[token2]) {
-            .number_literal, .identifier, .prefix_builtin, .infix_builtin => true,
+            .period,
+            .period_colon,
+            .zero_colon,
+            .zero_colon_colon,
+            .one_colon,
+            .one_colon_colon,
+            .two_colon,
+            .number_literal,
+            .identifier,
+            .prefix_builtin,
+            .infix_builtin,
+            => true,
+
+            // Depends on language.
+            .underscore, .underscore_colon => r.tree.mode == .q,
+
             else => tags[token2].isKeyword(),
         },
 
         inline else => |t| t.isKeyword() and switch (tags[token2]) {
-            .number_literal, .identifier, .prefix_builtin, .infix_builtin => true,
-            else => false, // TODO: What about keyword keyword?
+            .period,
+            .period_colon,
+            .zero_colon,
+            .zero_colon_colon,
+            .one_colon,
+            .one_colon_colon,
+            .two_colon,
+            .number_literal,
+            .identifier,
+            .prefix_builtin,
+            .infix_builtin,
+            => true,
+
+            // Depends on language.
+            .underscore, .underscore_colon => r.tree.mode == .q,
+
+            else => tags[token2].isKeyword(),
         },
     };
 }
