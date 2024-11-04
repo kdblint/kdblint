@@ -546,30 +546,27 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
             assert(op != null_node);
 
             const tags: []Node.Tag = p.nodes.items(.tag);
-            switch (tags[op]) {
-                .builtin => {
-                    const rhs = try p.parseExpr(sql_identifier);
-                    return p.addNode(.{
-                        .tag = .apply_binary,
-                        .main_token = op,
-                        .data = .{
-                            .lhs = lhs,
-                            .rhs = rhs,
-                        },
-                    });
-                },
-                else => {
-                    const rhs = try p.parseVerb(op, sql_identifier);
-                    try p.validateUnaryApplication(lhs, rhs);
-                    return p.addNode(.{
-                        .tag = .apply_unary,
-                        .main_token = undefined,
-                        .data = .{
-                            .lhs = lhs,
-                            .rhs = rhs,
-                        },
-                    });
-                },
+            if (tags[op] == .builtin or tags[op].getType() == .iterator) {
+                const rhs = try p.parseExpr(sql_identifier);
+                return p.addNode(.{
+                    .tag = .apply_binary,
+                    .main_token = op,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    },
+                });
+            } else {
+                const rhs = try p.parseVerb(op, sql_identifier);
+                try p.validateUnaryApplication(lhs, rhs);
+                return p.addNode(.{
+                    .tag = .apply_unary,
+                    .main_token = undefined,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    },
+                });
             }
         },
 
