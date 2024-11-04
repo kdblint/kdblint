@@ -5380,6 +5380,12 @@ test "apply builtins" {
         &.{ .identifier, .infix_builtin, .l_bracket, .identifier, .r_bracket, .identifier },
         &.{ .identifier, .builtin, .call, .identifier, .identifier, .apply_unary, .apply_unary },
     );
+
+    try testAst(
+        "` sv'x",
+        &.{ .symbol_literal, .infix_builtin, .apostrophe, .identifier },
+        &.{ .symbol_literal, .builtin, .apostrophe, .identifier, .apply_binary },
+    );
 }
 
 fn testRender(file_path: []const u8) !void {
