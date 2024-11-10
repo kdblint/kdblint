@@ -45,24 +45,15 @@ const Fmt = struct {
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{
-    .stack_trace_frames = switch (builtin.mode) {
-        .Debug => 10,
-        else => 0,
-    },
-}) = .{};
-
 pub fn main() !void {
-    const gpa = general_purpose_allocator.allocator();
-    defer _ = general_purpose_allocator.deinit();
-    var arena_instance: std.heap.ArenaAllocator = .init(gpa);
+    var arena_instance: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
     var args = try std.process.argsWithAllocator(arena);
     assert(args.skip());
 
-    return mainArgs(gpa, &args);
+    return mainArgs(arena, &args);
 }
 
 pub fn mainArgs(gpa: Allocator, args: *std.process.ArgIterator) !void {

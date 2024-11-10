@@ -53,10 +53,10 @@ pub fn main() !void {
 
     var args = try process.argsWithAllocator(arena);
 
-    return mainArgs(gpa, &args);
+    return mainArgs(gpa, arena, &args);
 }
 
-fn mainArgs(gpa: Allocator, args: *process.ArgIterator) !void {
+fn mainArgs(gpa: Allocator, arena: Allocator, args: *process.ArgIterator) !void {
     assert(args.skip());
     const cmd = args.next() orelse {
         try io.getStdOut().writeAll(usage ++ "\n");
@@ -68,7 +68,7 @@ fn mainArgs(gpa: Allocator, args: *process.ArgIterator) !void {
         // } else if (mem.eql(u8, cmd, "ast-check")) {
         // return @import("ast_check.zig").main(gpa, arena, args);
     } else if (mem.eql(u8, cmd, "fmt")) {
-        return kdb.fmt(gpa, args);
+        return kdb.fmt(arena, args);
     } else if (mem.eql(u8, cmd, "version")) {
         return io.getStdOut().writeAll(build_options.version ++ "\n");
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
