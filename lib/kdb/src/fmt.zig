@@ -29,7 +29,7 @@ const usage =
     \\  --stdout                Output formatted code to stdout
     \\  --check                 List non-conforming files and exit with an error
     \\                          if the list is non-empty
-    // \\  --ast-check             Run kdblint ast-check on every file
+    \\  --ast-check             Run kdblint ast-check on every file
     \\  --exclude [file]        Exclude file or directory from formatting
     \\
 ;
@@ -84,8 +84,8 @@ pub fn mainArgs(gpa: Allocator, args: *std.process.ArgIterator) !void {
                 stdout_flag = true;
             } else if (mem.eql(u8, arg, "--check")) {
                 check_flag = true;
-                // } else if (mem.eql(u8, arg, "--ast-check")) {
-                // check_ast_flag = true;
+            } else if (mem.eql(u8, arg, "--ast-check")) {
+                check_ast_flag = true;
             } else if (mem.eql(u8, arg, "--exclude")) {
                 const next_arg = args.next() orelse
                     fatal("expected parameter after --exclude", .{});
@@ -118,7 +118,8 @@ pub fn mainArgs(gpa: Allocator, args: *std.process.ArgIterator) !void {
         defer tree.deinit(gpa);
 
         if (check_ast_flag) {
-            // var zir = try std.zig.AstGen.generate(gpa, tree);
+            var zir = try kdb.AstGen.generate(gpa, tree);
+            _ = &zir; // autofix
 
             // if (zir.hasCompileErrors()) {
             //     var wip_errors: std.zig.ErrorBundle.Wip = undefined;
