@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
@@ -114,10 +115,115 @@ pub const Inst = struct {
         }
     };
 
+    /// A reference to ZIR instruction, or to an InternPool index, or neither.
+    ///
+    /// If the integer tag value is < InternPool.static_len, then it
+    /// corresponds to an InternPool index. Otherwise, this refers to a ZIR
+    /// instruction.
+    ///
+    /// The tag type is specified so that it is safe to bitcast between `[]u32`
+    /// and `[]Ref`.
+    pub const Ref = enum(u32) {
+        zero,
+        one,
+
+        /// This Ref does not correspond to any ZIR instruction or constant
+        /// value and may instead be used as a sentinel to indicate null.
+        none = std.math.maxInt(u32),
+
+        _,
+
+        pub fn toIndex(inst: Ref) ?Index {
+            assert(inst != .none);
+            const ref_int = @intFromEnum(inst);
+            if (ref_int >= @intFromEnum(Index.ref_start_index)) {
+                return @enumFromInt(ref_int - @intFromEnum(Index.ref_start_index));
+            } else {
+                return null;
+            }
+        }
+
+        pub fn toIndexAllowNone(inst: Ref) ?Index {
+            if (inst == .none) return null;
+            return toIndex(inst);
+        }
+    };
+
     /// This data is stored inside extra, with trailing operands according to `body_len`.
     /// Each operand is an `Index`.
     pub const Block = struct {
         body_len: u32,
+    };
+
+    /// Represents a single value being captured in a type declaration's closure.
+    pub const Capture = packed struct(u32) {
+        tag: enum(u3) {
+            /// `data` is a `u16` index into the parent closure.
+            nested,
+            /// `data` is a `Zir.Inst.Index` to an instruction whose value is being captured.
+            instruction,
+            /// `data` is a `Zir.Inst.Index` to an instruction representing an alloc whose contents is being captured.
+            instruction_load,
+            /// `data` is a `NullTerminatedString` to a decl name.
+            decl_val,
+            /// `data` is a `NullTerminatedString` to a decl name.
+            decl_ref,
+        },
+        data: u29,
+        pub const Unwrapped = union(enum) {
+            nested: u16,
+            instruction: Zir.Inst.Index,
+            instruction_load: Zir.Inst.Index,
+            decl_val: NullTerminatedString,
+            decl_ref: NullTerminatedString,
+        };
+        pub fn wrap(cap: Unwrapped) Capture {
+            return switch (cap) {
+                .nested => |idx| .{
+                    .tag = .nested,
+                    .data = idx,
+                },
+                .instruction => |inst| .{
+                    .tag = .instruction,
+                    .data = @intCast(@intFromEnum(inst)),
+                },
+                .instruction_load => |inst| .{
+                    .tag = .instruction_load,
+                    .data = @intCast(@intFromEnum(inst)),
+                },
+                .decl_val => |str| .{
+                    .tag = .decl_val,
+                    .data = @intCast(@intFromEnum(str)),
+                },
+                .decl_ref => |str| .{
+                    .tag = .decl_ref,
+                    .data = @intCast(@intFromEnum(str)),
+                },
+            };
+        }
+        pub fn unwrap(cap: Capture) Unwrapped {
+            return switch (cap.tag) {
+                .nested => .{ .nested = @intCast(cap.data) },
+                .instruction => .{ .instruction = @enumFromInt(cap.data) },
+                .instruction_load => .{ .instruction_load = @enumFromInt(cap.data) },
+                .decl_val => .{ .decl_val = @enumFromInt(cap.data) },
+                .decl_ref => .{ .decl_ref = @enumFromInt(cap.data) },
+            };
+        }
+    };
+
+    pub const NameStrategy = enum(u2) {
+        /// Use the same name as the parent declaration name.
+        /// e.g. `const Foo = struct {...};`.
+        parent,
+        /// Use the name of the currently executing comptime function call,
+        /// with the current parameters. e.g. `ArrayList(i32)`.
+        func,
+        /// Create an anonymous name for this declaration.
+        /// Like this: "ParentDeclName_struct_69"
+        anon,
+        /// Use the name specified in the next `dbg_var_{val,ptr}` instruction.
+        dbg_var,
     };
 
     /// Trailing: `CompileErrors.Item` for each `items_len`.
