@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const RenderOptions = std.zig.ErrorBundle.RenderOptions;
 
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
@@ -142,13 +143,6 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
     }
     return string_bytes[index..end :0];
 }
-
-pub const RenderOptions = struct {
-    ttyconf: std.io.tty.Config,
-    include_reference_trace: bool = true,
-    include_source_line: bool = true,
-    include_log_text: bool = true,
-};
 
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     std.debug.lockStdErr();

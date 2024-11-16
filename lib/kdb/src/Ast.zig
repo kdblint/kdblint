@@ -55,18 +55,18 @@ pub const RenderError = error{
     OutOfMemory,
 };
 
-pub const Version = enum {
-    @"4.0",
-};
-
 pub const Mode = enum {
     k,
     q,
 };
 
+pub const Version = enum {
+    @"4.0",
+};
+
 pub const ParseSettings = struct {
-    version: Version,
     mode: Mode,
+    version: Version,
 };
 
 /// Result should be freed with tree.deinit() when there are
@@ -507,6 +507,15 @@ pub fn tokensOnSameLine(tree: Ast, token1: Token.Index, token2: Token.Index) boo
     return mem.indexOfScalar(u8, source, '\n') == null;
 }
 
+pub fn getNodeSource(tree: Ast, node: Node.Index) []const u8 {
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
+    const first_token = tree.firstToken(node);
+    const last_token = tree.lastToken(node);
+    const start = token_locs[first_token].start;
+    const end = token_locs[last_token].end;
+    return tree.source[start..end];
+}
+
 pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     switch (parse_error.tag) {
@@ -809,6 +818,18 @@ pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
     };
 }
 
+pub fn containerDeclRoot(tree: Ast) full.ContainerDecl {
+    return .{
+        .layout_token = null,
+        .ast = .{
+            .main_token = undefined,
+            .enum_token = null,
+            .members = tree.rootDecls(),
+            .arg = 0,
+        },
+    };
+}
+
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const Lambda = struct {
@@ -923,6 +944,20 @@ pub const full = struct {
         condition: Node.Index,
         body: []Node.Index,
         r_bracket: Token.Index,
+    };
+
+    // TODO: Remove?
+    pub const ContainerDecl = struct {
+        layout_token: ?Token.Index,
+        ast: Components,
+
+        pub const Components = struct {
+            main_token: Token.Index,
+            /// Populated when main_token is Keyword_union.
+            enum_token: ?Token.Index,
+            members: []const Node.Index,
+            arg: Node.Index,
+        };
     };
 };
 
@@ -1377,7 +1412,7 @@ pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
 }
 
 pub fn tokensToSpan(tree: *const Ast, start: Ast.Token.Index, end: Ast.Token.Index, main: Ast.Token.Index) Span {
-    const token_locs = tree.tokens.items(.loc);
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
     var start_tok = start;
     var end_tok = end;
 
@@ -1392,7 +1427,7 @@ pub fn tokensToSpan(tree: *const Ast, start: Ast.Token.Index, end: Ast.Token.Ind
         end_tok = main;
     }
     const start_off = token_locs[start_tok].start;
-    const end_off = token_locs[end_tok].start + @as(u32, @intCast(tree.tokenLen(end_tok)));
+    const end_off = token_locs[end_tok].end;
     return Span{
         .start = @intCast(start_off),
         .end = @intCast(end_off),
