@@ -129,13 +129,8 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     // The AST -> ZIR lowering process assumes an AST that does not have any
     // parse errors.
     if (tree.errors.len == 0) {
-        if (AstGen.structDeclInner(
-            &gen_scope,
-            &gen_scope.base,
-            0,
-            tree.containerDeclRoot(),
-        )) |struct_decl_ref| {
-            assert(struct_decl_ref.toIndex().? == .main_struct_inst);
+        if (AstGen.file(&gen_scope, &gen_scope.base)) |struct_decl_ref| {
+            assert(struct_decl_ref.toIndex().? == .file);
         } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {}, // Handled via compile_errors below.
@@ -224,23 +219,27 @@ const ResultInfo = struct {
     };
 };
 
-fn structDeclInner(
-    gz: *GenZir,
-    scope: *Scope,
-    node: Ast.Node.Index,
-    container_decl: Ast.full.ContainerDecl,
-) InnerError!Zir.Inst.Ref {
+fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
-    _ = tree; // autofix
+    const blocks = tree.rootDecls();
 
-    const decl_inst = try gz.reserveInstructionIndex();
+    const file_inst = try gz.addAsIndex(.{
+        .tag = .file,
+        .data = .{
+            .file = .{
+                .blocks_len = @intCast(blocks.len),
+            },
+        },
+    });
+    try gz.astgen.extra.ensureUnusedCapacity(gpa, blocks.len);
+    gz.astgen.extra.items.len += blocks.len;
 
     var namespace: Scope.Namespace = .{
         .parent = scope,
-        .node = node,
-        .inst = decl_inst,
+        .node = 0,
+        .inst = file_inst,
         .declaring_gz = gz,
         .maybe_generic = astgen.within_fn,
     };
@@ -249,10 +248,10 @@ fn structDeclInner(
     // The struct_decl instruction introduces a scope in which the decls of the struct
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the struct itself.
-    astgen.advanceSourceCursorToNode(node);
+    astgen.advanceSourceCursorToNode(0);
     var block_scope: GenZir = .{
         .parent = &namespace.base,
-        .decl_node_index = node,
+        .decl_node_index = 0,
         .decl_line = gz.decl_line,
         .astgen = astgen,
         .is_comptime = true,
@@ -269,31 +268,20 @@ fn structDeclInner(
     astgen.src_hasher = std.zig.SrcHasher.init(.{});
     astgen.src_hasher.update(@tagName(.auto));
 
-    for (container_decl.ast.members) |block_node| {
-        astgen.block(&block_scope, &namespace.base, block_node) catch |err| switch (err) {
+    var i: u32 = 0;
+    while (i < blocks.len) : (i += 1) {
+        const block_node = blocks[i];
+        astgen.block(&block_scope, &namespace.base, block_node, i) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {},
         };
     }
 
-    var fields_hash: std.zig.SrcHash = undefined;
-    astgen.src_hasher.final(&fields_hash);
-
-    try gz.setStruct(decl_inst, .{
-        .src_node = node,
-        .captures_len = @intCast(namespace.captures.count()),
-        .blocks_len = @intCast(container_decl.ast.members.len),
-        .fields_hash = fields_hash,
-    });
-
-    try astgen.extra.ensureUnusedCapacity(gpa, 2 + namespace.captures.count());
-    astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
-
     block_scope.unstack();
-    return decl_inst.toRef();
+    return file_inst.toRef();
 }
 
-fn block(astgen: *AstGen, gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!void {
+fn block(astgen: *AstGen, gz: *GenZir, scope: *Scope, node: Ast.Node.Index, block_index: u32) InnerError!void {
     const tree = astgen.tree;
     const token_tags: []Ast.Token.Tag = tree.tokens.items(.tag);
 
@@ -328,6 +316,9 @@ fn block(astgen: *AstGen, gz: *GenZir, scope: *Scope, node: Ast.Node.Index) Inne
     try astgen.extra.ensureUnusedCapacity(astgen.gpa, 2);
     astgen.extra.appendAssumeCapacity(@intCast(block_scope.instructions_top));
     astgen.extra.appendAssumeCapacity(@intCast(block_scope.instructions.items.len - block_scope.instructions_top));
+
+    const reserved_count = @typeInfo(Zir.ExtraIndex).@"enum".fields.len;
+    astgen.extra.items[block_index + reserved_count] = @intCast(block_scope.instructions.items.len);
 }
 
 fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -807,54 +798,6 @@ const GenZir = struct {
             .data = .{ .un_node = .{
                 .operand = operand,
                 .src_node = gz.nodeIndexToRelative(src_node),
-            } },
-        });
-    }
-
-    fn setStruct(
-        gz: *GenZir,
-        inst: Zir.Inst.Index,
-        args: struct {
-            src_node: Ast.Node.Index,
-            captures_len: u32,
-            blocks_len: u32,
-            fields_hash: std.zig.SrcHash,
-        },
-    ) !void {
-        const astgen = gz.astgen;
-        const gpa = astgen.gpa;
-
-        // Node 0 is valid for the root `struct_decl` of a file!
-        assert(args.src_node != 0 or gz.parent.tag == .top);
-
-        const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
-
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.StructDecl).@"struct".fields.len + 2);
-        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.StructDecl{
-            .fields_hash_0 = fields_hash_arr[0],
-            .fields_hash_1 = fields_hash_arr[1],
-            .fields_hash_2 = fields_hash_arr[2],
-            .fields_hash_3 = fields_hash_arr[3],
-            .src_line = astgen.source_line,
-            .src_node = args.src_node,
-        });
-
-        if (args.captures_len != 0) {
-            astgen.extra.appendAssumeCapacity(args.captures_len);
-        }
-        if (args.blocks_len != 0) {
-            astgen.extra.appendAssumeCapacity(args.blocks_len);
-        }
-        astgen.instructions.set(@intFromEnum(inst), .{
-            .tag = .extended,
-            .data = .{ .extended = .{
-                .opcode = .struct_decl,
-                .small = @bitCast(Zir.Inst.StructDecl.Small{
-                    .has_captures_len = args.captures_len != 0,
-                    .has_blocks_len = args.blocks_len != 0,
-                    .name_strategy = gz.anon_name_strategy,
-                }),
-                .operand = payload_index,
             } },
         });
     }
