@@ -137,13 +137,15 @@ fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
     return error.ParseError;
 }
 
-fn tokenSlice(p: *Parse, token_idex: Token.Index) []const u8 {
-    const loc: Token.Loc = p.tokens.items(.loc)[token_idex];
+fn tokenSlice(p: *Parse, token_index: Token.Index) []const u8 {
+    const loc: Token.Loc = p.tokens.items(.loc)[token_index];
     return p.source[loc.start..loc.end];
 }
 
 // TODO: Add tests
 fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
+    assert(lhs != null_node);
+    assert(rhs != null_node);
     const tags: []Node.Tag = p.nodes.items(.tag);
     const main_tokens: []Token.Index = p.nodes.items(.main_token);
 
@@ -400,7 +402,7 @@ fn parseNoun(p: *Parse) !Node.Index {
         .keyword_while,
         => |t| try p.parseStatement(t),
 
-        else => null_node,
+        else => return null_node,
     };
     return p.parseCall(noun);
 }
@@ -825,6 +827,7 @@ fn parseExprBlock(p: *Parse) !Node.Index {
 
 /// Call <- (LBRACKET Expr (SEMICOLON Expr)* RBRACKET)*
 pub fn parseCall(p: *Parse, lhs: Node.Index) !Node.Index {
+    assert(lhs != null_node);
     if (p.peekTag() != .l_bracket) return p.parseIterator(lhs);
 
     const l_bracket = p.assertToken(.l_bracket);
