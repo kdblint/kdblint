@@ -818,18 +818,6 @@ pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
     };
 }
 
-pub fn containerDeclRoot(tree: Ast) full.ContainerDecl {
-    return .{
-        .layout_token = null,
-        .ast = .{
-            .main_token = undefined,
-            .enum_token = null,
-            .members = tree.rootDecls(),
-            .arg = 0,
-        },
-    };
-}
-
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const Lambda = struct {
@@ -944,20 +932,6 @@ pub const full = struct {
         condition: Node.Index,
         body: []Node.Index,
         r_bracket: Token.Index,
-    };
-
-    // TODO: Remove?
-    pub const ContainerDecl = struct {
-        layout_token: ?Token.Index,
-        ast: Components,
-
-        pub const Components = struct {
-            main_token: Token.Index,
-            /// Populated when main_token is Keyword_union.
-            enum_token: ?Token.Index,
-            members: []const Node.Index,
-            arg: Node.Index,
-        };
     };
 };
 
