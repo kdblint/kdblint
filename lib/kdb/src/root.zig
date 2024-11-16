@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Color = std.zig.Color;
 
 const tokenizer = @import("tokenizer.zig");
 
@@ -11,33 +12,20 @@ pub const render = @import("render.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const Zir = @import("Zir.zig");
+pub const number_literal = @import("number_literal.zig");
+pub const print_zir = @import("print_zir.zig");
 
-pub const fmt = @import("fmt.zig").mainArgs;
+// Character literal parsing
+pub const parseNumberLiteral = number_literal.parseNumberLiteral;
 
-pub const Color = enum {
-    /// Determine whether stderr is a terminal or not automatically.
-    auto,
-    /// Assume stderr is not a terminal.
-    off,
-    /// Assume stderr is a terminal.
-    on,
-
-    pub fn get_tty_conf(color: Color) std.io.tty.Config {
-        return switch (color) {
-            .auto => std.io.tty.detectConfig(std.io.getStdErr()),
-            .on => .escape_codes,
-            .off => .no_color,
-        };
-    }
-
-    pub fn renderOptions(color: Color) ErrorBundle.RenderOptions {
-        const ttyconf = get_tty_conf(color);
-        return .{
-            .ttyconf = ttyconf,
-            .include_source_line = ttyconf != .no_color,
-            .include_reference_trace = ttyconf != .no_color,
-        };
-    }
+pub const File = struct {
+    source_loaded: bool = false,
+    tree_loaded: bool = false,
+    zir_loaded: bool = false,
+    sub_file_path: []const u8,
+    source: [:0]const u8,
+    tree: Ast,
+    zir: Zir,
 };
 
 pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {

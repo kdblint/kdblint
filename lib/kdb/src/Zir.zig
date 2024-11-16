@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
@@ -72,6 +73,10 @@ pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8
     return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
 }
 
+pub fn blockSlice(zir: Zir, start: usize, len: usize) []Inst.Index {
+    return @ptrCast(zir.instructions.items(.tag)[start..][0..len]);
+}
+
 pub fn deinit(code: *Zir, gpa: Allocator) void {
     code.instructions.deinit(gpa);
     gpa.free(code.string_bytes);
@@ -83,6 +88,39 @@ pub fn deinit(code: *Zir, gpa: Allocator) void {
 /// The data here is immutable because it is possible to have multiple
 /// analyses on the same ZIR happening at the same time.
 pub const Inst = struct {
+    tag: Tag,
+    data: Data,
+
+    /// These names are used directly as the instruction names in the text format.
+    /// See `data_field_map` for a list of which `Data` fields are used by each `Tag`.
+    pub const Tag = enum(u8) {
+        /// 0N!
+        show,
+
+        /// Integer literal that fits in an i64. Uses the `long` union field.
+        long,
+
+        /// The ZIR instruction tag is one of the `Extended` ones.
+        /// Uses the `extended` union field.
+        extended,
+    };
+
+    /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
+    /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
+    pub const Extended = enum(u16) {
+        /// A struct type definition. Contains references to ZIR instructions for
+        /// the field types, defaults, and alignments.
+        /// `operand` is payload index to `StructDecl`.
+        /// `small` is `StructDecl.Small`.
+        struct_decl,
+
+        pub const InstData = struct {
+            opcode: Extended,
+            small: u16,
+            operand: u32,
+        };
+    };
+
     /// The position of a ZIR instruction within the `Zir` instructions array.
     pub const Index = enum(u32) {
         /// ZIR is structured so that the outermost "main" struct of any file
@@ -126,6 +164,7 @@ pub const Inst = struct {
     pub const Ref = enum(u32) {
         zero,
         one,
+        negative_one,
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
@@ -149,10 +188,93 @@ pub const Inst = struct {
         }
     };
 
+    /// All instructions have an 8-byte payload, which is contained within
+    /// this union. `Tag` determines which union field is active, as well as
+    /// how to interpret the data within.
+    pub const Data = union {
+        /// Used for `Tag.extended`. The extended opcode determines the meaning
+        /// of the `small` and `operand` fields.
+        extended: Extended.InstData,
+        /// Used for unary operators, with an AST node source location.
+        un_node: struct {
+            /// Offset from Decl AST node index.
+            src_node: i32,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            operand: Ref,
+        },
+        long: i64,
+
+        // Make sure we don't accidentally add a field to make this union
+        // bigger than expected. Note that in Debug builds, Zig is allowed
+        // to insert a secret field for safety checks.
+        comptime {
+            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+                assert(@sizeOf(Data) == 8);
+            }
+        }
+
+        /// TODO this has to be kept in sync with `Data` which we want to be an untagged
+        /// union. There is some kind of language awkwardness here and it has to do with
+        /// deserializing an untagged union (in this case `Data`) from a file, and trying
+        /// to preserve the hidden safety field.
+        pub const FieldEnum = enum {
+            extended,
+            un_node,
+            long,
+        };
+    };
+
     /// This data is stored inside extra, with trailing operands according to `body_len`.
     /// Each operand is an `Index`.
     pub const Block = struct {
         body_len: u32,
+    };
+
+    /// Trailing:
+    /// 0. captures_len: u32 // if has_captures_len
+    /// 1. fields_len: u32, // if has_fields_len
+    /// 2. decls_len: u32, // if has_decls_len
+    /// 3. capture: Capture // for every captures_len
+    /// 4. backing_int_body_len: u32, // if has_backing_int
+    /// 5. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
+    /// 6. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
+    /// 7. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 8. flags: u32 // for every 8 fields
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding field has an align expression
+    ///      0b00X0: whether corresponding field has a default expression
+    ///      0b0X00: whether corresponding field is comptime
+    ///      0bX000: whether corresponding field has a type expression
+    /// 9. fields: { // for every fields_len
+    ///        field_name: u32,
+    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
+    ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
+    ///        field_type_body_len: u32, // if corresponding bit is set
+    ///        align_body_len: u32, // if corresponding bit is set
+    ///        init_body_len: u32, // if corresponding bit is set
+    ///    }
+    /// 10. bodies: { // for every fields_len
+    ///        field_type_body_inst: Inst, // for each field_type_body_len
+    ///        align_body_inst: Inst, // for each align_body_len
+    ///        init_body_inst: Inst, // for each init_body_len
+    ///    }
+    pub const StructDecl = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        // This hash contains the source of all fields, and any specified attributes (`extern`, backing type, etc).
+        fields_hash_0: u32,
+        fields_hash_1: u32,
+        fields_hash_2: u32,
+        fields_hash_3: u32,
+        src_line: u32,
+        /// This node provides a new absolute baseline node for all instructions within this struct.
+        src_node: Ast.Node.Index,
+
+        pub const Small = packed struct {
+            has_captures_len: bool,
+            has_blocks_len: bool,
+            name_strategy: NameStrategy,
+            _: u12 = undefined,
+        };
     };
 
     /// Represents a single value being captured in a type declaration's closure.
@@ -250,5 +372,22 @@ pub const Inst = struct {
                 return block.data.body_len;
             }
         };
+    };
+
+    /// Trailing: for each `imports_len` there is an Item
+    pub const Imports = struct {
+        imports_len: u32,
+
+        pub const Item = struct {
+            /// null terminated string index
+            name: NullTerminatedString,
+            /// points to the import name
+            token: Ast.Token.Index,
+        };
+    };
+
+    pub const LineColumn = struct {
+        line: u32,
+        column: u32,
     };
 };

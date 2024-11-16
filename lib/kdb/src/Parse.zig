@@ -1613,14 +1613,6 @@ fn nextToken(p: *Parse) Token.Index {
 
     const result = p.tok_i;
     p.eob = p.isEob(result);
-    std.log.debug("nextToken - {s} '{s}' {}", .{
-        @tagName(p.tokens.items(.tag)[p.tok_i]),
-        slice: {
-            const loc = p.tokens.items(.loc)[p.tok_i];
-            break :slice p.source[loc.start..loc.end];
-        },
-        p.eob,
-    });
     p.tok_i += 1;
     return result;
 }
