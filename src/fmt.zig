@@ -103,13 +103,13 @@ pub fn run(
 
         const stdin = std.io.getStdIn();
         const source_code = std.zig.readSourceFileToEndAlloc(
-            gpa,
+            arena,
             stdin,
             null,
         ) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
-        defer gpa.free(source_code);
+        defer arena.free(source_code);
 
         var tree = kdb.Ast.parse(gpa, source_code, .{
             .mode = .q,
@@ -312,11 +312,11 @@ fn fmtPathFile(
 
     const gpa = fmt.gpa;
     const source_code = try std.zig.readSourceFileToEndAlloc(
-        gpa,
+        fmt.arena,
         source_file,
         std.math.cast(usize, stat.size) orelse return error.FileTooBig,
     );
-    defer gpa.free(source_code);
+    defer fmt.arena.free(source_code);
 
     source_file.close();
     file_closed = true;

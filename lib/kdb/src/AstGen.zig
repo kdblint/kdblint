@@ -459,14 +459,22 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const num_token = main_tokens[node];
     const bytes = tree.tokenSlice(num_token);
 
-    const result: Zir.Inst.Ref = switch (kdb.parseNumberLiteral(bytes)) {
-        .long => |num| switch (num) {
-            0 => .zero,
-            1 => .one,
-            -1 => .negative_one,
-            else => try gz.addLong(num),
+    const result: Zir.Inst.Ref = switch (bytes[0]) {
+        '-' => switch (kdb.parseNumberLiteral(bytes[1..])) {
+            .long => |num| switch (num) {
+                1 => .negative_one,
+                else => try gz.addLong(-num),
+            },
+            .failure => unreachable,
         },
-        .failure => unreachable,
+        else => switch (kdb.parseNumberLiteral(bytes)) {
+            .long => |num| switch (num) {
+                0 => .zero,
+                1 => .one,
+                else => try gz.addLong(num),
+            },
+            .failure => unreachable,
+        },
     };
 
     return result;
