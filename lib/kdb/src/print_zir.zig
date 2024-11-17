@@ -2,10 +2,10 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Ast = std.zig.Ast;
 const InternPool = @import("InternPool.zig");
 
 const kdb = @import("root.zig");
+const Ast = kdb.Ast;
 const Zir = kdb.Zir;
 const Token = kdb.Token;
 
@@ -2306,13 +2306,20 @@ const Writer = struct {
         if (!self.file.tree_loaded) return;
         const tree = self.file.tree;
         const abs_node = self.relativeToNodeIndex(src_node);
-        const src_span = tree.nodeToSpan(abs_node);
-        const start = self.line_col_cursor.find(tree.source, src_span.start);
-        const end = self.line_col_cursor.find(tree.source, src_span.end);
-        try stream.print("node_offset:{d}:{d} to :{d}:{d}", .{
-            start.line + 1, start.column + 1,
-            end.line + 1,   end.column + 1,
-        });
+        if (abs_node > 0) {
+            const src_span = tree.nodeToSpan(abs_node);
+            const start = self.line_col_cursor.find(tree.source, src_span.start);
+            const end = self.line_col_cursor.find(tree.source, src_span.end);
+            try stream.print("node_offset:{d}:{d} to :{d}:{d}", .{
+                start.line + 1, start.column + 1,
+                end.line + 1,   end.column + 1,
+            });
+        } else {
+            const end = self.line_col_cursor.find(tree.source, tree.source.len - 1);
+            try stream.print("node_offset:1:1 to :{d}:{d}", .{
+                end.line + 1, end.column + 1,
+            });
+        }
     }
 
     fn writeSrcTok(self: *Writer, stream: anytype, src_tok: u32) !void {
