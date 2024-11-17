@@ -2394,8 +2394,6 @@ const Writer = struct {
         const start = if (index > 0) self.code.extra[index - 1 + reserved_count] else 1;
         const end = self.code.extra[index + reserved_count];
 
-        std.log.debug("{} {} {}", .{ index, start, end });
-
         for (start..end) |inst| {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("%{d} ", .{inst});

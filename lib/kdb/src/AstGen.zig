@@ -313,12 +313,8 @@ fn block(astgen: *AstGen, gz: *GenZir, scope: *Scope, node: Ast.Node.Index, bloc
         _ = try block_scope.addShow(expr_inst, node);
     }
 
-    try astgen.extra.ensureUnusedCapacity(astgen.gpa, 2);
-    astgen.extra.appendAssumeCapacity(@intCast(block_scope.instructions_top));
-    astgen.extra.appendAssumeCapacity(@intCast(block_scope.instructions.items.len - block_scope.instructions_top));
-
     const reserved_count = @typeInfo(Zir.ExtraIndex).@"enum".fields.len;
-    astgen.extra.items[block_index + reserved_count] = @intCast(block_scope.instructions.items.len);
+    astgen.extra.items[block_index + reserved_count] = @intCast(astgen.instructions.len);
 }
 
 fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
