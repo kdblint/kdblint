@@ -74,6 +74,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
         astgen.extra.items[i] = switch (field.type) {
             u32 => @field(extra, field.name),
 
+            Zir.Inst.Ref,
             Zir.Inst.Index,
             Zir.NullTerminatedString,
             => @intFromEnum(@field(extra, field.name)),
@@ -81,7 +82,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             i32,
             => @bitCast(@field(extra, field.name)),
 
-            else => @compileError("bad field type"),
+            else => |t| @compileError("bad field type: " ++ @typeName(t)),
         };
         i += 1;
     }
@@ -318,17 +319,20 @@ fn block(astgen: *AstGen, gz: *GenZir, scope: *Scope, node: Ast.Node.Index, bloc
 }
 
 fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
-    _ = ri; // autofix
-    _ = scope; // autofix
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
-    _ = main_tokens; // autofix
-    const token_tags: []Ast.Token.Tag = tree.tokens.items(.tag);
-    _ = token_tags; // autofix
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-    _ = node_datas; // autofix
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+
+    var block_scope: GenZir = .{
+        .parent = scope,
+        .decl_node_index = node,
+        .decl_line = astgen.source_line,
+        .astgen = astgen,
+        .is_comptime = true,
+        .instructions = gz.instructions,
+        .instructions_top = gz.instructions.items.len,
+    };
+    defer block_scope.unstack();
 
     const prev_anon_name_strategy = gz.anon_name_strategy;
     defer gz.anon_name_strategy = prev_anon_name_strategy;
@@ -421,11 +425,13 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .call,
         .apply_unary,
-        .apply_binary,
         => unreachable,
 
+        .apply_binary,
+        => return applyBinary(&block_scope, scope, ri, node),
+
         .number_literal,
-        => return numberLiteral(gz, node),
+        => return numberLiteral(&block_scope, node),
 
         .number_list_literal,
         .string_literal,
@@ -450,6 +456,78 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
     }
 
     unreachable;
+}
+
+fn applyBinary(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    _ = ri;
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    const data = node_datas[node];
+    assert(data.rhs != 0);
+    const rhs = try expr(gz, scope, .{ .rl = .none }, data.rhs);
+    const lhs = try expr(gz, scope, .{ .rl = .none }, data.lhs);
+
+    const op: Ast.Node.Index = main_tokens[node];
+    const op_inst_tag: Zir.Inst.Tag = switch (node_tags[op]) {
+        .plus => .add,
+        // .plus_colon => .plus_colon,
+        .minus => .subtract,
+        // .minus_colon => .minus_colon,
+        .asterisk => .multiply,
+        // .asterisk_colon => .asterisk_colon,
+        .percent => .divide,
+        // .percent_colon => .percent_colon,
+        .ampersand => .lesser,
+        // .ampersand_colon => .ampersand_colon,
+        .pipe => .greater,
+        // .pipe_colon => .pipe_colon,
+        .caret => .fill,
+        // .caret_colon => .caret_colon,
+        .equal => .equal,
+        // .equal_colon => .equal_colon,
+        .angle_bracket_left => .less_than,
+        // .angle_bracket_left_colon => .angle_bracket_left_colon,
+        .angle_bracket_left_equal => .less_than_or_equal,
+        .angle_bracket_left_right => .not_equal,
+        .angle_bracket_right => .greater_than,
+        // .angle_bracket_right_colon => .angle_bracket_right_colon,
+        .angle_bracket_right_equal => .greater_than_or_equal,
+        .dollar => unreachable, // https://code.kx.com/q/ref/overloads/#dollar
+        // .dollar_colon => .dollar_colon,
+        .comma => .join,
+        // .comma_colon => .comma_colon,
+        .hash => unreachable, // https://code.kx.com/q/ref/overloads/#hash
+        // .hash_colon => .hash_colon,
+        .underscore => unreachable, // https://code.kx.com/q/ref/cut/ / https://code.kx.com/q/ref/drop/
+        // .underscore_colon => .underscore_colon,
+        .tilde => .match,
+        // .tilde_colon => .tilde_colon,
+        .bang => unreachable, // https://code.kx.com/q/ref/overloads/#bang
+        // .bang_colon => .bang_colon,
+        .question_mark => unreachable, // https://code.kx.com/q/ref/overloads/#query
+        // .question_mark_colon => .question_mark_colon,
+        .at => unreachable, // https://code.kx.com/q/ref/overloads/#at
+        // .at_colon => .at_colon,
+        .period => unreachable, // https://code.kx.com/q/ref/overloads/#dot
+        // .period_colon => .period_colon,
+        .zero_colon => unreachable, // https://code.kx.com/q/ref/file-text/
+        // .zero_colon_colon => .zero_colon_colon,
+        .one_colon => unreachable, // https://code.kx.com/q/ref/file-binary/
+        // .one_colon_colon => .one_colon_colon,
+        .two_colon => .dynamic_load,
+        inline else => |t| @panic(@tagName(t)),
+    };
+
+    return gz.addPlNode(op_inst_tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -804,6 +882,30 @@ const GenZir = struct {
                 .src_node = gz.nodeIndexToRelative(src_node),
             } },
         });
+    }
+
+    fn addPlNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+        extra: anytype,
+    ) !Zir.Inst.Ref {
+        const gpa = gz.astgen.gpa;
+        try gz.instructions.ensureUnusedCapacity(gpa, 1);
+        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+
+        const payload_index = try gz.astgen.addExtra(extra);
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        gz.astgen.instructions.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = .{ .pl_node = .{
+                .src_node = gz.nodeIndexToRelative(src_node),
+                .payload_index = payload_index,
+            } },
+        });
+        gz.instructions.appendAssumeCapacity(new_index);
+        return new_index.toRef();
     }
 
     fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {

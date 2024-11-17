@@ -45,6 +45,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
         @field(result, field.name) = switch (field.type) {
             u32 => code.extra[i],
 
+            Inst.Ref,
             Inst.Index,
             NullTerminatedString,
             => @enumFromInt(code.extra[i]),
@@ -52,7 +53,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             i32,
             => @bitCast(code.extra[i]),
 
-            else => @compileError("bad field type"),
+            else => |t| @compileError("bad field type: " ++ @typeName(t)),
         };
         i += 1;
     }
@@ -94,6 +95,55 @@ pub const Inst = struct {
     /// These names are used directly as the instruction names in the text format.
     /// See `data_field_map` for a list of which `Data` fields are used by each `Tag`.
     pub const Tag = enum(u8) {
+        /// `+`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        add,
+        /// `-`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        subtract,
+        /// `*`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        multiply,
+        /// `%`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        divide,
+        /// `&`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        lesser,
+        /// `|`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        greater,
+        /// `^`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        fill,
+        /// `=`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        equal,
+        /// `<`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        less_than,
+        /// `<=`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        less_than_or_equal,
+        /// `<>`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        not_equal,
+        /// `>`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        greater_than,
+        /// `>=`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        greater_than_or_equal,
+        /// `,`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        join,
+        /// `~`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        match,
+        /// `2:`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        dynamic_load,
+
         /// TODO
         file,
 
@@ -201,6 +251,14 @@ pub const Inst = struct {
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
         },
+        pl_node: struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: i32,
+            /// index into extra.
+            /// `Tag` determines what lives there.
+            payload_index: u32,
+        },
         long: i64,
         file: struct {
             blocks_len: u32,
@@ -230,6 +288,12 @@ pub const Inst = struct {
     /// Each operand is an `Index`.
     pub const Block = struct {
         body_len: u32,
+    };
+
+    /// The meaning of these operands depends on the corresponding `Tag`.
+    pub const Bin = struct {
+        lhs: Ref,
+        rhs: Ref,
     };
 
     /// Represents a single value being captured in a type declaration's closure.

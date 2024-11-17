@@ -198,6 +198,24 @@ const Writer = struct {
         const tag = tags[@intFromEnum(inst)];
         try stream.print("= {s}(", .{@tagName(tag)});
         switch (tag) {
+            .add,
+            .subtract,
+            .multiply,
+            .divide,
+            .lesser,
+            .greater,
+            .fill,
+            .equal,
+            .less_than,
+            .less_than_or_equal,
+            .not_equal,
+            .greater_than,
+            .greater_than_or_equal,
+            .join,
+            .match,
+            .dynamic_load,
+            => try self.writePlNodeBin(stream, inst),
+
             .show => try self.writeUnNode(stream, inst),
 
             .long => try self.writeLong(stream, inst),
