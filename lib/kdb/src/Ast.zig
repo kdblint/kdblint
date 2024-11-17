@@ -1377,6 +1377,7 @@ pub const Node = struct {
 };
 
 pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
+    assert(node != 0);
     return tokensToSpan(
         tree,
         tree.firstToken(node),
