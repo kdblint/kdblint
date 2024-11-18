@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -46,10 +47,6 @@ within_fn: bool = false,
 imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.Token.Index) = .empty,
 /// Used for temporary storage when building payloads.
 scratch: std.ArrayListUnmanaged(u32) = .empty,
-/// Any information which should trigger invalidation of incremental compilation
-/// data should be used to update this hasher. The result is the final source
-/// hash of the enclosing declaration/etc.
-src_hasher: std.zig.SrcHasher,
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -96,7 +93,6 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         .gpa = gpa,
         .arena = arena.allocator(),
         .tree = &tree,
-        .src_hasher = undefined, // `root` will set this
     };
     defer astgen.deinit(gpa);
 
@@ -186,8 +182,11 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
 fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.instructions.deinit(gpa);
     astgen.extra.deinit(gpa);
+    astgen.string_table.deinit(gpa);
     astgen.string_bytes.deinit(gpa);
     astgen.compile_errors.deinit(gpa);
+    astgen.imports.deinit(gpa);
+    astgen.scratch.deinit(gpa);
 }
 
 const ResultInfo = struct {
@@ -234,6 +233,8 @@ fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
             },
         },
     });
+
+    // Reserve elements to record block instruction indices.
     try gz.astgen.extra.ensureUnusedCapacity(gpa, blocks.len);
     gz.astgen.extra.items.len += blocks.len;
 
@@ -264,11 +265,6 @@ fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
     const scratch_top = astgen.scratch.items.len;
     defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
 
-    const old_hasher = astgen.src_hasher;
-    defer astgen.src_hasher = old_hasher;
-    astgen.src_hasher = std.zig.SrcHasher.init(.{});
-    astgen.src_hasher.update(@tagName(.auto));
-
     var i: u32 = 0;
     while (i < blocks.len) : (i += 1) {
         const block_node = blocks[i];
@@ -285,12 +281,6 @@ fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
 fn block(astgen: *AstGen, gz: *GenZir, scope: *Scope, node: Ast.Node.Index, block_index: u32) InnerError!void {
     const tree = astgen.tree;
     const token_tags: []Ast.Token.Tag = tree.tokens.items(.tag);
-
-    const old_hasher = astgen.src_hasher;
-    defer astgen.src_hasher = old_hasher;
-    astgen.src_hasher = std.zig.SrcHasher.init(.{});
-    astgen.src_hasher.update(tree.getNodeSource(node));
-    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     astgen.advanceSourceCursorToNode(node);
 
@@ -323,16 +313,9 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
 
-    var block_scope: GenZir = .{
-        .parent = scope,
-        .decl_node_index = node,
-        .decl_line = astgen.source_line,
-        .astgen = astgen,
-        .is_comptime = true,
-        .instructions = gz.instructions,
-        .instructions_top = gz.instructions.items.len,
-    };
-    defer block_scope.unstack();
+    const prev_node = gz.decl_node_index;
+    gz.decl_node_index = node;
+    defer gz.decl_node_index = prev_node;
 
     const prev_anon_name_strategy = gz.anon_name_strategy;
     defer gz.anon_name_strategy = prev_anon_name_strategy;
@@ -362,6 +345,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         => unreachable,
 
         .assign,
+        => return assign(gz, scope, node),
+
         .global_assign,
         => unreachable,
 
@@ -428,16 +413,20 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         => unreachable,
 
         .apply_binary,
-        => return applyBinary(&block_scope, scope, ri, node),
+        => return applyBinary(gz, scope, ri, node),
 
         .number_literal,
-        => return numberLiteral(&block_scope, node),
+        => return numberLiteral(gz, node),
 
         .number_list_literal,
         .string_literal,
         .symbol_literal,
         .symbol_list_literal,
+        => unreachable,
+
         .identifier,
+        => return identifier(gz, scope, ri, node),
+
         .builtin,
         => unreachable,
 
@@ -458,12 +447,40 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
     unreachable;
 }
 
-fn applyBinary(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
+fn assign(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+
+    const data = node_datas[node];
+    const rhs = try expr(gz, scope, .{ .rl = .none }, data.rhs);
+    const lhs = switch (node_tags[data.lhs]) {
+        .identifier => blk: {
+            switch (scope.tag) {
+                .gen_zir => {
+                    const s = scope.cast(GenZir).?;
+                    switch (s.parent.tag) {
+                        .namespace => {
+                            const ss: *Scope.Namespace = s.parent.cast(Scope.Namespace).?;
+                            const name = try astgen.identAsString(main_tokens[data.lhs]);
+                            try ss.decls.put(astgen.gpa, name, data.lhs);
+                        },
+                        inline else => |t| @panic(@tagName(t)),
+                    }
+                },
+                inline else => |t| @panic(@tagName(t)),
+            }
+            break :blk try expr(gz, scope, .{ .rl = .none }, data.lhs);
+        },
+        else => return astgen.failNode(node, "invalid left-hand side to assignment", .{}),
+    };
+
+    return gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+}
+
+fn applyBinary(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     _ = ri;
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -558,6 +575,169 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     return result;
 }
 
+fn identifier(gz: *GenZir, scope: *Scope, ri: ResultInfo, ident: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    const ident_token = main_tokens[ident];
+    // const ident_name_raw = tree.tokenSlice(ident_token);
+
+    // if (primitive_instrs.get(ident_name_raw)) |zir_const_ref| {
+    //     return rvalue(gz, ri, zir_const_ref, ident);
+    // }
+
+    return localVarRef(gz, scope, ri, ident, ident_token);
+}
+
+fn localVarRef(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    ident: Ast.Node.Index,
+    ident_token: Ast.Token.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const name_str_index = try astgen.identAsString(ident_token);
+    var s = scope;
+    var found_already: ?Ast.Node.Index = null; // we have found a decl with the same name already
+    var found_needs_tunnel: bool = undefined; // defined when `found_already != null`
+    var found_namespaces_out: u32 = undefined; // defined when `found_already != null`
+
+    // The number of namespaces above `gz` we currently are
+    var num_namespaces_out: u32 = 0;
+    // defined by `num_namespaces_out != 0`
+    var capturing_namespace: *Scope.Namespace = undefined;
+
+    while (true) switch (s.tag) {
+        .local_val => {
+            std.log.debug("local_val", .{});
+            const local_val = s.cast(Scope.LocalVal).?;
+
+            if (local_val.name == name_str_index) {
+                unreachable;
+                // Locals cannot shadow anything, so we do not need to look for ambiguous
+                // references in this case.
+                // if (ri.rl == .discard and ri.ctx == .assignment) {
+                //     local_val.discarded = ident_token;
+                // } else {
+                //     local_val.used = ident_token;
+                // }
+
+                // const value_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
+                //     gz,
+                //     ident,
+                //     num_namespaces_out,
+                //     .{ .ref = local_val.inst },
+                //     .{ .token = local_val.token_src },
+                // ) else local_val.inst;
+
+                // return rvalueNoCoercePreRef(gz, ri, value_inst, ident);
+            }
+            s = local_val.parent;
+        },
+        .local_ptr => {
+            std.log.debug("local_ptr", .{});
+            const local_ptr = s.cast(Scope.LocalPtr).?;
+            if (local_ptr.name == name_str_index) {
+                local_ptr.used = ident_token;
+
+                // Can't close over a runtime variable
+                if (num_namespaces_out != 0 and !local_ptr.maybe_comptime and !gz.is_typeof) {
+                    const ident_name = astgen.tree.tokenSlice(ident_token);
+                    return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
+                        try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
+                        try astgen.errNoteNode(capturing_namespace.node, "crosses namespace boundary here", .{}),
+                    });
+                }
+
+                switch (ri.rl) {
+                    // .ref, .ref_coerced_ty => {
+                    //     const ptr_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
+                    //         gz,
+                    //         ident,
+                    //         num_namespaces_out,
+                    //         .{ .ref = local_ptr.ptr },
+                    //         .{ .token = local_ptr.token_src },
+                    //     ) else local_ptr.ptr;
+                    //     local_ptr.used_as_lvalue = true;
+                    //     return ptr_inst;
+                    // },
+                    else => {
+                        unreachable;
+                        // const val_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
+                        //     gz,
+                        //     ident,
+                        //     num_namespaces_out,
+                        //     .{ .ref_load = local_ptr.ptr },
+                        //     .{ .token = local_ptr.token_src },
+                        // ) else try gz.addUnNode(.load, local_ptr.ptr, ident);
+                        // return rvalueNoCoercePreRef(gz, ri, val_inst, ident);
+                    },
+                }
+            }
+            s = local_ptr.parent;
+        },
+        .gen_zir => s = s.cast(GenZir).?.parent,
+        .namespace => {
+            std.log.debug("namespace", .{});
+            const ns = s.cast(Scope.Namespace).?;
+            if (ns.decls.get(name_str_index)) |i| {
+                if (found_already) |f| {
+                    return astgen.failNodeNotes(ident, "ambiguous reference", .{}, &.{
+                        try astgen.errNoteNode(f, "declared here", .{}),
+                        try astgen.errNoteNode(i, "also declared here", .{}),
+                    });
+                }
+                // We found a match but must continue looking for ambiguous references to decls.
+                found_already = i;
+                found_needs_tunnel = ns.maybe_generic;
+                found_namespaces_out = num_namespaces_out;
+            }
+            num_namespaces_out += 1;
+            capturing_namespace = ns;
+            s = ns.parent;
+        },
+        .top => break,
+    };
+    std.log.debug("found_already = {?}", .{found_already});
+    if (found_already == null) {
+        const ident_name = astgen.tree.tokenSlice(ident_token);
+        return astgen.failNode(ident, "use of undeclared identifier '{s}'", .{ident_name});
+    }
+
+    // Decl references happen by name rather than ZIR index so that when unrelated
+    // decls are modified, ZIR code containing references to them can be unmodified.
+
+    if (found_namespaces_out > 0 and found_needs_tunnel) {
+        unreachable;
+        // switch (ri.rl) {
+        //     .ref, .ref_coerced_ty => return tunnelThroughClosure(
+        //         gz,
+        //         ident,
+        //         found_namespaces_out,
+        //         .{ .decl_ref = name_str_index },
+        //         .{ .node = found_already.? },
+        //     ),
+        //     else => {
+        //         const result = try tunnelThroughClosure(
+        //             gz,
+        //             ident,
+        //             found_namespaces_out,
+        //             .{ .decl_val = name_str_index },
+        //             .{ .node = found_already.? },
+        //         );
+        //         return rvalueNoCoercePreRef(gz, ri, result, ident);
+        //     },
+        // }
+    }
+
+    switch (ri.rl) {
+        // .ref, .ref_coerced_ty => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
+        else => return gz.addStrTok(.decl_val, name_str_index, ident_token),
+    }
+}
+
 /// Returns `true` if the node uses `gz.anon_name_strategy`.
 fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
     const node_tags = tree.nodes.items(.tag);
@@ -583,6 +763,53 @@ fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
         // },
         else => return false,
     }
+}
+
+fn failNode(
+    astgen: *AstGen,
+    node: Ast.Node.Index,
+    comptime format: []const u8,
+    args: anytype,
+) InnerError {
+    return astgen.failNodeNotes(node, format, args, &[0]u32{});
+}
+
+fn appendErrorNodeNotes(
+    astgen: *AstGen,
+    node: Ast.Node.Index,
+    comptime format: []const u8,
+    args: anytype,
+    notes: []const u32,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    const string_bytes = &astgen.string_bytes;
+    const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    const notes_index: u32 = if (notes.len != 0) blk: {
+        const notes_start = astgen.extra.items.len;
+        try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
+        astgen.extra.appendAssumeCapacity(@intCast(notes.len));
+        astgen.extra.appendSliceAssumeCapacity(notes);
+        break :blk @intCast(notes_start);
+    } else 0;
+    try astgen.compile_errors.append(astgen.gpa, .{
+        .msg = msg,
+        .node = node,
+        .token = 0,
+        .byte_offset = 0,
+        .notes = notes_index,
+    });
+}
+
+fn failNodeNotes(
+    astgen: *AstGen,
+    node: Ast.Node.Index,
+    comptime format: []const u8,
+    args: anytype,
+    notes: []const u32,
+) InnerError {
+    try appendErrorNodeNotes(astgen, node, format, args, notes);
+    return error.AnalysisFail;
 }
 
 fn appendErrorTokNotes(
@@ -856,6 +1083,14 @@ const GenZir = struct {
         return @as(i32, @bitCast(node_index)) - @as(i32, @bitCast(gz.decl_node_index));
     }
 
+    fn tokenIndexToRelative(gz: GenZir, token: Ast.Token.Index) u32 {
+        return token - gz.srcToken();
+    }
+
+    fn srcToken(gz: GenZir) Ast.Token.Index {
+        return gz.astgen.tree.firstToken(gz.decl_node_index);
+    }
+
     fn addShow(gz: *GenZir, operand: Zir.Inst.Ref, src_node: Ast.Node.Index) !Zir.Inst.Ref {
         return gz.addUnNode(.show, operand, src_node);
     }
@@ -906,6 +1141,22 @@ const GenZir = struct {
         });
         gz.instructions.appendAssumeCapacity(new_index);
         return new_index.toRef();
+    }
+
+    fn addStrTok(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        str_index: Zir.NullTerminatedString,
+        /// Absolute token index. This function does the conversion to Decl offset.
+        abs_tok_index: Ast.Token.Index,
+    ) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .str_tok = .{
+                .start = str_index,
+                .src_tok = gz.tokenIndexToRelative(abs_tok_index),
+            } },
+        });
     }
 
     fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {

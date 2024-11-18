@@ -198,6 +198,7 @@ const Writer = struct {
         const tag = tags[@intFromEnum(inst)];
         try stream.print("= {s}(", .{@tagName(tag)});
         switch (tag) {
+            .assign,
             .add,
             .subtract,
             .multiply,
@@ -215,6 +216,8 @@ const Writer = struct {
             .match,
             .dynamic_load,
             => try self.writePlNodeBin(stream, inst),
+
+            .decl_val => try self.writeStrTok(stream, inst),
 
             .show => try self.writeUnNode(stream, inst),
 
@@ -2344,10 +2347,9 @@ const Writer = struct {
         if (!self.file.tree_loaded) return;
         const tree = self.file.tree;
         const abs_tok = tree.firstToken(self.parent_decl_node) + src_tok;
-        const span_start = tree.tokens.items(.start)[abs_tok];
-        const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(abs_tok).len));
-        const start = self.line_col_cursor.find(tree.source, span_start);
-        const end = self.line_col_cursor.find(tree.source, span_end);
+        const span_loc = tree.tokens.items(.loc)[abs_tok];
+        const start = self.line_col_cursor.find(tree.source, span_loc.start);
+        const end = self.line_col_cursor.find(tree.source, span_loc.end);
         try stream.print("token_offset:{d}:{d} to :{d}:{d}", .{
             start.line + 1, start.column + 1,
             end.line + 1,   end.column + 1,
