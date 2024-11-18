@@ -123,16 +123,16 @@ pub fn run(
             var zir = try kdb.AstGen.generate(gpa, tree);
             defer zir.deinit(gpa);
 
-            // if (zir.hasCompileErrors()) {
-            //     var wip_errors: kdb.ErrorBundle.Wip = undefined;
-            //     try wip_errors.init(gpa);
-            //     defer wip_errors.deinit();
-            //     try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
-            //     var error_bundle = try wip_errors.toOwnedBundle("");
-            //     defer error_bundle.deinit(gpa);
-            //     error_bundle.renderToStdErr(color.renderOptions());
-            //     process.exit(2);
-            // }
+            if (zir.hasCompileErrors()) {
+                var wip_errors: kdb.ErrorBundle.Wip = undefined;
+                try wip_errors.init(gpa);
+                defer wip_errors.deinit();
+                try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
+                var error_bundle = try wip_errors.toOwnedBundle("");
+                defer error_bundle.deinit(gpa);
+                error_bundle.renderToStdErr(color.renderOptions());
+                process.exit(2);
+            }
         } else if (tree.errors.len != 0) {
             try kdb.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
@@ -343,16 +343,16 @@ fn fmtPathFile(
         var zir = try kdb.AstGen.generate(gpa, tree);
         defer zir.deinit(gpa);
 
-        // if (zir.hasCompileErrors()) {
-        //     var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-        //     try wip_errors.init(gpa);
-        //     defer wip_errors.deinit();
-        //     try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
-        //     var error_bundle = try wip_errors.toOwnedBundle("");
-        //     defer error_bundle.deinit(gpa);
-        //     error_bundle.renderToStdErr(fmt.color.renderOptions());
-        //     fmt.any_error = true;
-        // }
+        if (zir.hasCompileErrors()) {
+            var wip_errors: kdb.ErrorBundle.Wip = undefined;
+            try wip_errors.init(gpa);
+            defer wip_errors.deinit();
+            try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
+            var error_bundle = try wip_errors.toOwnedBundle("");
+            defer error_bundle.deinit(gpa);
+            error_bundle.renderToStdErr(fmt.color.renderOptions());
+            fmt.any_error = true;
+        }
     }
 
     // As a heuristic, we make enough capacity for the same as the input source.
