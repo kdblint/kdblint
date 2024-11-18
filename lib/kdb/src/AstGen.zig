@@ -335,7 +335,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .lambda,
         .lambda_semicolon,
-        => unreachable,
+        => return lambda(gz, scope, node, tree.fullLambda(node)),
 
         .expr_block,
         => unreachable,
@@ -443,6 +443,84 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .cond,
         => unreachable,
     }
+
+    unreachable;
+}
+
+fn lambda(
+    gz: *GenZir,
+    scope: *Scope,
+    node: Ast.Node.Index,
+    l: Ast.full.Lambda,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const token_tags: []Ast.Token.Tag = tree.tokens.items(.tag);
+    _ = token_tags; // autofix
+
+    // TODO: anon naming.
+    const fn_name_token: u32 = 0;
+    _ = fn_name_token; // autofix
+
+    // We insert this at the beginning so that its instruction index marks the
+    // start of the top level declaration.
+    assert(l.body.len > 0);
+    const lambda_inst = try gz.makeLambda(node);
+    _ = lambda_inst; // autofix
+    astgen.advanceSourceCursorToNode(node);
+
+    var decl_gz: GenZir = .{
+        .is_comptime = true,
+        .decl_node_index = node,
+        .decl_line = astgen.source_line,
+        .parent = scope,
+        .astgen = astgen,
+        .instructions = gz.instructions,
+        .instructions_top = gz.instructions.items.len,
+    };
+    defer decl_gz.unstack();
+
+    var fn_gz: GenZir = .{
+        .is_comptime = false,
+        .decl_node_index = node,
+        .decl_line = decl_gz.decl_line,
+        .parent = &decl_gz.base,
+        .astgen = astgen,
+        .instructions = gz.instructions,
+        .instructions_top = GenZir.unstacked_top,
+    };
+    defer fn_gz.unstack();
+
+    // Set this now, since parameter types, return type, etc may be generic.
+    const prev_within_fn = astgen.within_fn;
+    defer astgen.within_fn = prev_within_fn;
+    astgen.within_fn = true;
+
+    var params_scope = &fn_gz.base;
+    var i: usize = 0;
+    if (l.params) |p| while (i < p.params.len) : (i += 1) {
+
+        // TODO: Check for max param count.
+
+        const param = p.params[i];
+        const param_tok = tree.firstToken(param);
+        const param_name = try astgen.identAsString(param_tok);
+
+        var param_gz = decl_gz.makeSubBlock(scope);
+        defer param_gz.unstack();
+        const param_inst = try decl_gz.addParam(&param_gz, param_tok, param_name);
+
+        const sub_scope = try astgen.arena.create(Scope.LocalVal);
+        sub_scope.* = .{
+            .parent = params_scope,
+            .gen_zir = &decl_gz,
+            .name = param_name,
+            .inst = param_inst.toRef(),
+            .token_src = param_tok,
+            .id_cat = .@"function parameter",
+        };
+        params_scope = &sub_scope.base;
+    };
 
     unreachable;
 }
@@ -1079,6 +1157,20 @@ const GenZir = struct {
         }
     }
 
+    fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
+        return .{
+            .is_comptime = gz.is_comptime,
+            .is_typeof = gz.is_typeof,
+            .c_import = gz.c_import,
+            .decl_node_index = gz.decl_node_index,
+            .decl_line = gz.decl_line,
+            .parent = scope,
+            .astgen = gz.astgen,
+            .instructions = gz.instructions,
+            .instructions_top = gz.instructions.items.len,
+        };
+    }
+
     fn nodeIndexToRelative(gz: GenZir, node_index: Ast.Node.Index) i32 {
         return @as(i32, @bitCast(node_index)) - @as(i32, @bitCast(gz.decl_node_index));
     }
@@ -1143,6 +1235,40 @@ const GenZir = struct {
         return new_index.toRef();
     }
 
+    /// Supports `param_gz` stacked on `gz`. Assumes nothing stacked on `param_gz`. Unstacks `param_gz`.
+    fn addParam(
+        gz: *GenZir,
+        param_gz: *GenZir,
+        /// Absolute token index. This function does the conversion to Decl offset.
+        abs_tok_index: Ast.Token.Index,
+        name: Zir.NullTerminatedString,
+    ) !Zir.Inst.Index {
+        const gpa = gz.astgen.gpa;
+        const param = param_gz.instructions.items[param_gz.instructions_top];
+        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+        try gz.astgen.extra.ensureUnusedCapacity(
+            gpa,
+            @typeInfo(Zir.Inst.Param).@"struct".fields.len,
+        );
+
+        const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
+            .name = name,
+            .inst = param,
+        });
+        param_gz.unstack();
+
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        gz.astgen.instructions.appendAssumeCapacity(.{
+            .tag = .param,
+            .data = .{ .pl_tok = .{
+                .src_tok = gz.tokenIndexToRelative(abs_tok_index),
+                .payload_index = payload_index,
+            } },
+        });
+        gz.instructions.appendAssumeCapacity(new_index);
+        return new_index;
+    }
+
     fn addStrTok(
         gz: *GenZir,
         tag: Zir.Inst.Tag,
@@ -1157,6 +1283,21 @@ const GenZir = struct {
                 .src_tok = gz.tokenIndexToRelative(abs_tok_index),
             } },
         });
+    }
+
+    /// Note that this returns a `Zir.Inst.Index` not a ref.
+    /// Does *not* append the block instruction to the scope.
+    /// Leaves the `payload_index` field undefined. Use `setDeclaration` to finalize.
+    fn makeLambda(gz: *GenZir, node: Ast.Node.Index) !Zir.Inst.Index {
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .lambda,
+            .data = .{ .lambda = .{
+                .src_node = node,
+                .payload_index = undefined,
+            } },
+        });
+        return new_index;
     }
 
     fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {
