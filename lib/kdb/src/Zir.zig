@@ -156,6 +156,13 @@ pub const Inst = struct {
         decl_val,
 
         /// TODO
+        /// Uses the `lambda` union field. Payload is `Lambda`.
+        lambda,
+        /// TODO
+        /// Uses the `pl_tok` union field. Payload is `Param`.
+        param,
+
+        /// TODO
         file,
 
         /// 0N!
@@ -270,6 +277,13 @@ pub const Inst = struct {
             /// `Tag` determines what lives there.
             payload_index: u32,
         },
+        pl_tok: struct {
+            /// Offset from Decl AST token index.
+            src_tok: Ast.Token.Index,
+            /// index into extra.
+            /// `Tag` determines what lives there.
+            payload_index: u32,
+        },
         str_tok: struct {
             /// Offset into `string_bytes`. Null-terminated.
             start: NullTerminatedString,
@@ -283,6 +297,12 @@ pub const Inst = struct {
         long: i64,
         file: struct {
             blocks_len: u32,
+        },
+        lambda: struct {
+            /// This node provides a new absolute baseline node for all instructions within this struct.
+            src_node: Ast.Node.Index,
+            /// index into extra to a `Lambda` payload.
+            payload_index: u32,
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -309,6 +329,109 @@ pub const Inst = struct {
     /// Each operand is an `Index`.
     pub const Block = struct {
         body_len: u32,
+    };
+
+    /// Trailing:
+    /// 0. doc_comment: u32          // if `has_doc_comment`; null-terminated string index
+    /// 1. align_body_len: u32       // if `has_align_linksection_addrspace`; 0 means no `align`
+    /// 2. linksection_body_len: u32 // if `has_align_linksection_addrspace`; 0 means no `linksection`
+    /// 3. addrspace_body_len: u32   // if `has_align_linksection_addrspace`; 0 means no `addrspace`
+    /// 4. value_body_inst: Zir.Inst.Index
+    ///    - for each `value_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    /// 5. align_body_inst: Zir.Inst.Index
+    ///    - for each `align_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    /// 6. linksection_body_inst: Zir.Inst.Index
+    ///    - for each `linksection_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    /// 7. addrspace_body_inst: Zir.Inst.Index
+    ///    - for each `addrspace_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    pub const Lambda = struct {
+        /// The name of this `Decl`. Also indicates whether it is a test, comptime block, etc.
+        name: Name,
+        src_line: u32,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            value_body_len: u28,
+            is_pub: bool,
+            is_export: bool,
+            has_doc_comment: bool,
+            has_align_linksection_addrspace: bool,
+        };
+
+        pub const Name = enum(u32) {
+            @"comptime" = std.math.maxInt(u32),
+            @"usingnamespace" = std.math.maxInt(u32) - 1,
+            unnamed_test = std.math.maxInt(u32) - 2,
+            /// In this case, `has_doc_comment` will be true, and the doc
+            /// comment body is the identifier name.
+            decltest = std.math.maxInt(u32) - 3,
+            /// Other values are `NullTerminatedString` values, i.e. index into
+            /// `string_bytes`. If the byte referenced is 0, the decl is a named
+            /// test, and the actual name begins at the following byte.
+            _,
+
+            pub fn isNamedTest(name: Name, zir: Zir) bool {
+                return switch (name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => false,
+                    _ => zir.string_bytes[@intFromEnum(name)] == 0,
+                };
+            }
+            pub fn toString(name: Name, zir: Zir) ?NullTerminatedString {
+                switch (name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => return null,
+                    _ => {},
+                }
+                const idx: u32 = @intFromEnum(name);
+                if (zir.string_bytes[idx] == 0) {
+                    // Named test
+                    return @enumFromInt(idx + 1);
+                }
+                return @enumFromInt(idx);
+            }
+        };
+
+        pub const Bodies = struct {
+            value_body: []const Index,
+            align_body: ?[]const Index,
+            linksection_body: ?[]const Index,
+            addrspace_body: ?[]const Index,
+        };
+
+        pub fn getBodies(declaration: @This(), extra_end: u32, zir: Zir) Bodies {
+            var extra_index: u32 = extra_end;
+            extra_index += @intFromBool(declaration.flags.has_doc_comment);
+            const value_body_len = declaration.flags.value_body_len;
+            const align_body_len, const linksection_body_len, const addrspace_body_len = lens: {
+                if (!declaration.flags.has_align_linksection_addrspace) {
+                    break :lens .{ 0, 0, 0 };
+                }
+                const lens = zir.extra[extra_index..][0..3].*;
+                extra_index += 3;
+                break :lens lens;
+            };
+            return .{
+                .value_body = b: {
+                    defer extra_index += value_body_len;
+                    break :b zir.bodySlice(extra_index, value_body_len);
+                },
+                .align_body = if (align_body_len == 0) null else b: {
+                    defer extra_index += align_body_len;
+                    break :b zir.bodySlice(extra_index, align_body_len);
+                },
+                .linksection_body = if (linksection_body_len == 0) null else b: {
+                    defer extra_index += linksection_body_len;
+                    break :b zir.bodySlice(extra_index, linksection_body_len);
+                },
+                .addrspace_body = if (addrspace_body_len == 0) null else b: {
+                    defer extra_index += addrspace_body_len;
+                    break :b zir.bodySlice(extra_index, addrspace_body_len);
+                },
+            };
+        }
     };
 
     /// The meaning of these operands depends on the corresponding `Tag`.
@@ -386,6 +509,14 @@ pub const Inst = struct {
         anon,
         /// Use the name specified in the next `dbg_var_{val,ptr}` instruction.
         dbg_var,
+    };
+
+    /// Trailing: inst: Index // for every body_len
+    pub const Param = struct {
+        /// Null-terminated string index.
+        name: NullTerminatedString,
+        /// The body contains the type of the parameter.
+        inst: Zir.Inst.Index,
     };
 
     /// Trailing: `CompileErrors.Item` for each `items_len`.
