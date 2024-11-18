@@ -99,6 +99,9 @@ pub const Inst = struct {
     /// These names are used directly as the instruction names in the text format.
     /// See `data_field_map` for a list of which `Data` fields are used by each `Tag`.
     pub const Tag = enum(u8) {
+        /// Variable assignment.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        assign,
         /// `+`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         add,
@@ -147,6 +150,10 @@ pub const Inst = struct {
         /// `2:`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         dynamic_load,
+
+        /// Uses a name to identify a Decl and uses it as a value.
+        /// Uses the `str_tok` union field.
+        decl_val,
 
         /// TODO
         file,
@@ -262,6 +269,16 @@ pub const Inst = struct {
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
+        },
+        str_tok: struct {
+            /// Offset into `string_bytes`. Null-terminated.
+            start: NullTerminatedString,
+            /// Offset from Decl AST token index.
+            src_tok: u32,
+
+            pub fn get(self: @This(), code: Zir) [:0]const u8 {
+                return code.nullTerminatedString(self.start);
+            }
         },
         long: i64,
         file: struct {
