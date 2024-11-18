@@ -78,6 +78,10 @@ pub fn blockSlice(zir: Zir, start: usize, len: usize) []Inst.Index {
     return @ptrCast(zir.instructions.items(.tag)[start..][0..len]);
 }
 
+pub fn hasCompileErrors(code: Zir) bool {
+    return code.extra[@intFromEnum(ExtraIndex.compile_errors)] != 0;
+}
+
 pub fn deinit(code: *Zir, gpa: Allocator) void {
     code.instructions.deinit(gpa);
     gpa.free(code.string_bytes);

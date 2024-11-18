@@ -186,16 +186,21 @@ fn cmdAstCheck(
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 
-    // if (file.zir.hasCompileErrors()) {
-    //     var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-    //     try wip_errors.init(gpa);
-    //     defer wip_errors.deinit();
-    //     try Compilation.addZirErrorMessages(&wip_errors, &file);
-    //     var error_bundle = try wip_errors.toOwnedBundle("");
-    //     defer error_bundle.deinit(gpa);
-    //     error_bundle.renderToStdErr(color.renderOptions());
-    //     process.exit(1);
-    // }
+    if (file.zir.hasCompileErrors()) {
+        var wip_errors: kdb.ErrorBundle.Wip = undefined;
+        try wip_errors.init(gpa);
+        defer wip_errors.deinit();
+        try wip_errors.addZirErrorMessages(
+            file.zir,
+            file.tree,
+            file.source,
+            file.sub_file_path,
+        );
+        var error_bundle = try wip_errors.toOwnedBundle("");
+        defer error_bundle.deinit(gpa);
+        error_bundle.renderToStdErr(color.renderOptions());
+        process.exit(1);
+    }
 
     if (!want_output_text) {
         return process.cleanExit();
