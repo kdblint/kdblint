@@ -35,7 +35,7 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
         .fixups = fixups,
     };
 
-    const blocks = tree.rootDecls();
+    const blocks = tree.getBlocks();
 
     // Render everything up until the first token
     const end = r.tree.tokens.items(.loc)[0].start;

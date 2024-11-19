@@ -27,6 +27,9 @@ pub const ExtraIndex = enum(u32) {
     /// If this is 0, this file contains no imports. Otherwise there is a `Imports`
     /// payload at this index.
     imports,
+    /// Indicates the number of blocks in a file. The number of additional reserved
+    /// entries in extra is equal to this value.
+    blocks,
 
     _,
 };
@@ -50,9 +53,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             NullTerminatedString,
             => @enumFromInt(code.extra[i]),
 
-            i32,
-            Inst.Declaration.Flags,
-            => @bitCast(code.extra[i]),
+            i32 => @bitCast(code.extra[i]),
 
             else => |t| @compileError("bad field type: " ++ @typeName(t)),
         };
@@ -75,12 +76,8 @@ pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8
     return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
 }
 
-pub fn bodySlice(zir: Zir, start: usize, len: usize) []Inst.Index {
-    return @ptrCast(zir.extra[start..][0..len]);
-}
-
-pub fn blockSlice(zir: Zir, start: usize, len: usize) []Inst.Index {
-    return @ptrCast(zir.instructions.items(.tag)[start..][0..len]);
+pub fn bodySlice(code: Zir, start: usize, len: usize) []Inst.Index {
+    return @ptrCast(code.extra[start..][0..len]);
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
@@ -104,6 +101,10 @@ pub const Inst = struct {
     /// These names are used directly as the instruction names in the text format.
     /// See `data_field_map` for a list of which `Data` fields are used by each `Tag`.
     pub const Tag = enum(u8) {
+        /// Represents a file block.
+        /// Uses the `pl_node` union field with payload `Block`.
+        block,
+
         /// Variable assignment.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         assign,
@@ -156,66 +157,19 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Bin`.
         dynamic_load,
 
-        /// Uses a name to identify a Decl and uses it as a value.
-        /// Uses the `str_tok` union field.
-        decl_val,
-
-        /// TODO
-        /// Uses the `lambda` union field. Payload is `Lambda`.
+        /// Lambda expression.
+        /// Uses the `pl_node` union field. Payload is `Lambda`.
         lambda,
-        /// TODO
-        /// Uses the `pl_tok` union field. Payload is `Param`.
-        param,
-
-        /// This instruction may only ever appear in the list of declarations for a
-        /// namespace type, e.g. within a `struct_decl` instruction. It represents a
-        /// single source declaration (`const`/`var`/`fn`), containing the name,
-        /// attributes, type, and value of the declaration.
-        /// Uses the `declaration` union field. Payload is `Declaration`.
-        declaration,
-        /// Returns a function type, or a function instance, depending on whether
-        /// the body_len is 0. Calling convention is auto.
-        /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
-        func,
-
-        /// Return a value from a block. This instruction is used as the terminator
-        /// of a `block_inline`. It allows using the return value from `Sema.analyzeBody`.
-        /// This instruction may also be used when it is known that there is only one
-        /// break instruction in a block, and the target block is the parent.
-        /// Uses the `break` union field.
-        break_inline,
-
-        /// TODO
-        file,
-
-        /// 0N!
-        show,
 
         /// Integer literal that fits in an i64. Uses the `long` union field.
         long,
 
-        /// The ZIR instruction tag is one of the `Extended` ones.
-        /// Uses the `extended` union field.
-        extended,
-    };
-
-    /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
-    /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
-    pub const Extended = enum(u16) {
-        empty, // TODO: Replace
-
-        pub const InstData = struct {
-            opcode: Extended,
-            small: u16,
-            operand: u32,
-        };
+        identifier,
+        call,
     };
 
     /// The position of a ZIR instruction within the `Zir` instructions array.
     pub const Index = enum(u32) {
-        /// ZIR is structured so that the outermost "main" struct of any file
-        /// is always at index 0.
-        file = 0,
         ref_start_index = static_len,
         _,
 
@@ -223,23 +177,6 @@ pub const Inst = struct {
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
-        }
-
-        pub fn toOptional(i: Index) OptionalIndex {
-            return @enumFromInt(@intFromEnum(i));
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        /// ZIR is structured so that the outermost "main" struct of any file
-        /// is always at index 0.
-        main_struct_inst = 0,
-        ref_start_index = Index.static_len,
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn unwrap(oi: OptionalIndex) ?Index {
-            return if (oi == .none) null else @enumFromInt(@intFromEnum(oi));
         }
     };
 
@@ -255,8 +192,6 @@ pub const Inst = struct {
         zero,
         one,
         negative_one,
-        void_type,
-        void_value,
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
@@ -284,27 +219,10 @@ pub const Inst = struct {
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
-        /// Used for `Tag.extended`. The extended opcode determines the meaning
-        /// of the `small` and `operand` fields.
-        extended: Extended.InstData,
-        /// Used for unary operators, with an AST node source location.
-        un_node: struct {
-            /// Offset from Decl AST node index.
-            src_node: i32,
-            /// The meaning of this operand depends on the corresponding `Tag`.
-            operand: Ref,
-        },
         pl_node: struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
-            /// index into extra.
-            /// `Tag` determines what lives there.
-            payload_index: u32,
-        },
-        pl_tok: struct {
-            /// Offset from Decl AST token index.
-            src_tok: Ast.Token.Index,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
@@ -320,26 +238,6 @@ pub const Inst = struct {
             }
         },
         long: i64,
-        file: struct {
-            blocks_len: u32,
-        },
-        lambda: struct {
-            /// This node provides a new absolute baseline node for all instructions within this struct.
-            src_node: Ast.Node.Index,
-            /// index into extra to a `Lambda` payload.
-            payload_index: u32,
-        },
-        declaration: struct {
-            /// This node provides a new absolute baseline node for all instructions within this struct.
-            src_node: Ast.Node.Index,
-            /// index into extra to a `Declaration` payload.
-            payload_index: u32,
-        },
-        @"break": struct {
-            operand: Ref,
-            /// Index of a `Break` payload.
-            payload_index: u32,
-        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -349,135 +247,12 @@ pub const Inst = struct {
                 assert(@sizeOf(Data) == 8);
             }
         }
-
-        /// TODO this has to be kept in sync with `Data` which we want to be an untagged
-        /// union. There is some kind of language awkwardness here and it has to do with
-        /// deserializing an untagged union (in this case `Data`) from a file, and trying
-        /// to preserve the hidden safety field.
-        pub const FieldEnum = enum {
-            extended,
-            un_node,
-            long,
-        };
-    };
-
-    pub const Break = struct {
-        pub const no_src_node = std.math.maxInt(i32);
-
-        operand_src_node: i32,
-        block_inst: Index,
     };
 
     /// Trailing:
-    /// 0. doc_comment: u32          // if `has_doc_comment`; null-terminated string index
-    /// 1. align_body_len: u32       // if `has_align_linksection_addrspace`; 0 means no `align`
-    /// 2. linksection_body_len: u32 // if `has_align_linksection_addrspace`; 0 means no `linksection`
-    /// 3. addrspace_body_len: u32   // if `has_align_linksection_addrspace`; 0 means no `addrspace`
-    /// 4. value_body_inst: Zir.Inst.Index
-    ///    - for each `value_body_len`
-    ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 5. align_body_inst: Zir.Inst.Index
-    ///    - for each `align_body_len`
-    ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 6. linksection_body_inst: Zir.Inst.Index
-    ///    - for each `linksection_body_len`
-    ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 7. addrspace_body_inst: Zir.Inst.Index
-    ///    - for each `addrspace_body_len`
-    ///    - body to be exited via `break_inline` to this `declaration` instruction
-    pub const Declaration = struct {
-        src_line: u32,
-        flags: Flags,
-
-        pub const Flags = packed struct(u32) {
-            value_body_len: u28,
-            has_align_linksection_addrspace: bool,
-            _: u3 = 0,
-        };
-
-        pub const Bodies = struct {
-            value_body: []const Index,
-            align_body: ?[]const Index,
-            linksection_body: ?[]const Index,
-            addrspace_body: ?[]const Index,
-        };
-
-        pub fn getBodies(declaration: Declaration, extra_end: u32, zir: Zir) Bodies {
-            var extra_index: u32 = extra_end;
-            const value_body_len = declaration.flags.value_body_len;
-            const align_body_len, const linksection_body_len, const addrspace_body_len = lens: {
-                if (!declaration.flags.has_align_linksection_addrspace) {
-                    break :lens .{ 0, 0, 0 };
-                }
-                const lens = zir.extra[extra_index..][0..3].*;
-                extra_index += 3;
-                break :lens lens;
-            };
-            return .{
-                .value_body = b: {
-                    defer extra_index += value_body_len;
-                    break :b zir.bodySlice(extra_index, value_body_len);
-                },
-                .align_body = if (align_body_len == 0) null else b: {
-                    defer extra_index += align_body_len;
-                    break :b zir.bodySlice(extra_index, align_body_len);
-                },
-                .linksection_body = if (linksection_body_len == 0) null else b: {
-                    defer extra_index += linksection_body_len;
-                    break :b zir.bodySlice(extra_index, linksection_body_len);
-                },
-                .addrspace_body = if (addrspace_body_len == 0) null else b: {
-                    defer extra_index += addrspace_body_len;
-                    break :b zir.bodySlice(extra_index, addrspace_body_len);
-                },
-            };
-        }
-    };
-
-    /// Trailing:
-    /// if (ret_body_len == 1) {
-    ///   0. return_type: Ref
-    /// }
-    /// if (ret_body_len > 1) {
-    ///   1. return_type: Index // for each ret_body_len
-    /// }
-    /// 2. body: Index // for each body_len
-    /// 3. src_locs: SrcLocs // if body_len != 0
-    /// 4. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
-    pub const Func = struct {
-        body_len: u32,
-
-        pub const SrcLocs = struct {
-            /// Line index in the source file relative to the parent decl.
-            lbrace_line: u32,
-            /// Line index in the source file relative to the parent decl.
-            rbrace_line: u32,
-            /// lbrace_column is least significant bits u16
-            /// rbrace_column is most significant bits u16
-            columns: u32,
-        };
-    };
-
-    /// This data is stored inside extra, with trailing operands according to `body_len`.
-    /// Each operand is an `Index`.
-    pub const Block = struct {
-        body_len: u32,
-    };
-
-    /// Trailing:
-    /// if (ret_body_len == 1) {
-    ///   0. return_type: Ref
-    /// }
-    /// if (ret_body_len > 1) {
-    ///   1. return_type: Index // for each ret_body_len
-    /// }
-    /// 2. body: Index // for each body_len
-    /// 3. src_locs: SrcLocs // if body_len != 0
-    /// 4. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
+    /// 1. body: Index // for each body_len
+    /// 2. src_locs: SrcLocs
     pub const Lambda = struct {
-        /// Points to the block that contains the param instructions for this function.
-        /// If this is a `declaration`, it refers to the declaration's value body.
-        param_block: Index,
         body_len: u32,
 
         pub const SrcLocs = struct {
@@ -497,83 +272,10 @@ pub const Inst = struct {
         rhs: Ref,
     };
 
-    /// Represents a single value being captured in a type declaration's closure.
-    pub const Capture = packed struct(u32) {
-        tag: enum(u3) {
-            /// `data` is a `u16` index into the parent closure.
-            nested,
-            /// `data` is a `Zir.Inst.Index` to an instruction whose value is being captured.
-            instruction,
-            /// `data` is a `Zir.Inst.Index` to an instruction representing an alloc whose contents is being captured.
-            instruction_load,
-            /// `data` is a `NullTerminatedString` to a decl name.
-            decl_val,
-            /// `data` is a `NullTerminatedString` to a decl name.
-            decl_ref,
-        },
-        data: u29,
-        pub const Unwrapped = union(enum) {
-            nested: u16,
-            instruction: Zir.Inst.Index,
-            instruction_load: Zir.Inst.Index,
-            decl_val: NullTerminatedString,
-            decl_ref: NullTerminatedString,
-        };
-        pub fn wrap(cap: Unwrapped) Capture {
-            return switch (cap) {
-                .nested => |idx| .{
-                    .tag = .nested,
-                    .data = idx,
-                },
-                .instruction => |inst| .{
-                    .tag = .instruction,
-                    .data = @intCast(@intFromEnum(inst)),
-                },
-                .instruction_load => |inst| .{
-                    .tag = .instruction_load,
-                    .data = @intCast(@intFromEnum(inst)),
-                },
-                .decl_val => |str| .{
-                    .tag = .decl_val,
-                    .data = @intCast(@intFromEnum(str)),
-                },
-                .decl_ref => |str| .{
-                    .tag = .decl_ref,
-                    .data = @intCast(@intFromEnum(str)),
-                },
-            };
-        }
-        pub fn unwrap(cap: Capture) Unwrapped {
-            return switch (cap.tag) {
-                .nested => .{ .nested = @intCast(cap.data) },
-                .instruction => .{ .instruction = @enumFromInt(cap.data) },
-                .instruction_load => .{ .instruction_load = @enumFromInt(cap.data) },
-                .decl_val => .{ .decl_val = @enumFromInt(cap.data) },
-                .decl_ref => .{ .decl_ref = @enumFromInt(cap.data) },
-            };
-        }
-    };
-
-    pub const NameStrategy = enum(u2) {
-        /// Use the same name as the parent declaration name.
-        /// e.g. `const Foo = struct {...};`.
-        parent,
-        /// Use the name of the currently executing comptime function call,
-        /// with the current parameters. e.g. `ArrayList(i32)`.
-        func,
-        /// Create an anonymous name for this declaration.
-        /// Like this: "ParentDeclName_struct_69"
-        anon,
-        /// Use the name specified in the next `dbg_var_{val,ptr}` instruction.
-        dbg_var,
-    };
-
-    /// Trailing: inst: Index // for every body_len
-    pub const Param = struct {
-        /// Null-terminated string index.
-        name: NullTerminatedString,
-        /// The body contains the type of the parameter.
-        inst: Zir.Inst.Index,
+    /// This data is stored inside extra, with trailing operands according to `body_len`.
+    /// Each operand is an `Index`.
+    pub const Block = struct {
+        body_len: u32,
     };
 
     /// Trailing: `CompileErrors.Item` for each `items_len`.
@@ -612,10 +314,5 @@ pub const Inst = struct {
             /// points to the import name
             token: Ast.Token.Index,
         };
-    };
-
-    pub const LineColumn = struct {
-        line: u32,
-        column: u32,
     };
 };
