@@ -171,10 +171,10 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     return result;
 }
 
-pub fn rootDecls(tree: Ast) []const Node.Index {
+pub fn getBlocks(tree: Ast) []const Node.Index {
     // Root is always index 0.
-    const nodes_data = tree.nodes.items(.data);
-    return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    return tree.extra_data[node_datas[0].lhs..node_datas[0].rhs];
 }
 
 pub fn endsBlock(tree: Ast, token_index: Token.Index) bool {
@@ -1489,7 +1489,7 @@ fn testAstModeRender(
     );
     if (expected_tokens.len > 0) {
         const tags: []Token.Tag = tree.tokens.items(.tag);
-        const blocks = tree.rootDecls();
+        const blocks = tree.getBlocks();
         if (expected_tokens[0] != .semicolon) try std.testing.expectEqual(
             expected_tokens[0],
             tags[tree.firstToken(blocks[0])],
