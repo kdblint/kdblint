@@ -51,6 +51,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             => @enumFromInt(code.extra[i]),
 
             i32,
+            Inst.Declaration.Flags,
             => @bitCast(code.extra[i]),
 
             else => |t| @compileError("bad field type: " ++ @typeName(t)),
@@ -72,6 +73,10 @@ pub const NullTerminatedString = enum(u32) {
 pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8 {
     const slice = code.string_bytes[@intFromEnum(index)..];
     return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
+}
+
+pub fn bodySlice(zir: Zir, start: usize, len: usize) []Inst.Index {
+    return @ptrCast(zir.extra[start..][0..len]);
 }
 
 pub fn blockSlice(zir: Zir, start: usize, len: usize) []Inst.Index {
@@ -162,6 +167,24 @@ pub const Inst = struct {
         /// Uses the `pl_tok` union field. Payload is `Param`.
         param,
 
+        /// This instruction may only ever appear in the list of declarations for a
+        /// namespace type, e.g. within a `struct_decl` instruction. It represents a
+        /// single source declaration (`const`/`var`/`fn`), containing the name,
+        /// attributes, type, and value of the declaration.
+        /// Uses the `declaration` union field. Payload is `Declaration`.
+        declaration,
+        /// Returns a function type, or a function instance, depending on whether
+        /// the body_len is 0. Calling convention is auto.
+        /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
+        func,
+
+        /// Return a value from a block. This instruction is used as the terminator
+        /// of a `block_inline`. It allows using the return value from `Sema.analyzeBody`.
+        /// This instruction may also be used when it is known that there is only one
+        /// break instruction in a block, and the target block is the parent.
+        /// Uses the `break` union field.
+        break_inline,
+
         /// TODO
         file,
 
@@ -232,6 +255,8 @@ pub const Inst = struct {
         zero,
         one,
         negative_one,
+        void_type,
+        void_value,
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
@@ -304,6 +329,17 @@ pub const Inst = struct {
             /// index into extra to a `Lambda` payload.
             payload_index: u32,
         },
+        declaration: struct {
+            /// This node provides a new absolute baseline node for all instructions within this struct.
+            src_node: Ast.Node.Index,
+            /// index into extra to a `Declaration` payload.
+            payload_index: u32,
+        },
+        @"break": struct {
+            operand: Ref,
+            /// Index of a `Break` payload.
+            payload_index: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -325,10 +361,11 @@ pub const Inst = struct {
         };
     };
 
-    /// This data is stored inside extra, with trailing operands according to `body_len`.
-    /// Each operand is an `Index`.
-    pub const Block = struct {
-        body_len: u32,
+    pub const Break = struct {
+        pub const no_src_node = std.math.maxInt(i32);
+
+        operand_src_node: i32,
+        block_inst: Index,
     };
 
     /// Trailing:
@@ -348,50 +385,14 @@ pub const Inst = struct {
     /// 7. addrspace_body_inst: Zir.Inst.Index
     ///    - for each `addrspace_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
-    pub const Lambda = struct {
-        /// The name of this `Decl`. Also indicates whether it is a test, comptime block, etc.
-        name: Name,
+    pub const Declaration = struct {
         src_line: u32,
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
             value_body_len: u28,
-            is_pub: bool,
-            is_export: bool,
-            has_doc_comment: bool,
             has_align_linksection_addrspace: bool,
-        };
-
-        pub const Name = enum(u32) {
-            @"comptime" = std.math.maxInt(u32),
-            @"usingnamespace" = std.math.maxInt(u32) - 1,
-            unnamed_test = std.math.maxInt(u32) - 2,
-            /// In this case, `has_doc_comment` will be true, and the doc
-            /// comment body is the identifier name.
-            decltest = std.math.maxInt(u32) - 3,
-            /// Other values are `NullTerminatedString` values, i.e. index into
-            /// `string_bytes`. If the byte referenced is 0, the decl is a named
-            /// test, and the actual name begins at the following byte.
-            _,
-
-            pub fn isNamedTest(name: Name, zir: Zir) bool {
-                return switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => false,
-                    _ => zir.string_bytes[@intFromEnum(name)] == 0,
-                };
-            }
-            pub fn toString(name: Name, zir: Zir) ?NullTerminatedString {
-                switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => return null,
-                    _ => {},
-                }
-                const idx: u32 = @intFromEnum(name);
-                if (zir.string_bytes[idx] == 0) {
-                    // Named test
-                    return @enumFromInt(idx + 1);
-                }
-                return @enumFromInt(idx);
-            }
+            _: u3 = 0,
         };
 
         pub const Bodies = struct {
@@ -401,9 +402,8 @@ pub const Inst = struct {
             addrspace_body: ?[]const Index,
         };
 
-        pub fn getBodies(declaration: @This(), extra_end: u32, zir: Zir) Bodies {
+        pub fn getBodies(declaration: Declaration, extra_end: u32, zir: Zir) Bodies {
             var extra_index: u32 = extra_end;
-            extra_index += @intFromBool(declaration.flags.has_doc_comment);
             const value_body_len = declaration.flags.value_body_len;
             const align_body_len, const linksection_body_len, const addrspace_body_len = lens: {
                 if (!declaration.flags.has_align_linksection_addrspace) {
@@ -432,6 +432,63 @@ pub const Inst = struct {
                 },
             };
         }
+    };
+
+    /// Trailing:
+    /// if (ret_body_len == 1) {
+    ///   0. return_type: Ref
+    /// }
+    /// if (ret_body_len > 1) {
+    ///   1. return_type: Index // for each ret_body_len
+    /// }
+    /// 2. body: Index // for each body_len
+    /// 3. src_locs: SrcLocs // if body_len != 0
+    /// 4. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
+    pub const Func = struct {
+        body_len: u32,
+
+        pub const SrcLocs = struct {
+            /// Line index in the source file relative to the parent decl.
+            lbrace_line: u32,
+            /// Line index in the source file relative to the parent decl.
+            rbrace_line: u32,
+            /// lbrace_column is least significant bits u16
+            /// rbrace_column is most significant bits u16
+            columns: u32,
+        };
+    };
+
+    /// This data is stored inside extra, with trailing operands according to `body_len`.
+    /// Each operand is an `Index`.
+    pub const Block = struct {
+        body_len: u32,
+    };
+
+    /// Trailing:
+    /// if (ret_body_len == 1) {
+    ///   0. return_type: Ref
+    /// }
+    /// if (ret_body_len > 1) {
+    ///   1. return_type: Index // for each ret_body_len
+    /// }
+    /// 2. body: Index // for each body_len
+    /// 3. src_locs: SrcLocs // if body_len != 0
+    /// 4. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
+    pub const Lambda = struct {
+        /// Points to the block that contains the param instructions for this function.
+        /// If this is a `declaration`, it refers to the declaration's value body.
+        param_block: Index,
+        body_len: u32,
+
+        pub const SrcLocs = struct {
+            /// Line index in the source file relative to the parent decl.
+            lbrace_line: u32,
+            /// Line index in the source file relative to the parent decl.
+            rbrace_line: u32,
+            /// lbrace_column is least significant bits u16
+            /// rbrace_column is most significant bits u16
+            columns: u32,
+        };
     };
 
     /// The meaning of these operands depends on the corresponding `Tag`.
