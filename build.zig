@@ -87,9 +87,15 @@ pub fn build(b: *std.Build) !void {
 
     const run_kdb_unit_tests = b.addRunArtifact(kdb_unit_tests);
 
-    const test_step = b.step("test", "Run unit tests");
+    const test_step = b.step("test", "Run all unit tests");
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_kdb_unit_tests.step);
+
+    const test_lsp_step = b.step("test-lsp", "Run lsp unit tests");
+    test_lsp_step.dependOn(&run_unit_tests.step);
+
+    const test_kdb_step = b.step("test-kdb", "Run kdb unit tests");
+    test_kdb_step.dependOn(&run_kdb_unit_tests.step);
 }
 
 const AddCompilerStepOptions = struct {
