@@ -27,9 +27,6 @@ pub const ExtraIndex = enum(u32) {
     /// If this is 0, this file contains no imports. Otherwise there is a `Imports`
     /// payload at this index.
     imports,
-    /// Indicates the number of blocks in a file. The number of additional reserved
-    /// entries in extra is equal to this value.
-    blocks,
 
     _,
 };
@@ -101,9 +98,9 @@ pub const Inst = struct {
     /// These names are used directly as the instruction names in the text format.
     /// See `data_field_map` for a list of which `Data` fields are used by each `Tag`.
     pub const Tag = enum(u8) {
-        /// Represents a file block.
+        /// Represents a file.
         /// Uses the `pl_node` union field with payload `Block`.
-        block,
+        file,
 
         /// Variable assignment.
         /// Uses the `pl_node` union field. Payload is `Bin`.
@@ -170,6 +167,9 @@ pub const Inst = struct {
 
     /// The position of a ZIR instruction within the `Zir` instructions array.
     pub const Index = enum(u32) {
+        /// ZIR is structured so that the outermost "main" struct of any file
+        /// is always at index 0.
+        file_inst = 0,
         ref_start_index = static_len,
         _,
 

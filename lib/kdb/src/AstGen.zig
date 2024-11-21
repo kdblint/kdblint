@@ -109,8 +109,7 @@ pub fn generate(gpa: Allocator, tree: Ast) !Zir {
     try astgen.instructions.ensureTotalCapacity(gpa, tree.nodes.len);
 
     // First few indexes of extra are reserved and set at the end.
-    const blocks = tree.getBlocks();
-    const reserved_count = @typeInfo(Zir.ExtraIndex).@"enum".fields.len + blocks.len;
+    const reserved_count = @typeInfo(Zir.ExtraIndex).@"enum".fields.len;
     try astgen.extra.ensureTotalCapacity(gpa, tree.nodes.len + reserved_count);
     astgen.extra.items.len += reserved_count;
 
@@ -130,19 +129,11 @@ pub fn generate(gpa: Allocator, tree: Ast) !Zir {
     // The AST -> ZIR lowering process assumes an AST that does not have any
     // parse errors.
     if (tree.errors.len == 0) {
-        astgen.extra.items[@intFromEnum(Zir.ExtraIndex.blocks)] = @intCast(blocks.len);
-        for (blocks, @intFromEnum(Zir.ExtraIndex.blocks) + 1..) |node, i| {
-            var block_scope = gz.makeSubBlock(&gz.base);
-            defer block_scope.unstack();
-
-            const block_inst = try gz.makePlNode(.block, node);
-            astgen.extra.items[i] = @intFromEnum(block_inst);
-            // TODO: Something should wrap expr to return an index to show or discard value.
-            _ = expr(&gz, node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {}, // Handled via compile_errors below.
-            };
-            try block_scope.setBlockBody(block_inst);
+        if (file(&gz)) |file_inst| {
+            assert(file_inst.toIndex().? == .file_inst);
+        } else |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {}, // Handled via compile_errors below.
         }
     } else {
         try astgen.lowerAstErrors();
@@ -200,6 +191,20 @@ fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.imports.deinit(gpa);
     astgen.scratch.deinit(gpa);
     astgen.ref_table.deinit(gpa);
+}
+
+fn file(gz: *GenZir) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+
+    const file_inst = try gz.makePlNode(.file, 0);
+    for (tree.getBlocks()) |node| {
+        // TODO: Something should wrap expr to return an index to show or discard value.
+        _ = try expr(gz, node);
+    }
+    try gz.setFileBody(file_inst);
+
+    return file_inst.toRef();
 }
 
 fn expr(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -446,7 +451,7 @@ const GenZir = struct {
     }
 
     /// Assumes nothing stacked on `gz`. Unstacks `gz`.
-    fn setBlockBody(gz: *GenZir, inst: Zir.Inst.Index) !void {
+    fn setFileBody(gz: *GenZir, inst: Zir.Inst.Index) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
         const body = gz.instructionsSlice();

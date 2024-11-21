@@ -32,14 +32,10 @@ pub fn renderAsTextToFile(
     var raw_stream = std.io.bufferedWriter(fs_file.writer());
     const stream = raw_stream.writer();
 
-    const len = writer.code.extra[@intFromEnum(Zir.ExtraIndex.blocks)];
-    var i: usize = 0;
-    while (i < len) : (i += 1) {
-        const inst = writer.code.extra[i + @intFromEnum(Zir.ExtraIndex.blocks) + 1];
-        try stream.print("%{d} ", .{inst});
-        try writer.writeInstToStream(stream, @enumFromInt(inst));
-        try stream.writeAll("\n");
-    }
+    const inst: Zir.Inst.Index = .file_inst;
+    try stream.print("%{d} ", .{@intFromEnum(inst)});
+    try writer.writeInstToStream(stream, inst);
+    try stream.writeAll("\n");
 
     const imports_index = scope_file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
@@ -203,7 +199,7 @@ const Writer = struct {
         const tag = tags[@intFromEnum(inst)];
         try stream.print("= {s}(", .{@tagName(tag)});
         switch (tag) {
-            .block => try self.writePlNodeBlockWithoutSrc(stream, inst),
+            .file => try self.writePlNodeBlockWithoutSrc(stream, inst),
 
             .assign,
             .add,
@@ -1063,7 +1059,8 @@ const Writer = struct {
     }
 
     fn writePlNodeBlockWithoutSrc(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const zir_datas: []Zir.Inst.Data = self.code.instructions.items(.data);
+        const inst_data = zir_datas[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Block, inst_data.payload_index);
         const body = self.code.bodySlice(extra.end, extra.data.body_len);
         try self.writeBracedBody(stream, body);
