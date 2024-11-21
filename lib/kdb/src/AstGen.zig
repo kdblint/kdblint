@@ -197,12 +197,12 @@ fn file(gz: *GenZir) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
-    const file_inst = try gz.makePlNode(.file, 0);
+    const file_inst = try gz.makeFile();
     for (tree.getBlocks()) |node| {
         // TODO: Something should wrap expr to return an index to show or discard value.
         _ = try expr(gz, node);
     }
-    try gz.setFileBody(file_inst);
+    try gz.setFile(file_inst);
 
     return file_inst.toRef();
 }
@@ -251,18 +251,21 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     };
     defer lambda_gz.unstack();
 
+    const lambda_inst = try gz.makeLambda(node);
+
     const full_lambda = tree.fullLambda(node);
     for (full_lambda.body) |body_node| {
         _ = try expr(&lambda_gz, body_node);
     }
 
-    return gz.addLambda(.{
-        .src_node = node,
+    try gz.setLambda(lambda_inst, .{
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
         .rbrace = full_lambda.r_brace,
-        .body_gz = &lambda_gz,
+        .lambda_gz = &lambda_gz,
     });
+
+    return lambda_inst.toRef();
 }
 
 fn assign(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -450,8 +453,12 @@ const GenZir = struct {
         return gz.astgen.tree.firstToken(gz.decl_node_index);
     }
 
+    fn makeFile(gz: *GenZir) !Zir.Inst.Index {
+        return gz.makePlNode(.file, 0);
+    }
+
     /// Assumes nothing stacked on `gz`. Unstacks `gz`.
-    fn setFileBody(gz: *GenZir, inst: Zir.Inst.Index) !void {
+    fn setFile(gz: *GenZir, inst: Zir.Inst.Index) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
         const body = gz.instructionsSlice();
@@ -460,12 +467,86 @@ const GenZir = struct {
             gpa,
             @typeInfo(Zir.Inst.Block).@"struct".fields.len + body_len,
         );
-        const zir_datas = astgen.instructions.items(.data);
+        const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
         zir_datas[@intFromEnum(inst)].pl_node.payload_index = astgen.addExtraAssumeCapacity(
             Zir.Inst.Block{ .body_len = body_len },
         );
         astgen.appendBodyWithFixups(body);
         gz.unstack();
+    }
+
+    fn makeLambda(gz: *GenZir, node: Ast.Node.Index) !Zir.Inst.Index {
+        return gz.makePlNode(.lambda, node);
+    }
+
+    /// Assumes nothing stacked on `lambda_gz`. Unstacks `lambda_gz`.
+    fn setLambda(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
+        lbrace_line: u32,
+        lbrace_column: u32,
+        rbrace: Ast.Token.Index,
+        lambda_gz: *GenZir,
+    }) !void {
+        const astgen = gz.astgen;
+        const gpa = astgen.gpa;
+        const tree = astgen.tree;
+        const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
+        const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
+
+        const rbrace_loc = token_locs[args.rbrace];
+        astgen.advanceSourceCursor(rbrace_loc.start);
+        const rbrace_line = astgen.source_line - gz.decl_line;
+        const rbrace_column = astgen.source_column;
+
+        const columns = args.lbrace_column | (rbrace_column << 16);
+
+        const src_locs: Zir.Inst.Lambda.SrcLocs = .{
+            .lbrace_line = args.lbrace_line,
+            .rbrace_line = rbrace_line,
+            .columns = columns,
+        };
+
+        const body = args.lambda_gz.instructionsSlice();
+        const body_len = astgen.countBodyLenAfterFixups(body);
+
+        try astgen.extra.ensureUnusedCapacity(
+            gpa,
+            @typeInfo(Zir.Inst.Lambda).@"struct".fields.len + body_len +
+                @typeInfo(Zir.Inst.Lambda.SrcLocs).@"struct".fields.len,
+        );
+
+        zir_datas[@intFromEnum(inst)].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Lambda{
+            .body_len = body_len,
+        });
+        astgen.appendBodyWithFixups(body);
+        _ = astgen.addExtraAssumeCapacity(src_locs);
+
+        args.lambda_gz.unstack();
+
+        try gz.instructions.ensureUnusedCapacity(gpa, 1);
+        gz.instructions.appendAssumeCapacity(inst);
+    }
+
+    fn addStrTok(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        str_index: Zir.NullTerminatedString,
+        /// Absolute token index. This function does the conversion to Decl offset.
+        abs_tok_index: Ast.Token.Index,
+    ) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .str_tok = .{
+                .start = str_index,
+                .src_tok = gz.tokenIndexToRelative(abs_tok_index),
+            } },
+        });
+    }
+
+    fn addLong(gz: *GenZir, long: i64) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .long,
+            .data = .{ .long = long },
+        });
     }
 
     fn makePlNode(gz: *GenZir, tag: Zir.Inst.Tag, node: Ast.Node.Index) !Zir.Inst.Index {
@@ -512,91 +593,6 @@ const GenZir = struct {
         });
         gz.instructions.appendAssumeCapacity(new_index);
         return new_index.toRef();
-    }
-
-    fn addStrTok(
-        gz: *GenZir,
-        tag: Zir.Inst.Tag,
-        str_index: Zir.NullTerminatedString,
-        /// Absolute token index. This function does the conversion to Decl offset.
-        abs_tok_index: Ast.Token.Index,
-    ) !Zir.Inst.Ref {
-        return gz.add(.{
-            .tag = tag,
-            .data = .{ .str_tok = .{
-                .start = str_index,
-                .src_tok = gz.tokenIndexToRelative(abs_tok_index),
-            } },
-        });
-    }
-
-    fn addLambda(gz: *GenZir, args: struct {
-        src_node: Ast.Node.Index,
-        lbrace_line: u32,
-        lbrace_column: u32,
-        rbrace: Ast.Token.Index,
-
-        body_gz: *GenZir,
-    }) !Zir.Inst.Ref {
-        assert(args.src_node != 0);
-        const astgen = gz.astgen;
-        const gpa = astgen.gpa;
-        const tree = astgen.tree;
-        const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-        const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
-
-        assert(node_tags[args.src_node] == .lambda or node_tags[args.src_node] == .lambda_semicolon);
-
-        const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
-        try astgen.instructions.ensureUnusedCapacity(gpa, 1);
-
-        const rbrace_loc = token_locs[args.rbrace];
-        astgen.advanceSourceCursor(rbrace_loc.start);
-        const rbrace_line: u32 = @intCast(astgen.source_line - gz.decl_line);
-        const rbrace_column: u32 = @intCast(astgen.source_column);
-
-        const columns = args.lbrace_column | (rbrace_column << 16);
-
-        const src_locs: Zir.Inst.Lambda.SrcLocs = .{
-            .lbrace_line = args.lbrace_line,
-            .rbrace_line = rbrace_line,
-            .columns = columns,
-        };
-
-        const body = args.body_gz.instructionsSlice();
-        const body_len = astgen.countBodyLenAfterFixups(body);
-
-        try astgen.extra.ensureUnusedCapacity(
-            gpa,
-            @typeInfo(Zir.Inst.Lambda).@"struct".fields.len + body_len +
-                @typeInfo(Zir.Inst.Lambda.SrcLocs).@"struct".fields.len,
-        );
-
-        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Lambda{
-            .body_len = body_len,
-        });
-        astgen.appendBodyWithFixups(body);
-        _ = astgen.addExtraAssumeCapacity(src_locs);
-
-        args.body_gz.unstack();
-
-        try gz.instructions.ensureUnusedCapacity(gpa, 1);
-        astgen.instructions.appendAssumeCapacity(.{
-            .tag = .lambda,
-            .data = .{ .pl_node = .{
-                .src_node = gz.nodeIndexToRelative(args.src_node),
-                .payload_index = payload_index,
-            } },
-        });
-        gz.instructions.appendAssumeCapacity(new_index);
-        return new_index.toRef();
-    }
-
-    fn addLong(gz: *GenZir, long: i64) !Zir.Inst.Ref {
-        return gz.add(.{
-            .tag = .long,
-            .data = .{ .long = long },
-        });
     }
 
     fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {
