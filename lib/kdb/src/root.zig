@@ -52,6 +52,18 @@ pub fn putAstErrorsIntoBundle(
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
 }
 
+pub fn printZirErrorsToStderr(gpa: Allocator, tree: Ast, zir: Zir, path: []const u8, color: Color) !void {
+    var wip_errors: ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
+    try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
+
+    var error_bundle = try wip_errors.toOwnedBundle("");
+    defer error_bundle.deinit(gpa);
+    error_bundle.renderToStdErr(color.renderOptions());
+}
+
 test {
     @import("std").testing.refAllDecls(@This());
 }

@@ -187,18 +187,7 @@ fn cmdAstCheck(
     defer file.zir.deinit(gpa);
 
     if (file.zir.hasCompileErrors()) {
-        var wip_errors: kdb.ErrorBundle.Wip = undefined;
-        try wip_errors.init(gpa);
-        defer wip_errors.deinit();
-        try wip_errors.addZirErrorMessages(
-            file.zir,
-            file.tree,
-            file.source,
-            file.sub_file_path,
-        );
-        var error_bundle = try wip_errors.toOwnedBundle("");
-        defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(color.renderOptions());
+        try kdb.printZirErrorsToStderr(gpa, file.tree, file.zir, file.sub_file_path, color);
         process.exit(1);
     }
 
