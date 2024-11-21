@@ -2,18 +2,19 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Ast = std.zig.Ast;
 const InternPool = @import("InternPool.zig");
 
 const kdb = @import("root.zig");
+const Ast = kdb.Ast;
+const AstGen = kdb.AstGen;
 const Zir = kdb.Zir;
 const File = kdb.File;
 
 /// Write human-readable, debug formatted ZIR code to a file.
-pub fn renderAsTextToFile(
+pub fn renderAsText(
     gpa: Allocator,
     scope_file: *File,
-    fs_file: std.fs.File,
+    output: anytype,
 ) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -29,7 +30,7 @@ pub fn renderAsTextToFile(
         .recurse_blocks = true,
     };
 
-    var raw_stream = std.io.bufferedWriter(fs_file.writer());
+    var raw_stream = std.io.bufferedWriter(output.writer());
     const stream = raw_stream.writer();
 
     const inst: Zir.Inst.Index = .file_inst;
@@ -200,6 +201,12 @@ const Writer = struct {
         try stream.print("= {s}(", .{@tagName(tag)});
         switch (tag) {
             .file => try self.writePlNodeBlockWithoutSrc(stream, inst),
+
+            .ret_node,
+            => try self.writeUnNode(stream, inst),
+
+            .ret_implicit,
+            => try self.writeUnTok(stream, inst),
 
             .assign,
             .add,
@@ -1064,7 +1071,7 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.Block, inst_data.payload_index);
         const body = self.code.bodySlice(extra.end, extra.data.body_len);
         try self.writeBracedBody(stream, body);
-        try stream.writeAll(") ");
+        try stream.writeAll(")");
     }
 
     fn writeCondBr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -2037,13 +2044,15 @@ const Writer = struct {
     fn writeLambda(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const zir_datas: []Zir.Inst.Data = self.code.instructions.items(.data);
 
+        // TODO: Params
+        try self.writeOptionalInstRefOrBody(stream, "params=", .none, &.{});
+
         const inst_data = zir_datas[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Lambda, inst_data.payload_index);
 
         var extra_index = extra.end;
 
         const body = self.code.bodySlice(extra_index, extra.data.body_len);
-        assert(body.len > 0);
         extra_index += body.len;
 
         const src_locs = self.code.extraData(Zir.Inst.Lambda.SrcLocs, extra_index).data;
@@ -2712,3 +2721,132 @@ const Writer = struct {
         }
     }
 };
+
+fn testZir(source: [:0]const u8, expected: []const u8) !void {
+    inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
+        try testZirMode(@enumFromInt(field.value), source, expected);
+    }
+}
+
+fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
+    const gpa = std.testing.allocator;
+
+    var tree = try Ast.parse(gpa, source, .{
+        .mode = mode,
+        .version = .@"4.0",
+    });
+    defer tree.deinit(gpa);
+
+    var zir = try AstGen.generate(gpa, tree);
+    defer zir.deinit(gpa);
+
+    // Errors
+    if (zir.hasCompileErrors()) {
+        std.debug.print("error\n", .{});
+        try kdb.printZirErrorsToStderr(gpa, tree, zir, "test", .auto);
+        return error.Unexpected;
+    }
+
+    var file: kdb.File = .{
+        .source_loaded = true,
+        .tree_loaded = true,
+        .zir_loaded = true,
+        .sub_file_path = "test",
+        .source = source,
+        .tree = tree,
+        .zir = zir,
+    };
+    var output = std.ArrayList(u8).init(gpa);
+    defer output.deinit();
+    try renderAsText(gpa, &file, &output);
+
+    try std.testing.expectEqualStrings(expected, output.items[0 .. output.items.len - 1]);
+    try std.testing.expectEqual('\n', output.getLast());
+}
+
+test "assign" {
+    try testZir("x:1",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:1 to :1:2
+        \\  %2 = assign(%1, @one) node_offset:1:1 to :1:1
+        \\})
+    );
+    try testZir("x:2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("x") token_offset:1:1 to :1:2
+        \\  %3 = assign(%2, %1) node_offset:1:1 to :1:1
+        \\})
+    );
+}
+
+test "lambda" {
+    try testZir("{}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:2
+        \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:1
+        \\})
+    );
+    try testZir("{[x]}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_implicit(@null) token_offset:1:5 to :1:5
+        \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:1
+        \\})
+    );
+    try testZir("{[x;y]}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_implicit(@null) token_offset:1:7 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:1
+        \\})
+    );
+
+    try testZir("{1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_node(@one) node_offset:1:1 to :1:1
+        \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:1
+        \\})
+    );
+    try testZir("{[x]1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_node(@one) node_offset:1:3 to :1:4
+        \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:1
+        \\})
+    );
+    try testZir("{[x;y]1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_node(@one) node_offset:1:5 to :1:6
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:1
+        \\})
+    );
+
+    try testZir("{2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = ret_node(%2) node_offset:1:1 to :1:1
+        \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:1
+        \\})
+    );
+    try testZir("{[x]2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = ret_node(%2) node_offset:1:3 to :1:4
+        \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:1
+        \\})
+    );
+    try testZir("{[x;y]2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:1
+        \\})
+    );
+}

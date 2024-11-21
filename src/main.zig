@@ -233,7 +233,7 @@ fn cmdAstCheck(
         // zig fmt: on
     }
 
-    return kdb.print_zir.renderAsTextToFile(gpa, &file, io.getStdOut());
+    return kdb.print_zir.renderAsText(gpa, &file, io.getStdOut());
 }
 
 const usage_lsp =
