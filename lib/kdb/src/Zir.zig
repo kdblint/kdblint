@@ -157,6 +157,16 @@ pub const Inst = struct {
         /// Lambda expression.
         /// Uses the `pl_node` union field. Payload is `Lambda`.
         lambda,
+        /// Sends control flow back to the function's callee.
+        /// Includes an operand as the return value.
+        /// Includes an AST node source location.
+        /// Uses the `un_node` union field.
+        ret_node,
+        /// Sends control flow back to the function's callee.
+        /// Includes an operand as the return value.
+        /// Includes a token source location.
+        /// Uses the `un_tok` union field.
+        ret_implicit,
 
         /// Integer literal that fits in an i64. Uses the `long` union field.
         long,
@@ -192,6 +202,7 @@ pub const Inst = struct {
         zero,
         one,
         negative_one,
+        null,
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
@@ -219,6 +230,20 @@ pub const Inst = struct {
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
+        /// Used for unary operators, with an AST node source location.
+        un_node: struct {
+            /// Offset from Decl AST node index.
+            src_node: i32,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            operand: Ref,
+        },
+        /// Used for unary operators, with a token source location.
+        un_tok: struct {
+            /// Offset from Decl AST token index.
+            src_tok: Ast.Token.Index,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            operand: Ref,
+        },
         pl_node: struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.

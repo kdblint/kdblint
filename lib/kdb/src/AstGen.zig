@@ -259,9 +259,19 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const lambda_inst = try gz.makeLambda(node);
 
     const full_lambda = tree.fullLambda(node);
-    for (full_lambda.body) |body_node| {
-        if (node_tags[body_node] == .empty) continue;
-        _ = try expr(&lambda_gz, body_node);
+    for (full_lambda.body, 0..) |body_node, i| {
+        if (i < full_lambda.body.len - 1) {
+            _ = try expr(&lambda_gz, body_node);
+        } else if (node_tags[body_node] == .empty) {
+            _ = try lambda_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
+        } else {
+            const ref = try expr(&lambda_gz, body_node);
+            if (node_tags[node] == .lambda) {
+                _ = try lambda_gz.addUnNode(.ret_node, ref, body_node);
+            } else {
+                _ = try lambda_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
+            }
+        }
     }
 
     try gz.setLambda(lambda_inst, .{
@@ -599,6 +609,40 @@ const GenZir = struct {
         });
         gz.instructions.appendAssumeCapacity(new_index);
         return new_index.toRef();
+    }
+
+    fn addUnNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        operand: Zir.Inst.Ref,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+    ) !Zir.Inst.Ref {
+        assert(operand != .none);
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .un_node = .{
+                .operand = operand,
+                .src_node = gz.nodeIndexToRelative(src_node),
+            } },
+        });
+    }
+
+    fn addUnTok(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        operand: Zir.Inst.Ref,
+        /// Absolute token index. This function does the conversion to Decl offset.
+        abs_tok_index: Ast.Token.Index,
+    ) !Zir.Inst.Ref {
+        assert(operand != .none);
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .un_tok = .{
+                .operand = operand,
+                .src_tok = gz.tokenIndexToRelative(abs_tok_index),
+            } },
+        });
     }
 
     fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {
