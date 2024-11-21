@@ -124,13 +124,7 @@ pub fn run(
             defer zir.deinit(gpa);
 
             if (zir.hasCompileErrors()) {
-                var wip_errors: kdb.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-                try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
-                var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
-                error_bundle.renderToStdErr(color.renderOptions());
+                try kdb.printZirErrorsToStderr(gpa, tree, zir, "<stdin>", color);
                 process.exit(2);
             }
         } else if (tree.errors.len != 0) {
@@ -344,13 +338,7 @@ fn fmtPathFile(
         defer zir.deinit(gpa);
 
         if (zir.hasCompileErrors()) {
-            var wip_errors: kdb.ErrorBundle.Wip = undefined;
-            try wip_errors.init(gpa);
-            defer wip_errors.deinit();
-            try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
-            var error_bundle = try wip_errors.toOwnedBundle("");
-            defer error_bundle.deinit(gpa);
-            error_bundle.renderToStdErr(fmt.color.renderOptions());
+            try kdb.printZirErrorsToStderr(gpa, tree, zir, file_path, fmt.color);
             fmt.any_error = true;
         }
     }

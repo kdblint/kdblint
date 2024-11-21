@@ -1476,7 +1476,7 @@ fn testAstModeRender(
     // Errors
     if (tree.errors.len > 0) {
         std.debug.print("error\n", .{});
-        try @import("root.zig").printAstErrorsToStderr(gpa, tree, "test", .auto);
+        try kdb.printAstErrorsToStderr(gpa, tree, "test", .auto);
         return error.Unexpected;
     }
 

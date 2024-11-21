@@ -213,6 +213,10 @@ fn expr(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
 
     switch (node_tags[node]) {
+        .root, // TODO: Test unreserved node.
+        .empty,
+        => unreachable,
+
         .lambda,
         .lambda_semicolon,
         => return lambda(gz, node),
@@ -236,6 +240,7 @@ fn expr(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
 
     astgen.advanceSourceCursorToNode(node);
     const lbrace_line = astgen.source_line - gz.decl_line;
@@ -255,6 +260,7 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
     const full_lambda = tree.fullLambda(node);
     for (full_lambda.body) |body_node| {
+        if (node_tags[body_node] == .empty) continue;
         _ = try expr(&lambda_gz, body_node);
     }
 
