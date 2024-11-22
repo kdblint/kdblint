@@ -157,6 +157,9 @@ pub const Inst = struct {
         /// Lambda expression.
         /// Uses the `lambda` union field. Payload is `Lambda`.
         lambda,
+        /// Declares a parameter of the current lambda.
+        /// Uses the `str_tok` union field. Token is the parameter name. String is the parameter name.
+        param,
         /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
         /// Includes an AST node source location.
@@ -168,10 +171,14 @@ pub const Inst = struct {
         /// Uses the `un_tok` union field.
         ret_implicit,
 
-        /// Integer literal that fits in an i64. Uses the `long` union field.
+        /// Integer literal that fits in an i64.
+        /// Uses the `long` union field.
         long,
 
+        /// Identifier.
+        /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
         identifier,
+
         call,
     };
 
@@ -281,9 +288,11 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 1. body: Index // for each body_len
-    /// 2. src_locs: SrcLocs
+    /// 1. params: Index // for each params_len
+    /// 2. body: Index // for each body_len
+    /// 3. src_locs: SrcLocs
     pub const Lambda = struct {
+        params_len: u32,
         body_len: u32,
 
         pub const SrcLocs = struct {

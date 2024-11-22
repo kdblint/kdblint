@@ -241,12 +241,17 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     astgen.advanceSourceCursorToNode(node);
     const lbrace_line = astgen.source_line - gz.decl_line;
     const lbrace_column = astgen.source_column;
 
-    var lambda_gz: GenZir = .{
+    const lambda_inst = try gz.makeLambda(node);
+
+    const full_lambda = tree.fullLambda(node);
+
+    var params_gz: GenZir = .{
         .decl_node_index = node,
         .decl_line = astgen.source_line,
         .parent = &gz.base,
@@ -254,22 +259,37 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
         .instructions = gz.instructions,
         .instructions_top = gz.instructions.items.len,
     };
-    defer lambda_gz.unstack();
+    defer params_gz.unstack();
 
-    const lambda_inst = try gz.makeLambda(node);
+    if (full_lambda.params) |p| for (p.params) |param_node| {
+        assert(node_tags[param_node] == .identifier);
+        const param_token = main_tokens[param_node];
+        const param_name = try astgen.identAsString(param_token);
 
-    const full_lambda = tree.fullLambda(node);
+        _ = try params_gz.addStrTok(.param, param_name, param_token);
+    };
+
+    var body_gz: GenZir = .{
+        .decl_node_index = node,
+        .decl_line = astgen.source_line,
+        .parent = &gz.base,
+        .astgen = astgen,
+        .instructions = gz.instructions,
+        .instructions_top = gz.instructions.items.len,
+    };
+    defer body_gz.unstack();
+
     for (full_lambda.body, 0..) |body_node, i| {
         if (i < full_lambda.body.len - 1) {
-            _ = try expr(&lambda_gz, body_node);
+            _ = try expr(&body_gz, body_node);
         } else if (node_tags[body_node] == .empty) {
-            _ = try lambda_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
+            _ = try body_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
         } else {
-            const ref = try expr(&lambda_gz, body_node);
+            const ref = try expr(&body_gz, body_node);
             if (node_tags[node] == .lambda) {
-                _ = try lambda_gz.addUnNode(.ret_node, ref, body_node);
+                _ = try body_gz.addUnNode(.ret_node, ref, body_node);
             } else {
-                _ = try lambda_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
+                _ = try body_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
             }
         }
     }
@@ -278,7 +298,8 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
         .rbrace = full_lambda.r_brace,
-        .lambda_gz = &lambda_gz,
+        .params_gz = &params_gz,
+        .body_gz = &body_gz,
     });
 
     return lambda_inst.toRef();
@@ -503,12 +524,17 @@ const GenZir = struct {
         return new_index;
     }
 
-    /// Assumes nothing stacked on `lambda_gz`. Unstacks `lambda_gz`.
+    /// Must be called with the following stack set up:
+    ///  * gz (bottom)
+    ///  * params_gz
+    ///  * body_gz (top)
+    /// Unstacks all of those except for `gz`.
     fn setLambda(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
         lbrace_line: u32,
         lbrace_column: u32,
         rbrace: Ast.Token.Index,
-        lambda_gz: *GenZir,
+        params_gz: *GenZir,
+        body_gz: *GenZir,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -529,22 +555,27 @@ const GenZir = struct {
             .columns = columns,
         };
 
-        const body = args.lambda_gz.instructionsSlice();
+        const body = args.body_gz.instructionsSlice();
         const body_len = astgen.countBodyLenAfterFixups(body);
+        args.body_gz.unstack();
+
+        const params = args.params_gz.instructionsSlice();
+        const params_len = astgen.countBodyLenAfterFixups(params);
+        args.params_gz.unstack();
 
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.Lambda).@"struct".fields.len + body_len +
+            @typeInfo(Zir.Inst.Lambda).@"struct".fields.len + params_len + body_len +
                 @typeInfo(Zir.Inst.Lambda.SrcLocs).@"struct".fields.len,
         );
 
         zir_datas[@intFromEnum(inst)].lambda.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Lambda{
+            .params_len = params_len,
             .body_len = body_len,
         });
+        astgen.appendBodyWithFixups(params);
         astgen.appendBodyWithFixups(body);
         _ = astgen.addExtraAssumeCapacity(src_locs);
-
-        args.lambda_gz.unstack();
 
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
         gz.instructions.appendAssumeCapacity(inst);
