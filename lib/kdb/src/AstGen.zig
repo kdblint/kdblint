@@ -291,9 +291,19 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     if (full_lambda.params) |p| {
         if (p.params.len > 8) return astgen.failNode(p.params[8], "too many parameters (8 max)", .{});
 
+        var hash_map: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, void) = .empty;
+        defer hash_map.deinit(astgen.gpa);
         for (p.params) |param_node| {
             if (node_tags[param_node] == .identifier) {
                 const param_name = try astgen.identAsString(main_tokens[param_node]);
+                const gop = try hash_map.getOrPut(astgen.gpa, param_name);
+                if (gop.found_existing) {
+                    return astgen.failNode(
+                        param_node,
+                        "redeclaration of function parameter '{s}'",
+                        .{tree.tokenSlice(main_tokens[param_node])},
+                    );
+                }
 
                 _ = try params_gz.addStrNode(.param_node, param_name, param_node);
             } else {
