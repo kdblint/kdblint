@@ -251,23 +251,7 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
     const full_lambda = tree.fullLambda(node);
 
-    var params_gz: GenZir = .{
-        .decl_node_index = node,
-        .decl_line = astgen.source_line,
-        .parent = &gz.base,
-        .astgen = astgen,
-        .instructions = gz.instructions,
-        .instructions_top = gz.instructions.items.len,
-    };
-    defer params_gz.unstack();
-
-    if (full_lambda.params) |p| for (p.params) |param_node| {
-        assert(node_tags[param_node] == .identifier);
-        const param_name = try astgen.identAsString(main_tokens[param_node]);
-
-        _ = try params_gz.addStrNode(.param_node, param_name, param_node);
-    };
-
+    // Traverse body before params in the case that we have implicit params.
     var body_gz: GenZir = .{
         .decl_node_index = node,
         .decl_line = astgen.source_line,
@@ -290,6 +274,58 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
             } else {
                 _ = try body_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
             }
+        }
+    }
+
+    var params_gz: GenZir = .{
+        .decl_node_index = node,
+        .decl_line = astgen.source_line,
+        .parent = &gz.base,
+        .astgen = astgen,
+        .instructions = gz.instructions,
+        .instructions_top = gz.instructions.items.len,
+    };
+    defer params_gz.unstack();
+
+    if (full_lambda.params) |p| {
+        for (p.params) |param_node| {
+            if (node_tags[param_node] == .identifier) {
+                const param_name = try astgen.identAsString(main_tokens[param_node]);
+
+                _ = try params_gz.addStrNode(.param_node, param_name, param_node);
+            } else {
+                assert(node_tags[param_node] == .empty);
+                assert(p.params.len == 1);
+            }
+        }
+    } else {
+        var found_y = false;
+        var found_z = false;
+        const zir_tags: []Zir.Inst.Tag = astgen.instructions.items(.tag);
+        for (body_gz.instructionsSlice()) |inst| {
+            switch (zir_tags[@intFromEnum(inst)]) {
+                .identifier => {
+                    const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
+                    const index = zir_datas[@intFromEnum(inst)].str_tok.start;
+                    const slice = astgen.string_bytes.items[@intFromEnum(index)..];
+                    const str = slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
+                    if (std.mem.eql(u8, str, "z")) {
+                        found_z = true;
+                        break;
+                    } else if (std.mem.eql(u8, str, "y")) {
+                        found_y = true;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        _ = try params_gz.addUnTok(.param_implicit, .x, full_lambda.l_brace);
+        if (found_z) {
+            _ = try params_gz.addUnTok(.param_implicit, .y, full_lambda.l_brace);
+            _ = try params_gz.addUnTok(.param_implicit, .z, full_lambda.l_brace);
+        } else if (found_y) {
+            _ = try params_gz.addUnTok(.param_implicit, .y, full_lambda.l_brace);
         }
     }
 
@@ -525,8 +561,8 @@ const GenZir = struct {
 
     /// Must be called with the following stack set up:
     ///  * gz (bottom)
-    ///  * params_gz
-    ///  * body_gz (top)
+    ///  * body_gz
+    ///  * params_gz (top)
     /// Unstacks all of those except for `gz`.
     fn setLambda(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
         lbrace_line: u32,
@@ -554,13 +590,13 @@ const GenZir = struct {
             .columns = columns,
         };
 
-        const body = args.body_gz.instructionsSlice();
-        const body_len = astgen.countBodyLenAfterFixups(body);
-        args.body_gz.unstack();
-
         const params = args.params_gz.instructionsSlice();
         const params_len = astgen.countBodyLenAfterFixups(params);
         args.params_gz.unstack();
+
+        const body = args.body_gz.instructionsSlice();
+        const body_len = astgen.countBodyLenAfterFixups(body);
+        args.body_gz.unstack();
 
         try astgen.extra.ensureUnusedCapacity(
             gpa,
