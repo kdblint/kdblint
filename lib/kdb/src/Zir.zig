@@ -158,8 +158,13 @@ pub const Inst = struct {
         /// Uses the `lambda` union field. Payload is `Lambda`.
         lambda,
         /// Declares a parameter of the current lambda.
+        /// Includes an AST node source location.
         /// Uses the `str_tok` union field. Token is the parameter name. String is the parameter name.
-        param,
+        param_node,
+        /// Declares a parameter of the current lambda.
+        /// Includes a token source location.
+        /// Uses the `str_tok` union field. Token is the `{`. String is the parameter name.
+        param_implicit,
         /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
         /// Includes an AST node source location.
@@ -258,6 +263,16 @@ pub const Inst = struct {
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
+        },
+        str_node: struct {
+            /// Offset into `string_bytes`. Null-terminated.
+            start: NullTerminatedString,
+            /// Offset from Decl AST node index.
+            src_node: i32,
+
+            pub fn get(self: @This(), code: Zir) [:0]const u8 {
+                return code.nullTerminatedString(self.start);
+            }
         },
         str_tok: struct {
             /// Offset into `string_bytes`. Null-terminated.
