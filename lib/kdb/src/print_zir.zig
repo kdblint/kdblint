@@ -2792,6 +2792,43 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     try std.testing.expectEqual('\n', output.getLast());
 }
 
+fn failZir(source: [:0]const u8, expected: []const u8) !void {
+    inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
+        try failZirMode(@enumFromInt(field.value), source, expected);
+    }
+}
+
+fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
+    const gpa = std.testing.allocator;
+
+    var tree = try Ast.parse(gpa, source, .{
+        .mode = mode,
+        .version = .@"4.0",
+    });
+    defer tree.deinit(gpa);
+
+    var zir = try AstGen.generate(gpa, tree);
+    defer zir.deinit(gpa);
+
+    try std.testing.expect(zir.hasCompileErrors());
+
+    var wip_errors: kdb.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
+    try wip_errors.addZirErrorMessages(zir, tree, source, "test");
+
+    var error_bundle = try wip_errors.toOwnedBundle("");
+    defer error_bundle.deinit(gpa);
+
+    var output = std.ArrayList(u8).init(gpa);
+    defer output.deinit();
+    try error_bundle.renderToWriter(.{ .ttyconf = .no_color }, output.writer());
+
+    try std.testing.expectEqualStrings(expected, output.items[0 .. output.items.len - 1]);
+    try std.testing.expectEqual('\n', output.getLast());
+}
+
 test "assign" {
     try testZir("x:1",
         \\%0 = file({
@@ -3042,5 +3079,34 @@ test "lambda" {
         \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
+    );
+}
+
+test "too many parameters" {
+    try testZir("{[a;b;c;d;e;f;g;h]}",
+        \\%0 = file({
+        \\  %1 = lambda(params={
+        \\    %3 = param_node("a") node_offset:1:3 to :1:4
+        \\    %4 = param_node("b") node_offset:1:5 to :1:6
+        \\    %5 = param_node("c") node_offset:1:7 to :1:8
+        \\    %6 = param_node("d") node_offset:1:9 to :1:10
+        \\    %7 = param_node("e") node_offset:1:11 to :1:12
+        \\    %8 = param_node("f") node_offset:1:13 to :1:14
+        \\    %9 = param_node("g") node_offset:1:15 to :1:16
+        \\    %10 = param_node("h") node_offset:1:17 to :1:18
+        \\  }, {
+        \\    %2 = ret_implicit(@null) token_offset:1:19 to :1:20
+        \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\})
+    );
+    try failZir("{[a;b;c;d;e;f;g;h;i]}",
+        \\test:1:19: error: Too many parameters (8 max)
+        \\{[a;b;c;d;e;f;g;h;i]}
+        \\                  ^
+    );
+    try failZir("{[a;b;c;d;e;f;g;h;i;j]}",
+        \\test:1:19: error: Too many parameters (8 max)
+        \\{[a;b;c;d;e;f;g;h;i;j]}
+        \\                  ^
     );
 }
