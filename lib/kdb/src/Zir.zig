@@ -159,11 +159,11 @@ pub const Inst = struct {
         lambda,
         /// Declares a parameter of the current lambda.
         /// Includes an AST node source location.
-        /// Uses the `str_tok` union field. Token is the parameter name. String is the parameter name.
+        /// Uses the `str_node` union field. Node is the parameter name. String is the parameter name.
         param_node,
         /// Declares a parameter of the current lambda.
         /// Includes a token source location.
-        /// Uses the `str_tok` union field. Token is the `{`. String is the parameter name.
+        /// Uses the `un_tok` union field. Token is the `{`. Operand is the parameter name.
         param_implicit,
         /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
@@ -215,6 +215,9 @@ pub const Inst = struct {
         one,
         negative_one,
         null,
+        x,
+        y,
+        z,
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.

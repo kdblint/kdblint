@@ -14,4 +14,10 @@ pub const Index = enum(u32) {
     negative_one,
     /// `::` (untyped)
     null,
+    /// `x`
+    x,
+    /// `y`
+    y,
+    /// `z`
+    z,
 };
