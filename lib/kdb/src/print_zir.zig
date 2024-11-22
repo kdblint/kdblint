@@ -229,7 +229,11 @@ const Writer = struct {
 
             .lambda => try self.writeLambda(stream, inst),
             .long => try self.writeLong(stream, inst),
-            .identifier => try self.writeStrTok(stream, inst),
+
+            .param,
+            .identifier,
+            => try self.writeStrTok(stream, inst),
+
             .call => unreachable,
         }
     }
@@ -2049,17 +2053,19 @@ const Writer = struct {
         defer self.parent_decl_node = prev_parent_decl_node;
         self.parent_decl_node = inst_data.src_node;
 
-        // TODO: Params
-        try self.writeOptionalInstRefOrBody(stream, "params=", .none, &.{});
-
         const extra = self.code.extraData(Zir.Inst.Lambda, inst_data.payload_index);
 
         var extra_index = extra.end;
+
+        const params = self.code.bodySlice(extra_index, extra.data.params_len);
+        extra_index += params.len;
 
         const body = self.code.bodySlice(extra_index, extra.data.body_len);
         extra_index += body.len;
 
         const src_locs = self.code.extraData(Zir.Inst.Lambda.SrcLocs, extra_index).data;
+
+        try self.writeOptionalBody(stream, "params=", params);
 
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
@@ -2590,12 +2596,7 @@ const Writer = struct {
         }
     }
 
-    fn writeOptionalInstRef(
-        self: *Writer,
-        stream: anytype,
-        prefix: []const u8,
-        inst: Zir.Inst.Ref,
-    ) !void {
+    fn writeOptionalInstRef(self: *Writer, stream: anytype, prefix: []const u8, inst: Zir.Inst.Ref) !void {
         if (inst == .none) return;
         try stream.writeAll(prefix);
         try self.writeInstRef(stream, inst);
@@ -2615,6 +2616,14 @@ const Writer = struct {
         } else if (ref != .none) {
             try stream.writeAll(prefix);
             try self.writeInstRef(stream, ref);
+            try stream.writeAll(", ");
+        }
+    }
+
+    fn writeOptionalBody(self: *Writer, stream: anytype, prefix: []const u8, body: []const Zir.Inst.Index) !void {
+        if (body.len != 0) {
+            try stream.writeAll(prefix);
+            try self.writeBracedBody(stream, body);
             try stream.writeAll(", ");
         }
     }
@@ -2794,15 +2803,20 @@ test "lambda" {
     );
     try testZir("{[x]}",
         \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:5 to :1:6
+        \\  %1 = lambda(params={
+        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\  }, {
+        \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
         \\})
     );
     try testZir("{[x;y]}",
         \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\  %1 = lambda(params={
+        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\    %3 = param("y") token_offset:1:5 to :1:6
+        \\  }, {
+        \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\})
     );
@@ -2816,15 +2830,20 @@ test "lambda" {
     );
     try testZir("{[x]1}",
         \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = ret_node(@one) node_offset:1:5 to :1:6
+        \\  %1 = lambda(params={
+        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\  }, {
+        \\    %3 = ret_node(@one) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]1}",
         \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = ret_node(@one) node_offset:1:7 to :1:8
+        \\  %1 = lambda(params={
+        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\    %3 = param("y") token_offset:1:5 to :1:6
+        \\  }, {
+        \\    %4 = ret_node(@one) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
@@ -2839,17 +2858,22 @@ test "lambda" {
     );
     try testZir("{[x]2}",
         \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
+        \\  %1 = lambda(params={
+        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\  }, {
+        \\    %3 = long(2)
+        \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]2}",
         \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
+        \\  %1 = lambda(params={
+        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\    %3 = param("y") token_offset:1:5 to :1:6
+        \\  }, {
+        \\    %4 = long(2)
+        \\    %5 = ret_node(%4) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
