@@ -209,6 +209,7 @@ const Writer = struct {
             => try self.writeUnTok(stream, inst),
 
             .assign,
+            .global_assign,
             .add,
             .subtract,
             .multiply,

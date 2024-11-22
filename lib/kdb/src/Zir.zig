@@ -102,9 +102,12 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Block`.
         file,
 
-        /// Variable assignment.
+        /// Local variable assignment.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         assign,
+        /// Global variable assignment.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        global_assign,
         /// `+`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         add,
