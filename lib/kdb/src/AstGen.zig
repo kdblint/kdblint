@@ -492,7 +492,15 @@ const GenZir = struct {
     }
 
     fn makeLambda(gz: *GenZir, node: Ast.Node.Index) !Zir.Inst.Index {
-        return gz.makePlNode(.lambda, node);
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .lambda,
+            .data = .{ .lambda = .{
+                .src_node = node,
+                .payload_index = undefined,
+            } },
+        });
+        return new_index;
     }
 
     /// Assumes nothing stacked on `lambda_gz`. Unstacks `lambda_gz`.
@@ -530,7 +538,7 @@ const GenZir = struct {
                 @typeInfo(Zir.Inst.Lambda.SrcLocs).@"struct".fields.len,
         );
 
-        zir_datas[@intFromEnum(inst)].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Lambda{
+        zir_datas[@intFromEnum(inst)].lambda.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Lambda{
             .body_len = body_len,
         });
         astgen.appendBodyWithFixups(body);

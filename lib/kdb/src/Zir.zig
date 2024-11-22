@@ -155,7 +155,7 @@ pub const Inst = struct {
         dynamic_load,
 
         /// Lambda expression.
-        /// Uses the `pl_node` union field. Payload is `Lambda`.
+        /// Uses the `lambda` union field. Payload is `Lambda`.
         lambda,
         /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
@@ -263,6 +263,12 @@ pub const Inst = struct {
             }
         },
         long: i64,
+        lambda: struct {
+            /// This node provides a new absolute baseline node for all instructions within this struct.
+            src_node: Ast.Node.Index,
+            /// index into extra to a `Lambda` payload.
+            payload_index: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
