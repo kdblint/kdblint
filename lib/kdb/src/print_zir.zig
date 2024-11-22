@@ -141,7 +141,7 @@ const Writer = struct {
         off: usize = 0,
 
         fn find(cur: *@This(), source: []const u8, want_offset: usize) std.zig.Loc {
-            if (want_offset < cur.off) {
+            if (want_offset <= cur.off) {
                 // Go back to the start of this line
                 cur.off = cur.line_start;
                 cur.column = 0;
@@ -2043,11 +2043,15 @@ const Writer = struct {
 
     fn writeLambda(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const zir_datas: []Zir.Inst.Data = self.code.instructions.items(.data);
+        const inst_data = zir_datas[@intFromEnum(inst)].lambda;
+
+        const prev_parent_decl_node = self.parent_decl_node;
+        defer self.parent_decl_node = prev_parent_decl_node;
+        self.parent_decl_node = inst_data.src_node;
 
         // TODO: Params
         try self.writeOptionalInstRefOrBody(stream, "params=", .none, &.{});
 
-        const inst_data = zir_datas[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Lambda, inst_data.payload_index);
 
         var extra_index = extra.end;
@@ -2065,7 +2069,7 @@ const Writer = struct {
                 src_locs.rbrace_line + 1, @as(u16, @truncate(src_locs.columns >> 16)) + 1,
             });
         }
-        try self.writeSrcNode(stream, inst_data.src_node);
+        try self.writeSrcNode(stream, 0);
     }
 
     fn writeFunc(
@@ -2768,14 +2772,14 @@ test "assign" {
     try testZir("x:1",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:1 to :1:2
-        \\  %2 = assign(%1, @one) node_offset:1:1 to :1:1
+        \\  %2 = assign(%1, @one) node_offset:1:1 to :1:4
         \\})
     );
     try testZir("x:2",
         \\%0 = file({
         \\  %1 = long(2)
         \\  %2 = identifier("x") token_offset:1:1 to :1:2
-        \\  %3 = assign(%2, %1) node_offset:1:1 to :1:1
+        \\  %3 = assign(%2, %1) node_offset:1:1 to :1:4
         \\})
     );
 }
@@ -2784,44 +2788,44 @@ test "lambda" {
     try testZir("{}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:2
-        \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:1
+        \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:3
+        \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:3
         \\})
     );
     try testZir("{[x]}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:5 to :1:5
-        \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:1
+        \\    %2 = ret_implicit(@null) token_offset:1:5 to :1:6
+        \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
         \\})
     );
     try testZir("{[x;y]}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:7 to :1:7
-        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:1
+        \\    %2 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\})
     );
 
     try testZir("{1}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_node(@one) node_offset:1:1 to :1:1
-        \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:1
+        \\    %2 = ret_node(@one) node_offset:1:2 to :1:3
+        \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\})
     );
     try testZir("{[x]1}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_node(@one) node_offset:1:3 to :1:4
-        \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:1
+        \\    %2 = ret_node(@one) node_offset:1:5 to :1:6
+        \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]1}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_node(@one) node_offset:1:5 to :1:6
-        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:1
+        \\    %2 = ret_node(@one) node_offset:1:7 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
 
@@ -2829,24 +2833,24 @@ test "lambda" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:1 to :1:1
-        \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:1
+        \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
+        \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\})
     );
     try testZir("{[x]2}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:3 to :1:4
-        \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:1
+        \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
+        \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]2}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
-        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:1
+        \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
 }
