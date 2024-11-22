@@ -3172,3 +3172,11 @@ test "declared after use / use of undeclared identifier" {
         \\  ^
     );
 }
+
+test "redeclaration of function parameter" {
+    try failZir("{[a;a]}",
+        \\test:1:5: error: redeclaration of function parameter 'a'
+        \\{[a;a]}
+        \\    ^
+    );
+}
