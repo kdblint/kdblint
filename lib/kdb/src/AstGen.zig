@@ -222,6 +222,7 @@ fn expr(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
         => return lambda(gz, node),
 
         .assign => return assign(gz, node),
+        .global_assign => return globalAssign(gz, node),
 
         .call => return call(gz, node),
 
@@ -352,6 +353,18 @@ fn assign(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const lhs = try expr(gz, data.lhs);
 
     return gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+}
+
+fn globalAssign(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    const data = node_datas[node];
+    const rhs = try expr(gz, data.rhs);
+    const lhs = try expr(gz, data.lhs);
+
+    return gz.addPlNode(.global_assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
 }
 
 fn call(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
