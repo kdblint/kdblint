@@ -3101,13 +3101,74 @@ test "too many parameters" {
         \\})
     );
     try failZir("{[a;b;c;d;e;f;g;h;i]}",
-        \\test:1:19: error: Too many parameters (8 max)
+        \\test:1:19: error: too many parameters (8 max)
         \\{[a;b;c;d;e;f;g;h;i]}
         \\                  ^
     );
     try failZir("{[a;b;c;d;e;f;g;h;i;j]}",
-        \\test:1:19: error: Too many parameters (8 max)
+        \\test:1:19: error: too many parameters (8 max)
         \\{[a;b;c;d;e;f;g;h;i;j]}
         \\                  ^
+    );
+}
+
+test "declared after use / use of undeclared identifier" {
+    try testZir("{[]a}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:1:4 to :1:5
+        \\    %3 = ret_node(%2) node_offset:1:4 to :1:5
+        \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\})
+    );
+
+    try testZir("{[]a::a+1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:1:7 to :1:8
+        \\    %3 = add(%2, @one) node_offset:1:7 to :1:10
+        \\    %4 = identifier("a") token_offset:1:4 to :1:5
+        \\    %5 = global_assign(%4, %3) node_offset:1:4 to :1:10
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:10
+        \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\})
+    );
+    try failZir("{[]a:a+1}",
+        \\test:1:6: error: use of undeclared identifier 'a'
+        \\{[]a:a+1}
+        \\     ^
+        \\test:1:4: note: identifier declared here
+        \\{[]a:a+1}
+        \\   ^
+    );
+
+    try testZir(
+        \\{[]
+        \\  a+1;
+        \\  a::1;
+        \\  }
+    ,
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:2:3 to :2:4
+        \\    %3 = add(%2, @one) node_offset:2:3 to :2:6
+        \\    %4 = identifier("a") token_offset:3:3 to :3:4
+        \\    %5 = global_assign(%4, @one) node_offset:3:3 to :3:7
+        \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
+        \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
+        \\})
+    );
+    try failZir(
+        \\{[]
+        \\  a+1;
+        \\  a:1;
+        \\  }
+    ,
+        \\test:2:3: error: use of undeclared identifier 'a'
+        \\  a+1;
+        \\  ^
+        \\test:3:3: note: identifier declared here
+        \\  a:1;
+        \\  ^
     );
 }
