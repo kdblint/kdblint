@@ -288,6 +288,8 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     defer params_gz.unstack();
 
     if (full_lambda.params) |p| {
+        if (p.params.len > 8) return astgen.failNode(p.params[8], "Too many parameters (8 max)", .{});
+
         for (p.params) |param_node| {
             if (node_tags[param_node] == .identifier) {
                 const param_name = try astgen.identAsString(main_tokens[param_node]);
