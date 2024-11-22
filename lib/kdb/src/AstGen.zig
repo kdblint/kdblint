@@ -263,10 +263,9 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
     if (full_lambda.params) |p| for (p.params) |param_node| {
         assert(node_tags[param_node] == .identifier);
-        const param_token = main_tokens[param_node];
-        const param_name = try astgen.identAsString(param_token);
+        const param_name = try astgen.identAsString(main_tokens[param_node]);
 
-        _ = try params_gz.addStrTok(.param, param_name, param_token);
+        _ = try params_gz.addStrNode(.param_node, param_name, param_node);
     };
 
     var body_gz: GenZir = .{
@@ -581,6 +580,22 @@ const GenZir = struct {
         gz.instructions.appendAssumeCapacity(inst);
     }
 
+    fn addStrNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        str_index: Zir.NullTerminatedString,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+    ) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .str_node = .{
+                .start = str_index,
+                .src_node = gz.nodeIndexToRelative(src_node),
+            } },
+        });
+    }
+
     fn addStrTok(
         gz: *GenZir,
         tag: Zir.Inst.Tag,
@@ -604,12 +619,17 @@ const GenZir = struct {
         });
     }
 
-    fn makePlNode(gz: *GenZir, tag: Zir.Inst.Tag, node: Ast.Node.Index) !Zir.Inst.Index {
+    fn makePlNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+    ) !Zir.Inst.Index {
         const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
         try gz.astgen.instructions.append(gz.astgen.gpa, .{
             .tag = tag,
             .data = .{ .pl_node = .{
-                .src_node = gz.nodeIndexToRelative(node),
+                .src_node = gz.nodeIndexToRelative(src_node),
                 .payload_index = undefined,
             } },
         });
@@ -628,18 +648,17 @@ const GenZir = struct {
     fn addPlNode(
         gz: *GenZir,
         tag: Zir.Inst.Tag,
-        /// TODO: Absolute node index. This function does the conversion to offset from Decl.
+        /// Absolute node index. This function does the conversion to offset from Decl.
         src_node: Ast.Node.Index,
         extra: anytype,
     ) !Zir.Inst.Ref {
-        const astgen = gz.astgen;
-        const gpa = astgen.gpa;
+        const gpa = gz.astgen.gpa;
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
-        try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
-        const payload_index = try astgen.addExtra(extra);
-        const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
-        astgen.instructions.appendAssumeCapacity(.{
+        const payload_index = try gz.astgen.addExtra(extra);
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        gz.astgen.instructions.appendAssumeCapacity(.{
             .tag = tag,
             .data = .{ .pl_node = .{
                 .src_node = gz.nodeIndexToRelative(src_node),

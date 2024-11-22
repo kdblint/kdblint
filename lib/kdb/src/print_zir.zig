@@ -230,7 +230,10 @@ const Writer = struct {
             .lambda => try self.writeLambda(stream, inst),
             .long => try self.writeLong(stream, inst),
 
-            .param,
+            .param_node,
+            => try self.writeStrNode(stream, inst),
+
+            .param_implicit,
             .identifier,
             => try self.writeStrTok(stream, inst),
 
@@ -2027,6 +2030,17 @@ const Writer = struct {
         try self.writeSrcNode(stream, src_node);
     }
 
+    fn writeStrNode(
+        self: *Writer,
+        stream: anytype,
+        inst: Zir.Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str_node;
+        const str = inst_data.get(self.code);
+        try stream.print("\"{}\") ", .{std.zig.fmtEscapes(str)});
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
     fn writeStrTok(
         self: *Writer,
         stream: anytype,
@@ -2804,7 +2818,7 @@ test "lambda" {
     try testZir("{[x]}",
         \\%0 = file({
         \\  %1 = lambda(params={
-        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\  }, {
         \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
@@ -2813,8 +2827,8 @@ test "lambda" {
     try testZir("{[x;y]}",
         \\%0 = file({
         \\  %1 = lambda(params={
-        \\    %2 = param("x") token_offset:1:3 to :1:4
-        \\    %3 = param("y") token_offset:1:5 to :1:6
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\  }, {
         \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
@@ -2831,7 +2845,7 @@ test "lambda" {
     try testZir("{[x]1}",
         \\%0 = file({
         \\  %1 = lambda(params={
-        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\  }, {
         \\    %3 = ret_node(@one) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
@@ -2840,8 +2854,8 @@ test "lambda" {
     try testZir("{[x;y]1}",
         \\%0 = file({
         \\  %1 = lambda(params={
-        \\    %2 = param("x") token_offset:1:3 to :1:4
-        \\    %3 = param("y") token_offset:1:5 to :1:6
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\  }, {
         \\    %4 = ret_node(@one) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
@@ -2859,7 +2873,7 @@ test "lambda" {
     try testZir("{[x]2}",
         \\%0 = file({
         \\  %1 = lambda(params={
-        \\    %2 = param("x") token_offset:1:3 to :1:4
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\  }, {
         \\    %3 = long(2)
         \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
@@ -2869,8 +2883,8 @@ test "lambda" {
     try testZir("{[x;y]2}",
         \\%0 = file({
         \\  %1 = lambda(params={
-        \\    %2 = param("x") token_offset:1:3 to :1:4
-        \\    %3 = param("y") token_offset:1:5 to :1:6
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\  }, {
         \\    %4 = long(2)
         \\    %5 = ret_node(%4) node_offset:1:7 to :1:8
