@@ -252,6 +252,10 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
     const full_lambda = tree.fullLambda(node);
 
+    const prev_within_fn = astgen.within_fn;
+    defer astgen.within_fn = prev_within_fn;
+    astgen.within_fn = true;
+
     // Traverse body before params in the case that we have implicit params.
     var body_gz: GenZir = .{
         .decl_node_index = node,
@@ -342,6 +346,8 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
         }
     }
 
+    try astgen.validateLambda(params_gz.instructionsSlice(), body_gz.instructionsSlice());
+
     try gz.setLambda(lambda_inst, .{
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
@@ -356,9 +362,15 @@ fn lambda(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 fn assign(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
 
     const data = node_datas[node];
+    switch (node_tags[data.lhs]) {
+        .identifier => {},
+        // TODO: a[1]:1
+        else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
+    }
     const rhs = try expr(gz, data.rhs);
     const lhs = try expr(gz, data.lhs);
 
@@ -445,6 +457,42 @@ fn identifier(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const name_str_index = try astgen.identAsString(ident_token);
 
     return gz.addStrTok(.identifier, name_str_index, ident_token);
+}
+
+fn validateLambda(astgen: *AstGen, params: []const Zir.Inst.Index, body: []const Zir.Inst.Index) !void {
+    const gpa = astgen.gpa;
+    const zir_tags: []Zir.Inst.Tag = astgen.instructions.items(.tag);
+    const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
+    var locals: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, void) = .empty;
+    defer locals.deinit(gpa);
+
+    var globals: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, void) = .empty;
+    defer globals.deinit(gpa);
+
+    try locals.ensureUnusedCapacity(gpa, params.len);
+    for (params) |param| {
+        const param_name: Zir.NullTerminatedString = switch (zir_tags[@intFromEnum(param)]) {
+            .param_node => zir_datas[@intFromEnum(param)].str_node.start,
+            .param_implicit => unreachable, // TODO
+            else => unreachable,
+        };
+        locals.putAssumeCapacityNoClobber(param_name, {});
+    }
+
+    for (body) |inst| {
+        switch (zir_tags[@intFromEnum(inst)]) {
+            .identifier => {
+                const ident_name = zir_datas[@intFromEnum(inst)].str_tok.start;
+                if (locals.get(ident_name)) |_| {
+                    std.log.debug("local", .{});
+                } else {
+                    std.log.debug("global", .{});
+                }
+            },
+            .assign => {},
+            else => {},
+        }
+    }
 }
 
 fn lowerAstErrors(astgen: *AstGen) !void {
@@ -695,15 +743,6 @@ const GenZir = struct {
             } },
         });
         return new_index;
-    }
-
-    fn setPlNode(gz: *GenZir, inst: Zir.Inst.Index, data: anytype) !void {
-        gz.astgen.extra.ensureUnusedCapacity(
-            gz.astgen.gpa,
-            @typeInfo(@TypeOf(data)).@"struct".fields.len,
-        );
-        const zir_datas: []Zir.Inst.Data = gz.astgen.instructions.items(.data);
-        zir_datas[@intFromEnum(inst)].pl_node.payload_index = gz.astgen.addExtraAssumeCapacity(data);
     }
 
     fn addPlNode(
