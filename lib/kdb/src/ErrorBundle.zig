@@ -405,89 +405,93 @@ pub const Wip = struct {
         source: [:0]const u8,
         src_path: []const u8,
     ) !void {
-        const payload_index = zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
-        assert(payload_index != 0);
+        assert(zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)] != 0 or
+            zir.extra[@intFromEnum(Zir.ExtraIndex.compile_warnings)] != 0);
+        for (&[_]Zir.ExtraIndex{ .compile_errors, .compile_warnings }) |tag| {
+            const payload_index = zir.extra[@intFromEnum(tag)];
+            if (payload_index == 0) continue;
 
-        const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
-        const items_len = header.data.items_len;
-        var extra_index = header.end;
-        for (0..items_len) |_| {
-            const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
-            extra_index = item.end;
-            const err_span = blk: {
-                if (item.data.node != 0) {
-                    break :blk tree.nodeToSpan(item.data.node);
-                }
-                const token_locs = tree.tokens.items(.loc);
-                const start = token_locs[item.data.token].start + item.data.byte_offset;
-                const end = start + @as(u32, @intCast(tree.tokenLen(item.data.token))) - item.data.byte_offset;
-                break :blk Ast.Span{
-                    .start = @intCast(start),
-                    .end = @intCast(end),
-                    .main = @intCast(start),
-                };
-            };
-            const err_loc = std.zig.findLineColumn(source, err_span.main);
-
-            {
-                const msg = zir.nullTerminatedString(item.data.msg);
-                try eb.addRootErrorMessage(.{
-                    .msg = try eb.addString(msg),
-                    .src_loc = try eb.addSourceLocation(.{
-                        .src_path = try eb.addString(src_path),
-                        .span_start = err_span.start,
-                        .span_main = err_span.main,
-                        .span_end = err_span.end,
-                        .line = @intCast(err_loc.line),
-                        .column = @intCast(err_loc.column),
-                        .source_line = try eb.addString(err_loc.source_line),
-                    }),
-                    .notes_len = item.data.notesLen(zir),
-                    .kind = item.data.kind,
-                });
-            }
-
-            if (item.data.notes != 0) {
-                const notes_start = try eb.reserveNotes(item.data.notes);
-                const block = zir.extraData(Zir.Inst.Block, item.data.notes);
-                const body = zir.extra[block.end..][0..block.data.body_len];
-                for (notes_start.., body) |note_i, body_elem| {
-                    const note_item = zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
-                    const msg = zir.nullTerminatedString(note_item.data.msg);
-                    const span = blk: {
-                        if (note_item.data.node != 0) {
-                            break :blk tree.nodeToSpan(note_item.data.node);
-                        }
-                        const token_locs = tree.tokens.items(.loc);
-                        const start = token_locs[note_item.data.token].start + note_item.data.byte_offset;
-                        const end = start + @as(u32, @intCast(tree.tokenLen(note_item.data.token))) - item.data.byte_offset;
-                        break :blk Ast.Span{
-                            .start = @intCast(start),
-                            .end = @intCast(end),
-                            .main = @intCast(start),
-                        };
+            const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
+            const items_len = header.data.items_len;
+            var extra_index = header.end;
+            for (0..items_len) |_| {
+                const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+                extra_index = item.end;
+                const err_span = blk: {
+                    if (item.data.node != 0) {
+                        break :blk tree.nodeToSpan(item.data.node);
+                    }
+                    const token_locs = tree.tokens.items(.loc);
+                    const start = token_locs[item.data.token].start + item.data.byte_offset;
+                    const end = start + @as(u32, @intCast(tree.tokenLen(item.data.token))) - item.data.byte_offset;
+                    break :blk Ast.Span{
+                        .start = @intCast(start),
+                        .end = @intCast(end),
+                        .main = @intCast(start),
                     };
-                    const loc = std.zig.findLineColumn(source, span.main);
+                };
+                const err_loc = std.zig.findLineColumn(source, err_span.main);
 
-                    // This line can cause `wip.extra.items` to be resized.
-                    const note_index = @intFromEnum(try eb.addErrorMessage(.{
+                {
+                    const msg = zir.nullTerminatedString(item.data.msg);
+                    try eb.addRootErrorMessage(.{
                         .msg = try eb.addString(msg),
                         .src_loc = try eb.addSourceLocation(.{
                             .src_path = try eb.addString(src_path),
-                            .span_start = span.start,
-                            .span_main = span.main,
-                            .span_end = span.end,
-                            .line = @intCast(loc.line),
-                            .column = @intCast(loc.column),
-                            .source_line = if (loc.eql(err_loc))
-                                0
-                            else
-                                try eb.addString(loc.source_line),
+                            .span_start = err_span.start,
+                            .span_main = err_span.main,
+                            .span_end = err_span.end,
+                            .line = @intCast(err_loc.line),
+                            .column = @intCast(err_loc.column),
+                            .source_line = try eb.addString(err_loc.source_line),
                         }),
-                        .notes_len = 0, // TODO rework this function to be recursive
-                        .kind = note_item.data.kind,
-                    }));
-                    eb.extra.items[note_i] = note_index;
+                        .notes_len = item.data.notesLen(zir),
+                        .kind = item.data.kind,
+                    });
+                }
+
+                if (item.data.notes != 0) {
+                    const notes_start = try eb.reserveNotes(item.data.notes);
+                    const block = zir.extraData(Zir.Inst.Block, item.data.notes);
+                    const body = zir.extra[block.end..][0..block.data.body_len];
+                    for (notes_start.., body) |note_i, body_elem| {
+                        const note_item = zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
+                        const msg = zir.nullTerminatedString(note_item.data.msg);
+                        const span = blk: {
+                            if (note_item.data.node != 0) {
+                                break :blk tree.nodeToSpan(note_item.data.node);
+                            }
+                            const token_locs = tree.tokens.items(.loc);
+                            const start = token_locs[note_item.data.token].start + note_item.data.byte_offset;
+                            const end = start + @as(u32, @intCast(tree.tokenLen(note_item.data.token))) - item.data.byte_offset;
+                            break :blk Ast.Span{
+                                .start = @intCast(start),
+                                .end = @intCast(end),
+                                .main = @intCast(start),
+                            };
+                        };
+                        const loc = std.zig.findLineColumn(source, span.main);
+
+                        // This line can cause `wip.extra.items` to be resized.
+                        const note_index = @intFromEnum(try eb.addErrorMessage(.{
+                            .msg = try eb.addString(msg),
+                            .src_loc = try eb.addSourceLocation(.{
+                                .src_path = try eb.addString(src_path),
+                                .span_start = span.start,
+                                .span_main = span.main,
+                                .span_end = span.end,
+                                .line = @intCast(loc.line),
+                                .column = @intCast(loc.column),
+                                .source_line = if (loc.eql(err_loc))
+                                    0
+                                else
+                                    try eb.addString(loc.source_line),
+                            }),
+                            .notes_len = 0, // TODO rework this function to be recursive
+                            .kind = note_item.data.kind,
+                        }));
+                        eb.extra.items[note_i] = note_index;
+                    }
                 }
             }
         }
