@@ -35,6 +35,7 @@ string_table: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ) = .empty,
 compile_errors: std.ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
+compile_warnings: std.ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
 within_fn: bool = false,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
@@ -156,6 +157,22 @@ pub fn generate(gpa: Allocator, tree: Ast) !Zir {
         }
     }
 
+    const warn_index = @intFromEnum(Zir.ExtraIndex.compile_warnings);
+    if (astgen.compile_warnings.items.len == 0) {
+        astgen.extra.items[warn_index] = 0;
+    } else {
+        try astgen.extra.ensureUnusedCapacity(gpa, 1 + astgen.compile_warnings.items.len *
+            @typeInfo(Zir.Inst.CompileErrors.Item).@"struct".fields.len);
+
+        astgen.extra.items[warn_index] = astgen.addExtraAssumeCapacity(Zir.Inst.CompileErrors{
+            .items_len = @intCast(astgen.compile_warnings.items.len),
+        });
+
+        for (astgen.compile_warnings.items) |item| {
+            _ = astgen.addExtraAssumeCapacity(item);
+        }
+    }
+
     const imports_index = @intFromEnum(Zir.ExtraIndex.imports);
     if (astgen.imports.count() == 0) {
         astgen.extra.items[imports_index] = 0;
@@ -189,6 +206,7 @@ fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.string_table.deinit(gpa);
     astgen.string_bytes.deinit(gpa);
     astgen.compile_errors.deinit(gpa);
+    astgen.compile_warnings.deinit(gpa);
     astgen.imports.deinit(gpa);
     astgen.scratch.deinit(gpa);
     astgen.ref_table.deinit(gpa);
@@ -1047,7 +1065,12 @@ fn appendErrorNodeNotes(
         astgen.extra.appendSliceAssumeCapacity(notes);
         break :blk @intCast(notes_start);
     } else 0;
-    try astgen.compile_errors.append(astgen.gpa, .{
+    var list = switch (kind) {
+        .@"error" => &astgen.compile_errors,
+        .warn => &astgen.compile_warnings,
+        else => unreachable,
+    };
+    try list.append(astgen.gpa, .{
         .msg = msg,
         .node = node,
         .token = 0,
@@ -1157,7 +1180,12 @@ fn appendErrorTokNotesOff(
         astgen.extra.appendSliceAssumeCapacity(notes);
         break :blk @intCast(notes_start);
     } else 0;
-    try astgen.compile_errors.append(gpa, .{
+    var list = switch (kind) {
+        .@"error" => &astgen.compile_errors,
+        .warn => &astgen.compile_warnings,
+        else => unreachable,
+    };
+    try list.append(gpa, .{
         .msg = msg,
         .node = 0,
         .token = token,

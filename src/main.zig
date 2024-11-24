@@ -189,6 +189,8 @@ fn cmdAstCheck(
     if (file.zir.hasCompileErrors()) {
         try kdb.printZirErrorsToStderr(gpa, file.tree, file.zir, file.sub_file_path, color);
         process.exit(1);
+    } else if (file.zir.hasCompileWarnings()) {
+        try kdb.printZirErrorsToStderr(gpa, file.tree, file.zir, file.sub_file_path, color);
     }
 
     if (!want_output_text) {

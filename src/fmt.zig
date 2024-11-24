@@ -123,7 +123,7 @@ pub fn run(
             var zir = try kdb.AstGen.generate(gpa, tree);
             defer zir.deinit(gpa);
 
-            if (zir.hasCompileErrors()) {
+            if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {
                 try kdb.printZirErrorsToStderr(gpa, tree, zir, "<stdin>", color);
                 process.exit(2);
             }
@@ -337,7 +337,7 @@ fn fmtPathFile(
         var zir = try kdb.AstGen.generate(gpa, tree);
         defer zir.deinit(gpa);
 
-        if (zir.hasCompileErrors()) {
+        if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {
             try kdb.printZirErrorsToStderr(gpa, tree, zir, file_path, fmt.color);
             fmt.any_error = true;
         }
