@@ -530,9 +530,73 @@ const Scope = struct {
         return @alignCast(@fieldParentPtr("base", base));
     }
 
+    fn parent(base: *Scope) ?*Scope {
+        return switch (base.tag) {
+            .gen_zir => base.cast(GenZir).?.parent,
+            .local_val => base.cast(LocalVal).?.parent,
+            .namespace => base.cast(Namespace).?.parent,
+            .top => null,
+        };
+    }
+
     const Tag = enum {
         gen_zir,
+        local_val,
+        namespace,
         top,
+    };
+
+    /// The category of identifier. These tag names are user-visible in compile errors.
+    const IdCat = enum {
+        @"function parameter",
+        @"local variable",
+    };
+
+    /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.
+    /// This structure lives as long as the AST generation of the Block
+    /// node that contains the variable.
+    const LocalVal = struct {
+        const base_tag: Tag = .local_val;
+        base: Scope = .{ .tag = base_tag },
+        /// Parents can be: `LocalVal`, `GenZir`, `Namespace`.
+        parent: *Scope,
+        gen_zir: *GenZir,
+        inst: Zir.Inst.Ref,
+        /// Source location of the corresponding variable declaration.
+        token_src: Ast.Token.Index,
+        /// Track the first identifier where it is referenced.
+        /// 0 means never referenced.
+        used: Ast.Token.Index = 0,
+        /// Track the identifier where it is discarded, like this `_ = foo;`.
+        /// 0 means never discarded.
+        discarded: Ast.Token.Index = 0,
+        /// String table index.
+        name: Zir.NullTerminatedString,
+        id_cat: IdCat,
+    };
+
+    /// Represents a global scope that has any number of declarations in it.
+    /// Each declaration has this as the parent scope.
+    const Namespace = struct {
+        const base_tag: Tag = .namespace;
+        base: Scope = .{ .tag = base_tag },
+
+        /// Parents can be: `LocalVal`, `GenZir`, `Namespace`.
+        parent: *Scope,
+        /// Maps string table index to the source location of declaration,
+        /// for the purposes of reporting name shadowing compile errors.
+        decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
+        node: Ast.Node.Index,
+        inst: Zir.Inst.Index,
+
+        /// The astgen scope containing this namespace.
+        /// Only valid during astgen.
+        declaring_gz: ?*GenZir,
+
+        fn deinit(self: *Namespace, gpa: Allocator) void {
+            self.decls.deinit(gpa);
+            self.* = undefined;
+        }
     };
 
     const Top = struct {
