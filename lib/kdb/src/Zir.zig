@@ -48,6 +48,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Inst.Ref,
             Inst.Index,
             NullTerminatedString,
+            Inst.CompileErrors.Kind,
             => @enumFromInt(code.extra[i]),
 
             i32 => @bitCast(code.extra[i]),
@@ -356,11 +357,26 @@ pub const Inst = struct {
             /// 0 or a payload index of a `Block`, each is a payload
             /// index of another `Item`.
             notes: u32,
+            kind: Kind,
 
             pub fn notesLen(item: Item, zir: Zir) u32 {
                 if (item.notes == 0) return 0;
                 const block = zir.extraData(Block, item.notes);
                 return block.data.body_len;
+            }
+        };
+
+        pub const Kind = enum {
+            @"error",
+            warn,
+            note,
+
+            pub fn color(self: Kind) std.io.tty.Color {
+                return switch (self) {
+                    .@"error" => .red,
+                    .warn => .yellow,
+                    .note => .cyan,
+                };
             }
         };
     };

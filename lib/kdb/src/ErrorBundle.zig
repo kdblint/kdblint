@@ -66,6 +66,7 @@ pub const ErrorMessage = struct {
     count: u32 = 1,
     src_loc: SourceLocationIndex = .none,
     notes_len: u32 = 0,
+    kind: Zir.Inst.CompileErrors.Kind,
 };
 
 pub const ReferenceTrace = struct {
@@ -122,8 +123,10 @@ fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, 
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => eb.extra[i],
-            MessageIndex => @as(MessageIndex, @enumFromInt(eb.extra[i])),
-            SourceLocationIndex => @as(SourceLocationIndex, @enumFromInt(eb.extra[i])),
+            MessageIndex,
+            SourceLocationIndex,
+            Zir.Inst.CompileErrors.Kind,
+            => @enumFromInt(eb.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -154,7 +157,13 @@ pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
 pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, writer: anytype) anyerror!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, options, err_msg, writer, "error", .red, 0);
+        try renderErrorMessageToWriter(
+            eb,
+            options,
+            err_msg,
+            writer,
+            0,
+        );
     }
 
     if (options.include_log_text) {
@@ -171,8 +180,6 @@ fn renderErrorMessageToWriter(
     options: RenderOptions,
     err_msg_index: MessageIndex,
     stderr: anytype,
-    kind: []const u8,
-    color: std.io.tty.Color,
     indent: usize,
 ) anyerror!void {
     const ttyconf = options.ttyconf;
@@ -188,8 +195,8 @@ fn renderErrorMessageToWriter(
             src.data.line + 1,
             src.data.column + 1,
         });
-        try ttyconf.setColor(stderr, color);
-        try counting_stderr.writeAll(kind);
+        try ttyconf.setColor(stderr, err_msg.kind.color());
+        try counting_stderr.writeAll(@tagName(err_msg.kind));
         try counting_stderr.writeAll(": ");
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
@@ -225,7 +232,7 @@ fn renderErrorMessageToWriter(
             try ttyconf.setColor(stderr, .reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .cyan, indent);
+            try renderErrorMessageToWriter(eb, options, note, stderr, indent);
         }
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
             try ttyconf.setColor(stderr, .reset);
@@ -259,9 +266,9 @@ fn renderErrorMessageToWriter(
             try ttyconf.setColor(stderr, .reset);
         }
     } else {
-        try ttyconf.setColor(stderr, color);
+        try ttyconf.setColor(stderr, err_msg.kind.color());
         try stderr.writeByteNTimes(' ', indent);
-        try stderr.writeAll(kind);
+        try stderr.writeAll(@tagName(err_msg.kind));
         try stderr.writeAll(": ");
         try ttyconf.setColor(stderr, .reset);
         const msg = eb.nullTerminatedString(err_msg.msg);
@@ -274,7 +281,7 @@ fn renderErrorMessageToWriter(
         }
         try ttyconf.setColor(stderr, .reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .cyan, indent + 4);
+            try renderErrorMessageToWriter(eb, options, note, stderr, indent + 4);
         }
     }
 }
@@ -436,6 +443,7 @@ pub const Wip = struct {
                         .source_line = try eb.addString(err_loc.source_line),
                     }),
                     .notes_len = item.data.notesLen(zir),
+                    .kind = item.data.kind,
                 });
             }
 
@@ -477,6 +485,7 @@ pub const Wip = struct {
                                 try eb.addString(loc.source_line),
                         }),
                         .notes_len = 0, // TODO rework this function to be recursive
+                        .kind = note_item.data.kind,
                     }));
                     eb.extra.items[note_i] = note_index;
                 }
@@ -505,8 +514,10 @@ pub const Wip = struct {
         inline for (fields) |field| {
             wip.extra.items[i] = switch (field.type) {
                 u32 => @field(extra, field.name),
-                MessageIndex => @intFromEnum(@field(extra, field.name)),
-                SourceLocationIndex => @intFromEnum(@field(extra, field.name)),
+                MessageIndex,
+                SourceLocationIndex,
+                Zir.Inst.CompileErrors.Kind,
+                => @intFromEnum(@field(extra, field.name)),
                 else => @compileError("bad field type"),
             };
             i += 1;
