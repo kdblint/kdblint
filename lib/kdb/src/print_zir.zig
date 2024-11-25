@@ -2073,15 +2073,10 @@ const Writer = struct {
 
         var extra_index = extra.end;
 
-        const params = self.code.bodySlice(extra_index, extra.data.params_len);
-        extra_index += params.len;
-
         const body = self.code.bodySlice(extra_index, extra.data.body_len);
         extra_index += body.len;
 
         const src_locs = self.code.extraData(Zir.Inst.Lambda.SrcLocs, extra_index).data;
-
-        try self.writeOptionalBody(stream, "params=", params);
 
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
@@ -2769,7 +2764,7 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     var zir = try AstGen.generate(gpa, tree);
     defer zir.deinit(gpa);
 
-    // Errors
+    // Errors and TODO: warnings
     if (zir.hasCompileErrors()) {
         std.debug.print("error\n", .{});
         try kdb.printZirErrorsToStderr(gpa, tree, zir, "test", .auto);
@@ -2787,6 +2782,61 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     };
     var output = std.ArrayList(u8).init(gpa);
     defer output.deinit();
+    try renderAsText(gpa, &file, &output);
+
+    try std.testing.expectEqualStrings(expected, output.items[0 .. output.items.len - 1]);
+    try std.testing.expectEqual('\n', output.getLast());
+}
+
+fn warnZir(source: [:0]const u8, expected: []const u8) !void {
+    inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
+        try warnZirMode(@enumFromInt(field.value), source, expected);
+    }
+}
+
+fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
+    const gpa = std.testing.allocator;
+
+    var tree = try Ast.parse(gpa, source, .{
+        .mode = mode,
+        .version = .@"4.0",
+    });
+    defer tree.deinit(gpa);
+
+    var zir = try AstGen.generate(gpa, tree);
+    defer zir.deinit(gpa);
+
+    // Errors
+    if (zir.hasCompileErrors()) {
+        std.debug.print("error\n", .{});
+        try kdb.printZirErrorsToStderr(gpa, tree, zir, "test", .auto);
+        return error.Unexpected;
+    }
+
+    try std.testing.expect(zir.hasCompileWarnings());
+
+    var wip_errors: kdb.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
+    try wip_errors.addZirErrorMessages(zir, tree, source, "test");
+
+    var error_bundle = try wip_errors.toOwnedBundle("");
+    defer error_bundle.deinit(gpa);
+
+    var output = std.ArrayList(u8).init(gpa);
+    defer output.deinit();
+    try error_bundle.renderToWriter(.{ .ttyconf = .no_color }, output.writer());
+
+    var file: kdb.File = .{
+        .source_loaded = true,
+        .tree_loaded = true,
+        .zir_loaded = true,
+        .sub_file_path = "test",
+        .source = source,
+        .tree = tree,
+        .zir = zir,
+    };
     try renderAsText(gpa, &file, &output);
 
     try std.testing.expectEqualStrings(expected, output.items[0 .. output.items.len - 1]);
@@ -2849,10 +2899,9 @@ test "assign" {
 test "lambda" {
     try testZir("{}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %3 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\  }, {
-        \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:3
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
+        \\    %3 = ret_implicit(@null) token_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:3
         \\})
     );
@@ -2865,30 +2914,27 @@ test "lambda" {
     );
     try testZir("{[x]}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %3 = param_node("x") node_offset:1:3 to :1:4
-        \\  }, {
-        \\    %2 = ret_implicit(@null) token_offset:1:5 to :1:6
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
         \\})
     );
     try testZir("{[x;y]}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %3 = param_node("x") node_offset:1:3 to :1:4
-        \\    %4 = param_node("y") node_offset:1:5 to :1:6
-        \\  }, {
-        \\    %2 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\})
     );
 
     try testZir("{1}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %3 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\  }, {
-        \\    %2 = ret_node(@one) node_offset:1:2 to :1:3
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
+        \\    %3 = ret_node(@one) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\})
     );
@@ -2901,31 +2947,28 @@ test "lambda" {
     );
     try testZir("{[x]1}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %3 = param_node("x") node_offset:1:3 to :1:4
-        \\  }, {
-        \\    %2 = ret_node(@one) node_offset:1:5 to :1:6
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = ret_node(@one) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]1}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %3 = param_node("x") node_offset:1:3 to :1:4
-        \\    %4 = param_node("y") node_offset:1:5 to :1:6
-        \\  }, {
-        \\    %2 = ret_node(@one) node_offset:1:7 to :1:8
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = ret_node(@one) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
 
     try testZir("{2}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\  }, {
-        \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
+        \\    %3 = long(2)
+        \\    %4 = ret_node(%3) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\})
     );
@@ -2939,33 +2982,30 @@ test "lambda" {
     );
     try testZir("{[x]2}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\  }, {
-        \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = long(2)
+        \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]2}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\    %5 = param_node("y") node_offset:1:5 to :1:6
-        \\  }, {
-        \\    %2 = long(2)
-        \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = long(2)
+        \\    %5 = ret_node(%4) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
 
     try testZir("{x}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\  }, {
-        \\    %2 = identifier("x") token_offset:1:2 to :1:3
-        \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
+        \\    %3 = identifier("x") token_offset:1:2 to :1:3
+        \\    %4 = ret_node(%3) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\})
     );
@@ -2979,34 +3019,29 @@ test "lambda" {
     );
     try testZir("{[x]x}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\  }, {
-        \\    %2 = identifier("x") token_offset:1:5 to :1:6
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]x}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\    %5 = param_node("y") node_offset:1:5 to :1:6
-        \\  }, {
-        \\    %2 = identifier("x") token_offset:1:7 to :1:8
-        \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = ret_node(%2) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
 
     try testZir("{y}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\    %5 = param_implicit(@y) token_offset:1:1 to :1:2
-        \\  }, {
-        \\    %2 = identifier("y") token_offset:1:2 to :1:3
-        \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
+        \\    %3 = param_implicit(@y) token_offset:1:1 to :1:2
+        \\    %4 = identifier("y") token_offset:1:2 to :1:3
+        \\    %5 = ret_node(%4) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\})
     );
@@ -3020,35 +3055,31 @@ test "lambda" {
     );
     try testZir("{[x]y}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\  }, {
-        \\    %2 = identifier("y") token_offset:1:5 to :1:6
-        \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = identifier("y") token_offset:1:5 to :1:6
+        \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]y}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\    %5 = param_node("y") node_offset:1:5 to :1:6
-        \\  }, {
-        \\    %2 = identifier("y") token_offset:1:7 to :1:8
-        \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = ret_node(%3) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
 
     try testZir("{z}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\    %5 = param_implicit(@y) token_offset:1:1 to :1:2
-        \\    %6 = param_implicit(@z) token_offset:1:1 to :1:2
-        \\  }, {
-        \\    %2 = identifier("z") token_offset:1:2 to :1:3
-        \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
+        \\    %3 = param_implicit(@y) token_offset:1:1 to :1:2
+        \\    %4 = param_implicit(@z) token_offset:1:1 to :1:2
+        \\    %5 = identifier("z") token_offset:1:2 to :1:3
+        \\    %6 = ret_node(%5) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\})
     );
@@ -3062,22 +3093,20 @@ test "lambda" {
     );
     try testZir("{[x]z}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\  }, {
-        \\    %2 = identifier("z") token_offset:1:5 to :1:6
-        \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = identifier("z") token_offset:1:5 to :1:6
+        \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\})
     );
     try testZir("{[x;y]z}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %4 = param_node("x") node_offset:1:3 to :1:4
-        \\    %5 = param_node("y") node_offset:1:5 to :1:6
-        \\  }, {
-        \\    %2 = identifier("z") token_offset:1:7 to :1:8
-        \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = identifier("z") token_offset:1:7 to :1:8
+        \\    %5 = ret_node(%4) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
@@ -3086,17 +3115,16 @@ test "lambda" {
 test "too many parameters" {
     try testZir("{[a;b;c;d;e;f;g;h]}",
         \\%0 = file({
-        \\  %1 = lambda(params={
-        \\    %3 = param_node("a") node_offset:1:3 to :1:4
-        \\    %4 = param_node("b") node_offset:1:5 to :1:6
-        \\    %5 = param_node("c") node_offset:1:7 to :1:8
-        \\    %6 = param_node("d") node_offset:1:9 to :1:10
-        \\    %7 = param_node("e") node_offset:1:11 to :1:12
-        \\    %8 = param_node("f") node_offset:1:13 to :1:14
-        \\    %9 = param_node("g") node_offset:1:15 to :1:16
-        \\    %10 = param_node("h") node_offset:1:17 to :1:18
-        \\  }, {
-        \\    %2 = ret_implicit(@null) token_offset:1:19 to :1:20
+        \\  %1 = lambda({
+        \\    %2 = param_node("a") node_offset:1:3 to :1:4
+        \\    %3 = param_node("b") node_offset:1:5 to :1:6
+        \\    %4 = param_node("c") node_offset:1:7 to :1:8
+        \\    %5 = param_node("d") node_offset:1:9 to :1:10
+        \\    %6 = param_node("e") node_offset:1:11 to :1:12
+        \\    %7 = param_node("f") node_offset:1:13 to :1:14
+        \\    %8 = param_node("g") node_offset:1:15 to :1:16
+        \\    %9 = param_node("h") node_offset:1:17 to :1:18
+        \\    %10 = ret_implicit(@null) token_offset:1:19 to :1:20
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
         \\})
     );
@@ -3113,6 +3141,7 @@ test "too many parameters" {
 }
 
 test "declared after use / use of undeclared identifier" {
+    if (true) return error.SkipZigTest;
     try testZir("{[]a}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -3174,9 +3203,21 @@ test "declared after use / use of undeclared identifier" {
 }
 
 test "redeclaration of function parameter" {
-    try failZir("{[a;a]}",
-        \\test:1:5: error: redeclaration of function parameter 'a'
+    try warnZir("{[a;a]}",
+        \\test:1:5: warn: redeclaration of function parameter 'a'
         \\{[a;a]}
         \\    ^
+        \\test:1:3: note: previous declaration here
+        \\{[a;a]}
+        \\  ^
+        \\test:1:3: warn: unused function parameter
+        \\{[a;a]}
+        \\  ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("a") node_offset:1:3 to :1:4
+        \\    %3 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
     );
 }
