@@ -3141,7 +3141,6 @@ test "too many parameters" {
 }
 
 test "declared after use / use of undeclared identifier" {
-    if (true) return error.SkipZigTest;
     try testZir("{[]a}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -3200,6 +3199,20 @@ test "declared after use / use of undeclared identifier" {
         \\  a:1;
         \\  ^
     );
+    try failZir(
+        \\{[]
+        \\  a::1;
+        \\  a:1;
+        \\  }
+    ,
+        \\test:2:3: error: use of undeclared identifier 'a'
+        \\  a::1;
+        \\  ^
+        \\test:3:3: note: identifier declared here
+        \\  a:1;
+        \\  ^
+    );
+}
 }
 
 test "redeclaration of function parameter" {
