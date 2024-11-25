@@ -3283,3 +3283,42 @@ test "redeclaration of function parameter" {
         \\})
     );
 }
+
+test "misleading global assign" {
+    try warnZir("{[x]x::1}",
+        \\test:1:6: warn: misleading global-assign of function parameter 'x'
+        \\{[x]x::1}
+        \\    ~^~~
+        \\test:1:3: note: function parameter declared here
+        \\{[x]x::1}
+        \\  ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = global_assign(%2, @one) node_offset:1:5 to :1:9
+        \\    %4 = ret_node(%3) node_offset:1:5 to :1:9
+        \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\})
+    );
+    try warnZir(
+        \\{[]
+        \\  a:1;
+        \\  a::1;
+        \\  }
+    ,
+        \\test:3:4: warn: misleading global-assign of local variable 'a'
+        \\  a::1;
+        \\  ~^~~
+        \\test:2:3: note: local variable declared here
+        \\  a:1;
+        \\  ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:2:3 to :2:4
+        \\    %3 = assign(%2, @one) node_offset:2:3 to :2:6
+        \\    %4 = global_assign(%2, @one) node_offset:3:3 to :3:7
+        \\    %5 = ret_implicit(@null) token_offset:4:3 to :4:4
+        \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
+        \\})
+    );
+}
