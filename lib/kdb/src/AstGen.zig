@@ -297,7 +297,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.
     defer fn_gz.unstack();
 
     var params_scope = &fn_gz.base;
-    if (full_lambda.params) |p| {
+    const params_len: u32 = if (full_lambda.params) |p| params_len: {
         if (p.params.len > 8) return astgen.failNode(
             p.params[8],
             "too many parameters (8 max)",
@@ -309,26 +309,217 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.
             if (node_tags[param_node] == .identifier) {
                 const param_token = main_tokens[param_node];
                 const param_name = try astgen.identAsString(param_token);
-                const param_inst = try fn_gz.addStrNode(.param_node, param_name, param_node);
 
-                const sub_scope = try astgen.arena.create(Scope.LocalVal);
-                sub_scope.* = .{
-                    .parent = params_scope,
-                    .gen_zir = &fn_gz,
-                    .name = param_name,
-                    .inst = param_inst,
-                    .token_src = param_token,
-                    .id_cat = .@"function parameter",
+                var found = false;
+                var s = params_scope;
+                while (true) switch (s.tag) {
+                    .local_val => {
+                        const local_val = s.cast(Scope.LocalVal).?;
+
+                        if (local_val.name == param_name) {
+                            try astgen.appendErrorNodeNotes(
+                                param_node,
+                                "redeclaration of function parameter '{s}'",
+                                .{tree.tokenSlice(main_tokens[param_node])},
+                                &.{
+                                    try astgen.errNoteTok(
+                                        local_val.token_src,
+                                        "previous declaration here",
+                                        .{},
+                                    ),
+                                },
+                                .warn,
+                            );
+                            found = true;
+                            break;
+                        }
+                        s = local_val.parent;
+                    },
+                    .gen_zir => break,
+                    .namespace => unreachable,
+                    .top => unreachable,
                 };
-                params_scope = &sub_scope.base;
+                if (!found) {
+                    const param_inst = try fn_gz.addStrNode(.param_node, param_name, param_node);
+
+                    const sub_scope = try astgen.arena.create(Scope.LocalVal);
+                    sub_scope.* = .{
+                        .parent = params_scope,
+                        .gen_zir = &fn_gz,
+                        .name = param_name,
+                        .inst = param_inst,
+                        .token_src = param_token,
+                        .id_cat = .@"function parameter",
+                    };
+                    params_scope = &sub_scope.base;
+                }
             } else {
                 assert(node_tags[param_node] == .empty);
                 assert(p.params.len == 1);
             }
         }
-    } else {
-        unreachable; // NYI
-    }
+
+        break :params_len @intCast(p.params.len);
+    } else params_len: {
+        var found_y = false;
+        var found_z = false;
+
+        // TODO: Finish traversal.
+        for (full_lambda.body) |body_node| {
+            switch (node_tags[body_node]) {
+                .root => unreachable,
+                .empty => {},
+
+                .grouped_expression => unreachable,
+                .empty_list => unreachable,
+                .list => unreachable,
+                .table_literal => unreachable,
+
+                .lambda => unreachable,
+                .lambda_semicolon => unreachable,
+
+                .expr_block => unreachable,
+
+                .@"return" => unreachable,
+                .signal => unreachable,
+
+                .assign => unreachable,
+                .global_assign => unreachable,
+
+                .colon => unreachable,
+                .colon_colon => unreachable,
+                .plus => unreachable,
+                .plus_colon => unreachable,
+                .minus => unreachable,
+                .minus_colon => unreachable,
+                .asterisk => unreachable,
+                .asterisk_colon => unreachable,
+                .percent => unreachable,
+                .percent_colon => unreachable,
+                .ampersand => unreachable,
+                .ampersand_colon => unreachable,
+                .pipe => unreachable,
+                .pipe_colon => unreachable,
+                .caret => unreachable,
+                .caret_colon => unreachable,
+                .equal => unreachable,
+                .equal_colon => unreachable,
+                .angle_bracket_left => unreachable,
+                .angle_bracket_left_colon => unreachable,
+                .angle_bracket_left_equal => unreachable,
+                .angle_bracket_left_right => unreachable,
+                .angle_bracket_right => unreachable,
+                .angle_bracket_right_colon => unreachable,
+                .angle_bracket_right_equal => unreachable,
+                .dollar => unreachable,
+                .dollar_colon => unreachable,
+                .comma => unreachable,
+                .comma_colon => unreachable,
+                .hash => unreachable,
+                .hash_colon => unreachable,
+                .underscore => unreachable,
+                .underscore_colon => unreachable,
+                .tilde => unreachable,
+                .tilde_colon => unreachable,
+                .bang => unreachable,
+                .bang_colon => unreachable,
+                .question_mark => unreachable,
+                .question_mark_colon => unreachable,
+                .at => unreachable,
+                .at_colon => unreachable,
+                .period => unreachable,
+                .period_colon => unreachable,
+                .zero_colon => unreachable,
+                .zero_colon_colon => unreachable,
+                .one_colon => unreachable,
+                .one_colon_colon => unreachable,
+                .two_colon => unreachable,
+
+                .apostrophe => unreachable,
+                .apostrophe_colon => unreachable,
+                .slash => unreachable,
+                .slash_colon => unreachable,
+                .backslash => unreachable,
+                .backslash_colon => unreachable,
+
+                .call => unreachable,
+                .apply_unary => unreachable,
+                .apply_binary => unreachable,
+
+                .number_literal => {},
+                .number_list_literal => unreachable,
+                .string_literal => unreachable,
+                .symbol_literal => unreachable,
+                .symbol_list_literal => unreachable,
+                .identifier => {
+                    const param_token = main_tokens[body_node];
+                    const param_slice = tree.tokenSlice(param_token);
+                    if (std.mem.eql(u8, param_slice, "z")) {
+                        found_z = true;
+                        break;
+                    } else if (std.mem.eql(u8, param_slice, "y")) {
+                        found_y = true;
+                    }
+                },
+                .builtin => unreachable,
+
+                .select => unreachable,
+                .exec => unreachable,
+                .update => unreachable,
+                .delete_rows => unreachable,
+                .delete_cols => unreachable,
+
+                .do => unreachable,
+                .@"if" => unreachable,
+                .@"while" => unreachable,
+                .cond => unreachable,
+            }
+        }
+
+        {
+            const param_inst = try fn_gz.addUnTok(.param_implicit, .x, full_lambda.l_brace);
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = params_scope,
+                .gen_zir = &fn_gz,
+                .name = undefined, // TODO
+                .inst = param_inst,
+                .token_src = full_lambda.l_brace,
+                .id_cat = .@"function parameter",
+            };
+            params_scope = &sub_scope.base;
+        }
+
+        if (found_y or found_z) {
+            const param_inst = try fn_gz.addUnTok(.param_implicit, .y, full_lambda.l_brace);
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = params_scope,
+                .gen_zir = &fn_gz,
+                .name = undefined, // TODO
+                .inst = param_inst,
+                .token_src = full_lambda.l_brace,
+                .id_cat = .@"function parameter",
+            };
+            params_scope = &sub_scope.base;
+        }
+
+        if (found_z) {
+            const param_inst = try fn_gz.addUnTok(.param_implicit, .z, full_lambda.l_brace);
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = params_scope,
+                .gen_zir = &fn_gz,
+                .name = undefined, // TODO
+                .inst = param_inst,
+                .token_src = full_lambda.l_brace,
+                .id_cat = .@"function parameter",
+            };
+            params_scope = &sub_scope.base;
+        }
+
+        break :params_len if (found_z) 3 else if (found_y) 2 else 1;
+    };
 
     for (full_lambda.body, 0..) |body_node, i| {
         if (i < full_lambda.body.len - 1) {
@@ -344,76 +535,17 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.
             }
         }
     }
-    try checkUsed(gz, &fn_gz.base, params_scope);
 
-    // var params_gz: GenZir = .{
-    //     .decl_node_index = node,
-    //     .decl_line = astgen.source_line,
-    //     .parent = &gz.base,
-    //     .astgen = astgen,
-    //     .instructions = gz.instructions,
-    //     .instructions_top = gz.instructions.items.len,
-    // };
-    // defer params_gz.unstack();
-
-    // if (full_lambda.params) |p| {
-    //     if (p.params.len > 8) return astgen.failNode(p.params[8], "too many parameters (8 max)", .{});
-    //
-    // var hash_map: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, void) = .empty;
-    // defer hash_map.deinit(astgen.gpa);
-    // for (p.params) |param_node| {
-    //     if (node_tags[param_node] == .identifier) {
-    //         const param_name = try astgen.identAsString(main_tokens[param_node]);
-    //         const gop = try hash_map.getOrPut(astgen.gpa, param_name);
-    //         if (gop.found_existing) {
-    //             return astgen.failNode(
-    //                 param_node,
-    //                 "redeclaration of function parameter '{s}'",
-    //                 .{tree.tokenSlice(main_tokens[param_node])},
-    //             );
-    //         }
-
-    //         _ = try params_gz.addStrNode(.param_node, param_name, param_node);
-    //     } else {
-    //         assert(node_tags[param_node] == .empty);
-    //         assert(p.params.len == 1);
-    //     }
-    // }
-    // } else {
-    //     var found_y = false;
-    //     var found_z = false;
-    //     const zir_tags: []Zir.Inst.Tag = astgen.instructions.items(.tag);
-    //     for (fn_gz.instructionsSlice()) |inst| {
-    //         switch (zir_tags[@intFromEnum(inst)]) {
-    //             .identifier => {
-    //                 const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
-    //                 const index = zir_datas[@intFromEnum(inst)].str_tok.start;
-    //                 const slice = astgen.string_bytes.items[@intFromEnum(index)..];
-    //                 const str = slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
-    //                 if (std.mem.eql(u8, str, "z")) {
-    //                     found_z = true;
-    //                     break;
-    //                 } else if (std.mem.eql(u8, str, "y")) {
-    //                     found_y = true;
-    //                 }
-    //             },
-    //             else => {},
-    //         }
-    //     }
-
-    //     _ = try params_gz.addUnTok(.param_implicit, .x, full_lambda.l_brace);
-    //     if (found_z) {
-    //         _ = try params_gz.addUnTok(.param_implicit, .y, full_lambda.l_brace);
-    //         _ = try params_gz.addUnTok(.param_implicit, .z, full_lambda.l_brace);
-    //     } else if (found_y) {
-    //         _ = try params_gz.addUnTok(.param_implicit, .y, full_lambda.l_brace);
-    //     }
-    // }
+    // Only check parameter references for explicit parameters.
+    if (full_lambda.params != null) {
+        try checkUsed(gz, &fn_gz.base, params_scope);
+    }
 
     try gz.setLambda(lambda_inst, .{
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
         .rbrace = full_lambda.r_brace,
+        .params_len = params_len,
         .body_gz = &fn_gz,
     });
 
@@ -545,14 +677,14 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.I
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     const ident_token = main_tokens[node];
-    const name_str_index = try astgen.identAsString(ident_token);
+    const ident_name = try astgen.identAsString(ident_token);
 
     var s = scope;
     while (true) switch (s.tag) {
         .local_val => {
             const local_val = s.cast(Scope.LocalVal).?;
 
-            if (local_val.name == name_str_index) {
+            if (local_val.name == ident_name) {
                 if (local_val.used == 0) {
                     local_val.used = ident_token;
                 }
@@ -562,11 +694,11 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.I
             s = local_val.parent;
         },
         .gen_zir => break,
-        .namespace => unreachable,
+        .namespace => break,
         .top => unreachable,
     };
 
-    return gz.addStrTok(.identifier, name_str_index, ident_token);
+    return gz.addStrTok(.identifier, ident_name, ident_token);
 }
 
 fn lowerAstErrors(astgen: *AstGen) !void {
@@ -589,7 +721,7 @@ fn lowerAstErrors(astgen: *AstGen) !void {
         try tree.renderError(note, msg.writer(gpa));
         try notes.append(
             gpa,
-            try astgen.errNoteTok(note.token, "{s}", .{msg.items}, .@"error"),
+            try astgen.errNoteTok(note.token, "{s}", .{msg.items}),
         );
     }
 
@@ -785,6 +917,7 @@ const GenZir = struct {
         lbrace_line: u32,
         lbrace_column: u32,
         rbrace: Ast.Token.Index,
+        params_len: u32,
         body_gz: *GenZir,
     }) !void {
         const astgen = gz.astgen;
@@ -817,7 +950,7 @@ const GenZir = struct {
         );
 
         zir_datas[@intFromEnum(inst)].lambda.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Lambda{
-            .params_len = 0,
+            .params_len = args.params_len,
             .body_len = body_len,
         });
         // astgen.appendBodyWithFixups(params);
@@ -1042,8 +1175,9 @@ fn appendErrorNode(
     node: Ast.Node.Index,
     comptime format: []const u8,
     args: anytype,
+    kind: Zir.Inst.CompileErrors.Kind,
 ) Allocator.Error!void {
-    try astgen.appendErrorNodeNotes(node, format, args, &[0]u32{});
+    try astgen.appendErrorNodeNotes(node, format, args, &[0]u32{}, kind);
 }
 
 fn appendErrorNodeNotes(
@@ -1200,9 +1334,8 @@ fn errNoteTok(
     token: Ast.Token.Index,
     comptime format: []const u8,
     args: anytype,
-    kind: Zir.Inst.CompileErrors.Kind,
 ) Allocator.Error!u32 {
-    return errNoteTokOff(astgen, token, 0, format, args, kind);
+    return errNoteTokOff(astgen, token, 0, format, args);
 }
 
 fn errNoteTokOff(
@@ -1211,7 +1344,6 @@ fn errNoteTokOff(
     byte_offset: u32,
     comptime format: []const u8,
     args: anytype,
-    kind: Zir.Inst.CompileErrors.Kind,
 ) Allocator.Error!u32 {
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
@@ -1223,7 +1355,7 @@ fn errNoteTokOff(
         .token = token,
         .byte_offset = byte_offset,
         .notes = 0,
-        .kind = kind,
+        .kind = .note,
     });
 }
 
@@ -1243,6 +1375,7 @@ fn errNoteNode(
         .token = 0,
         .byte_offset = 0,
         .notes = 0,
+        .kind = .note,
     });
 }
 

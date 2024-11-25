@@ -317,9 +317,8 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 1. params: Index // for each params_len
-    /// 2. body: Index // for each body_len
-    /// 3. src_locs: SrcLocs
+    /// 1. body: Index // for each body_len
+    /// 2. src_locs: SrcLocs
     pub const Lambda = struct {
         params_len: u32,
         body_len: u32,
