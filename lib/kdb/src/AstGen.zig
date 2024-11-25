@@ -293,17 +293,15 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.
         .astgen = astgen,
         .instructions = gz.instructions,
         .instructions_top = gz.instructions.items.len,
+        .locals = .empty,
     };
     defer fn_gz.unstack();
 
+    try fn_gz.scanLocals(full_lambda.body);
+
     var params_scope = &fn_gz.base;
     const params_len: u32 = if (full_lambda.params) |p| params_len: {
-        if (p.params.len > 8) return astgen.failNode(
-            p.params[8],
-            "too many parameters (8 max)",
-            .{},
-            .@"error",
-        );
+        if (p.params.len > 8) return astgen.failNode(p.params[8], "too many parameters (8 max)", .{});
 
         for (p.params) |param_node| {
             if (node_tags[param_node] == .identifier) {
@@ -587,12 +585,7 @@ fn assign(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.
     switch (node_tags[data.lhs]) {
         .identifier => {},
         // TODO: a[1]:1
-        else => return astgen.failNode(
-            data.lhs,
-            "invalid left-hand side to assignment",
-            .{},
-            .@"error",
-        ),
+        else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
     }
     const rhs = try expr(gz, scope, data.rhs);
     const lhs = try expr(gz, scope, data.lhs);
@@ -680,7 +673,7 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.I
     const ident_name = try astgen.identAsString(ident_token);
 
     var s = scope;
-    while (true) switch (s.tag) {
+    while (s != &gz.base) switch (s.tag) {
         .local_val => {
             const local_val = s.cast(Scope.LocalVal).?;
 
@@ -697,6 +690,15 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.I
         .namespace => break,
         .top => unreachable,
     };
+
+    if (astgen.within_fn) {
+        if (gz.locals.?.get(ident_name)) |ident_tok| {
+            const ident_slice = tree.tokenSlice(ident_token);
+            return astgen.failNodeNotes(node, "use of undeclared identifier '{s}'", .{ident_slice}, &.{
+                try astgen.errNoteTok(ident_tok, "identifier declared here", .{}),
+            });
+        }
+    }
 
     return gz.addStrTok(.identifier, ident_name, ident_token);
 }
@@ -766,6 +768,7 @@ const Scope = struct {
     const IdCat = enum {
         @"function parameter",
         @"local variable",
+        @"global variable",
     };
 
     /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.
@@ -825,7 +828,7 @@ const GenZir = struct {
     decl_node_index: Ast.Node.Index,
     /// The containing decl line index, absolute.
     decl_line: u32,
-    /// TODO: Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Namespace`.
+    /// Parents can be: `LocalVal`, `GenZir`, `Namespace`.
     parent: *Scope,
     /// All `GenZir` scopes for the same ZIR share this.
     astgen: *AstGen,
@@ -835,6 +838,7 @@ const GenZir = struct {
     /// A sub-block may share its instructions ArrayList with containing GenZir,
     /// if use is strictly nested. This saves prior size of list for unstacking.
     instructions_top: usize,
+    locals: ?std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Token.Index) = null,
 
     const unstacked_top = std.math.maxInt(usize);
     /// Call unstack before adding any new instructions to containing GenZir.
@@ -842,6 +846,10 @@ const GenZir = struct {
         if (self.instructions_top != unstacked_top) {
             self.instructions.items.len = self.instructions_top;
             self.instructions_top = unstacked_top;
+        }
+        if (self.locals) |*locals| {
+            locals.deinit(self.astgen.gpa);
+            self.locals = null;
         }
     }
 
@@ -1091,6 +1099,125 @@ const GenZir = struct {
 
         return new_index;
     }
+
+    fn scanLocals(gz: *GenZir, body_nodes: []const Ast.Node.Index) !void {
+        const astgen = gz.astgen;
+        assert(astgen.within_fn);
+        const gpa = astgen.gpa;
+        const tree = astgen.tree;
+        const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+        const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+        const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+        var identifiers = std.ArrayList(Ast.Node.Index).init(gpa);
+        defer identifiers.deinit();
+
+        // TODO: Finish traversal.
+        var it = std.mem.reverseIterator(body_nodes);
+        while (it.next()) |body_node| {
+            var stack = std.ArrayList(Ast.Node.Index).init(gpa);
+            defer stack.deinit();
+
+            try stack.append(body_node);
+            while (stack.popOrNull()) |node| {
+                switch (node_tags[node]) {
+                    .root => unreachable,
+                    .empty => {},
+
+                    .grouped_expression => try stack.append(node_datas[node].lhs),
+                    .empty_list => {},
+                    .list => {
+                        const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
+                        const slice = tree.extra_data[sub_range.start..sub_range.end];
+                        try stack.appendSlice(slice);
+                    },
+                    .table_literal => {},
+
+                    .lambda => {},
+                    .lambda_semicolon => {},
+
+                    .expr_block => {
+                        const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
+                        const slice = tree.extra_data[sub_range.start..sub_range.end];
+                        try stack.ensureUnusedCapacity(slice.len);
+                        var inner_it = std.mem.reverseIterator(slice);
+                        while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
+                    },
+
+                    .@"return",
+                    .signal,
+                    => try stack.append(node_datas[node].rhs),
+
+                    .assign => {
+                        const data = node_datas[node];
+                        try stack.append(data.rhs);
+                        if (node_tags[data.lhs] == .identifier) {
+                            try identifiers.append(data.lhs);
+                        } else {
+                            assert(node_tags[data.lhs] == .call);
+                            try stack.append(data.lhs);
+                        }
+                    },
+                    .global_assign,
+                    => {
+                        const data = node_datas[node];
+                        try stack.ensureUnusedCapacity(2);
+                        stack.appendAssumeCapacity(data.rhs);
+                        stack.appendAssumeCapacity(data.lhs);
+                    },
+
+                    .call,
+                    .apply_unary,
+                    => {
+                        const data = node_datas[node];
+                        try stack.ensureUnusedCapacity(2);
+                        stack.appendAssumeCapacity(data.rhs);
+                        stack.appendAssumeCapacity(data.lhs);
+                    },
+                    .apply_binary => {
+                        const data = node_datas[node];
+                        try stack.ensureUnusedCapacity(3);
+                        stack.appendAssumeCapacity(data.rhs);
+                        stack.appendAssumeCapacity(main_tokens[node]);
+                        stack.appendAssumeCapacity(data.lhs);
+                    },
+
+                    // TODO: select from a:([]til 10)
+                    .select => unreachable,
+                    .exec => unreachable,
+                    .update => unreachable,
+                    .delete_rows => unreachable,
+                    .delete_cols => unreachable,
+
+                    .do,
+                    .@"if",
+                    .@"while",
+                    => {
+                        const data = node_datas[node];
+                        const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+                        const slice = tree.extra_data[sub_range.start..sub_range.end];
+                        try stack.ensureUnusedCapacity(slice.len + 1);
+                        var inner_it = std.mem.reverseIterator(slice);
+                        while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
+                        stack.appendAssumeCapacity(data.lhs);
+                    },
+                    // TODO: cond
+                    .cond => unreachable,
+
+                    else => {},
+                }
+            }
+        }
+
+        while (identifiers.popOrNull()) |ident_node| {
+            const ident_token = main_tokens[ident_node];
+            const ident_name = try astgen.identAsString(ident_token);
+            const gop = try gz.locals.?.getOrPut(gpa, ident_name);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = ident_token;
+            }
+        }
+    }
 };
 
 /// Advances the source cursor to the beginning of `node`.
@@ -1165,9 +1292,8 @@ fn failNode(
     node: Ast.Node.Index,
     comptime format: []const u8,
     args: anytype,
-    kind: Zir.Inst.CompileErrors.Kind,
 ) InnerError {
-    return astgen.failNodeNotes(node, format, args, &[0]u32{}, kind);
+    return astgen.failNodeNotes(node, format, args, &[0]u32{});
 }
 
 fn appendErrorNode(
@@ -1220,9 +1346,8 @@ fn failNodeNotes(
     comptime format: []const u8,
     args: anytype,
     notes: []const u32,
-    kind: Zir.Inst.CompileErrors.Kind,
 ) InnerError {
-    try appendErrorNodeNotes(astgen, node, format, args, notes, kind);
+    try appendErrorNodeNotes(astgen, node, format, args, notes, .@"error");
     return error.AnalysisFail;
 }
 
