@@ -230,14 +230,16 @@ fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
     for (tree.getBlocks()) |node| {
         // TODO: Namespace block.
         // TODO: Something should wrap expr to return an index to show or discard value.
-        _ = try expr(gz, &namespace.base, node);
+        _, _ = try expr(gz, &namespace.base, node);
     }
     try gz.setFile(file_inst);
 
     return file_inst.toRef();
 }
 
-fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+const Result = struct { Zir.Inst.Ref, *Scope };
+
+fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
@@ -254,11 +256,11 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Re
         .assign => return assign(gz, scope, node),
         .global_assign => return globalAssign(gz, scope, node),
 
-        .call => return call(gz, node),
+        .call => return .{ try call(gz, node), scope },
 
         .apply_binary => return applyBinary(gz, scope, node),
 
-        .number_literal => return numberLiteral(gz, node),
+        .number_literal => return .{ try numberLiteral(gz, node), scope },
 
         .identifier => return identifier(gz, scope, node),
 
@@ -268,7 +270,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Re
     unreachable;
 }
 
-fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
@@ -521,11 +523,11 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.
 
     for (full_lambda.body, 0..) |body_node, i| {
         if (i < full_lambda.body.len - 1) {
-            _ = try expr(&fn_gz, params_scope, body_node);
+            _, params_scope = try expr(&fn_gz, params_scope, body_node);
         } else if (node_tags[body_node] == .empty) {
             _ = try fn_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
         } else {
-            const ref = try expr(&fn_gz, params_scope, body_node);
+            const ref, params_scope = try expr(&fn_gz, params_scope, body_node);
             if (node_tags[node] == .lambda) {
                 _ = try fn_gz.addUnNode(.ret_node, ref, body_node);
             } else {
@@ -547,7 +549,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.
         .body_gz = &fn_gz,
     });
 
-    return lambda_inst.toRef();
+    return .{ lambda_inst.toRef(), scope };
 }
 
 fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope) InnerError!void {
@@ -575,34 +577,93 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope) InnerError!v
     }
 }
 
-fn assign(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     const data = node_datas[node];
+    var scope = parent_scope;
+    const rhs, scope = try expr(gz, scope, data.rhs);
+    const lhs, scope = try expr(gz, scope, data.lhs);
+
     switch (node_tags[data.lhs]) {
-        .identifier => {},
+        .identifier => {
+            const ident_token = main_tokens[data.lhs];
+            const ident_name = try astgen.identAsString(ident_token);
+
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = scope,
+                .gen_zir = gz,
+                .name = ident_name,
+                .inst = lhs,
+                .token_src = ident_token,
+                .id_cat = .@"local variable",
+            };
+            scope = &sub_scope.base;
+        },
         // TODO: a[1]:1
+        .call => unreachable,
         else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
     }
-    const rhs = try expr(gz, scope, data.rhs);
-    const lhs = try expr(gz, scope, data.lhs);
 
-    return gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+    return .{ try gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope };
 }
 
-fn globalAssign(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     const data = node_datas[node];
-    const rhs = try expr(gz, scope, data.rhs);
-    const lhs = try expr(gz, scope, data.lhs);
+    var scope = parent_scope;
+    const rhs, scope = try expr(gz, scope, data.rhs);
+    const lhs, scope = try expr(gz, scope, data.lhs);
+    switch (node_tags[data.lhs]) {
+        .identifier => {
+            if (astgen.within_fn) {
+                const ident_token = main_tokens[data.lhs];
+                const ident_name = try astgen.identAsString(ident_token);
 
-    return gz.addPlNode(.global_assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+                var s = scope;
+                while (s != &gz.base) switch (s.tag) {
+                    .local_val => {
+                        const local_val = s.cast(Scope.LocalVal).?;
+
+                        if (local_val.name == ident_name) {
+                            try astgen.appendErrorNodeNotes(
+                                node,
+                                "misleading global-assign of {s} '{s}'",
+                                .{ @tagName(local_val.id_cat), tree.tokenSlice(ident_token) },
+                                &.{
+                                    try astgen.errNoteTok(
+                                        local_val.token_src,
+                                        "{s} declared here",
+                                        .{@tagName(local_val.id_cat)},
+                                    ),
+                                },
+                                .warn,
+                            );
+                        }
+                        s = local_val.parent;
+                    },
+                    .gen_zir => break,
+                    .namespace => break,
+                    .top => unreachable,
+                };
+            }
+        },
+        // TODO: call
+        .call => unreachable,
+        else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
+    }
+
+    return .{ try gz.addPlNode(.global_assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope };
 }
 
 fn call(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -616,7 +677,7 @@ fn call(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     return call_inst.toRef();
 }
 
-fn applyBinary(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
@@ -624,8 +685,9 @@ fn applyBinary(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     const data = node_datas[node];
-    const rhs = try expr(gz, scope, data.rhs);
-    const lhs = try expr(gz, scope, data.lhs);
+    var scope = parent_scope;
+    const rhs, scope = try expr(gz, scope, data.rhs);
+    const lhs, scope = try expr(gz, scope, data.lhs);
     const op: Ast.Node.Index = main_tokens[node];
     const tag: Zir.Inst.Tag = switch (node_tags[op]) {
         .plus => .add,
@@ -633,7 +695,7 @@ fn applyBinary(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.
         else => |t| @panic(@tagName(t)),
     };
 
-    return gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+    return .{ try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope };
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -664,7 +726,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     return result;
 }
 
-fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -682,7 +744,7 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.I
                     local_val.used = ident_token;
                 }
 
-                return local_val.inst;
+                return .{ local_val.inst, scope };
             }
             s = local_val.parent;
         },
@@ -692,15 +754,21 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.I
     };
 
     if (astgen.within_fn) {
-        if (gz.locals.?.get(ident_name)) |ident_tok| {
-            const ident_slice = tree.tokenSlice(ident_token);
-            return astgen.failNodeNotes(node, "use of undeclared identifier '{s}'", .{ident_slice}, &.{
-                try astgen.errNoteTok(ident_tok, "identifier declared here", .{}),
-            });
+        if (gz.locals.?.get(ident_name)) |decl_token| {
+            if (ident_token != decl_token) {
+                return astgen.failNodeNotes(
+                    node,
+                    "use of undeclared identifier '{s}'",
+                    .{tree.tokenSlice(ident_token)},
+                    &.{
+                        try astgen.errNoteTok(decl_token, "identifier declared here", .{}),
+                    },
+                );
+            }
         }
     }
 
-    return gz.addStrTok(.identifier, ident_name, ident_token);
+    return .{ try gz.addStrTok(.identifier, ident_name, ident_token), scope };
 }
 
 fn lowerAstErrors(astgen: *AstGen) !void {
