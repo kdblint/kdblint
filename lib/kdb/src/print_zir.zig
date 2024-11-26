@@ -3397,6 +3397,47 @@ test "unused function parameter" {
     );
 }
 
+test "unused local variable" {
+    try warnZir(
+        \\{[]
+        \\  a:1;
+        \\  }
+    ,
+        \\test:2:3: warn: unused local variable
+        \\  a:1;
+        \\  ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:2:3 to :2:4
+        \\    %3 = assign(%2, @one) node_offset:2:3 to :2:6
+        \\    %4 = ret_implicit(@null) token_offset:3:3 to :3:4
+        \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
+        \\})
+    );
+    try warnZir(
+        \\{[]
+        \\  a:1;
+        \\  a:2;
+        \\  }
+    ,
+        \\test:2:3: warn: unused local variable
+        \\  a:1;
+        \\  ^
+        \\test:3:3: warn: unused local variable
+        \\  a:2;
+        \\  ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:2:3 to :2:4
+        \\    %3 = assign(%2, @one) node_offset:2:3 to :2:6
+        \\    %4 = long(2)
+        \\    %5 = assign(%2, %4) node_offset:3:3 to :3:6
+        \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
+        \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
+        \\})
+    );
+}
+
 test "redeclaration of function parameter" {
     try warnZir("{[a;a]}",
         \\test:1:5: warn: redeclaration of function parameter 'a'
