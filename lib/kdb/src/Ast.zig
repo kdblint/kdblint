@@ -1378,12 +1378,14 @@ pub const Node = struct {
 
 pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
     assert(node != 0);
-    return tokensToSpan(
-        tree,
-        tree.firstToken(node),
-        tree.lastToken(node),
-        tree.nodes.items(.main_token)[node],
-    );
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+    const main = switch (node_tags[node]) {
+        .apply_unary => tree.firstToken(node),
+        .apply_binary => tree.firstToken(main_tokens[node]),
+        else => main_tokens[node],
+    };
+    return tokensToSpan(tree, tree.firstToken(node), tree.lastToken(node), main);
 }
 
 pub fn tokensToSpan(tree: *const Ast, start: Ast.Token.Index, end: Ast.Token.Index, main: Ast.Token.Index) Span {

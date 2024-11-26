@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 const StringIndexContext = std.hash_map.StringIndexContext;
+const Timer = std.time.Timer;
 
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
@@ -128,18 +129,22 @@ pub fn generate(gpa: Allocator, tree: Ast) !Zir {
         .instructions_top = 0,
     };
 
-    // The AST -> ZIR lowering process assumes an AST that does not have any
-    // parse errors.
-    if (tree.errors.len == 0) {
-        if (file(&gen_scope, &gen_scope.base)) |file_inst| {
-            assert(file_inst.toIndex().? == .file_inst);
-        } else |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.AnalysisFail => {}, // Handled via compile_errors below.
+    const compile_duration: u64 = compile: {
+        var timer = Timer.start() catch null;
+        // The AST -> ZIR lowering process assumes an AST that does not have any
+        // parse errors.
+        if (tree.errors.len == 0) {
+            if (file(&gen_scope, &gen_scope.base)) |file_inst| {
+                assert(file_inst.toIndex().? == .file_inst);
+            } else |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {}, // Handled via compile_errors below.
+            }
+        } else {
+            try astgen.lowerAstErrors();
         }
-    } else {
-        try astgen.lowerAstErrors();
-    }
+        break :compile if (timer) |*t| t.read() else 0;
+    };
 
     const err_index = @intFromEnum(Zir.ExtraIndex.compile_errors);
     if (astgen.compile_errors.items.len == 0) {
@@ -197,6 +202,7 @@ pub fn generate(gpa: Allocator, tree: Ast) !Zir {
         .instructions = astgen.instructions.toOwnedSlice(),
         .string_bytes = try astgen.string_bytes.toOwnedSlice(gpa),
         .extra = try astgen.extra.toOwnedSlice(gpa),
+        .compile_duration = compile_duration,
     };
 }
 
@@ -264,7 +270,10 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         .identifier => return identifier(gz, scope, node),
 
-        inline else => |t| @panic(@tagName(t)),
+        else => |t| {
+            try astgen.appendErrorNode(node, "NYI: {s}", .{@tagName(t)}, .@"error");
+            return .{ .nyi, scope };
+        },
     }
 
     unreachable;
@@ -272,8 +281,10 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
 fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
+    const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     astgen.advanceSourceCursorToNode(node);
@@ -364,95 +375,77 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         var found_y = false;
         var found_z = false;
 
-        // TODO: Finish traversal.
-        for (full_lambda.body) |body_node| {
-            switch (node_tags[body_node]) {
-                .root => unreachable,
-                .empty => {},
+        var stack = std.ArrayList(Ast.Node.Index).init(gpa);
+        defer stack.deinit();
 
-                .grouped_expression => unreachable,
-                .empty_list => unreachable,
-                .list => unreachable,
+        // We don't care about the order of traversal in this case - we are just looking for identifiers.
+        for (full_lambda.body) |body_node| {
+            try stack.append(body_node);
+            while (stack.popOrNull()) |n| switch (node_tags[n]) {
+                .root => unreachable,
+
+                .grouped_expression => try stack.append(node_datas[n].lhs),
+
+                .list,
+                .expr_block,
+                => {
+                    const sub_range = tree.extraData(node_datas[n].lhs, Ast.Node.SubRange);
+                    const slice = tree.extra_data[sub_range.start..sub_range.end];
+                    try stack.appendSlice(slice);
+                },
+
+                // TODO: table_literal
                 .table_literal => unreachable,
 
-                .lambda => unreachable,
-                .lambda_semicolon => unreachable,
+                .@"return",
+                .signal,
+                => try stack.append(node_datas[n].rhs),
 
-                .expr_block => unreachable,
+                .apostrophe,
+                .apostrophe_colon,
+                .slash,
+                .slash_colon,
+                .backslash,
+                .backslash_colon,
+                => {
+                    const data = node_datas[n];
+                    if (data.lhs != 0) try stack.append(data.lhs);
+                },
 
-                .@"return" => unreachable,
-                .signal => unreachable,
+                .call,
+                .do,
+                .@"if",
+                .@"while",
+                .cond,
+                => {
+                    const data = node_datas[n];
+                    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+                    const slice = tree.extra_data[sub_range.start..sub_range.end];
+                    try stack.ensureUnusedCapacity(slice.len + 1);
+                    stack.appendSliceAssumeCapacity(slice);
+                    stack.appendAssumeCapacity(data.lhs);
+                },
 
-                .assign => unreachable,
-                .global_assign => unreachable,
+                .assign,
+                .global_assign,
+                .apply_unary,
+                => {
+                    const data = node_datas[n];
+                    try stack.ensureUnusedCapacity(2);
+                    stack.appendAssumeCapacity(data.lhs);
+                    stack.appendAssumeCapacity(data.rhs);
+                },
 
-                .colon => unreachable,
-                .colon_colon => unreachable,
-                .plus => unreachable,
-                .plus_colon => unreachable,
-                .minus => unreachable,
-                .minus_colon => unreachable,
-                .asterisk => unreachable,
-                .asterisk_colon => unreachable,
-                .percent => unreachable,
-                .percent_colon => unreachable,
-                .ampersand => unreachable,
-                .ampersand_colon => unreachable,
-                .pipe => unreachable,
-                .pipe_colon => unreachable,
-                .caret => unreachable,
-                .caret_colon => unreachable,
-                .equal => unreachable,
-                .equal_colon => unreachable,
-                .angle_bracket_left => unreachable,
-                .angle_bracket_left_colon => unreachable,
-                .angle_bracket_left_equal => unreachable,
-                .angle_bracket_left_right => unreachable,
-                .angle_bracket_right => unreachable,
-                .angle_bracket_right_colon => unreachable,
-                .angle_bracket_right_equal => unreachable,
-                .dollar => unreachable,
-                .dollar_colon => unreachable,
-                .comma => unreachable,
-                .comma_colon => unreachable,
-                .hash => unreachable,
-                .hash_colon => unreachable,
-                .underscore => unreachable,
-                .underscore_colon => unreachable,
-                .tilde => unreachable,
-                .tilde_colon => unreachable,
-                .bang => unreachable,
-                .bang_colon => unreachable,
-                .question_mark => unreachable,
-                .question_mark_colon => unreachable,
-                .at => unreachable,
-                .at_colon => unreachable,
-                .period => unreachable,
-                .period_colon => unreachable,
-                .zero_colon => unreachable,
-                .zero_colon_colon => unreachable,
-                .one_colon => unreachable,
-                .one_colon_colon => unreachable,
-                .two_colon => unreachable,
+                .apply_binary => {
+                    const data = node_datas[n];
+                    try stack.ensureUnusedCapacity(if (data.rhs != 0) 3 else 2);
+                    stack.appendAssumeCapacity(data.lhs);
+                    stack.appendAssumeCapacity(main_tokens[n]);
+                    if (data.rhs != 0) stack.appendAssumeCapacity(data.rhs);
+                },
 
-                .apostrophe => unreachable,
-                .apostrophe_colon => unreachable,
-                .slash => unreachable,
-                .slash_colon => unreachable,
-                .backslash => unreachable,
-                .backslash_colon => unreachable,
-
-                .call => unreachable,
-                .apply_unary => unreachable,
-                .apply_binary => unreachable,
-
-                .number_literal => {},
-                .number_list_literal => unreachable,
-                .string_literal => unreachable,
-                .symbol_literal => unreachable,
-                .symbol_list_literal => unreachable,
                 .identifier => {
-                    const param_token = main_tokens[body_node];
+                    const param_token = main_tokens[n];
                     const param_slice = tree.tokenSlice(param_token);
                     if (std.mem.eql(u8, param_slice, "z")) {
                         found_z = true;
@@ -461,19 +454,22 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                         found_y = true;
                     }
                 },
-                .builtin => unreachable,
 
-                .select => unreachable,
-                .exec => unreachable,
-                .update => unreachable,
-                .delete_rows => unreachable,
-                .delete_cols => unreachable,
+                inline .select, .exec, .update, .delete_rows, .delete_cols => |t| {
+                    const data = node_datas[n];
+                    const select = tree.extraData(data.lhs, switch (t) {
+                        .select => Ast.Node.Select,
+                        .exec => Ast.Node.Exec,
+                        .update => Ast.Node.Update,
+                        .delete_rows => Ast.Node.DeleteRows,
+                        .delete_cols => Ast.Node.DeleteCols,
+                        else => comptime unreachable,
+                    });
+                    try stack.append(select.from);
+                },
 
-                .do => unreachable,
-                .@"if" => unreachable,
-                .@"while" => unreachable,
-                .cond => unreachable,
-            }
+                else => {},
+            };
         }
 
         {
@@ -586,7 +582,10 @@ fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Re
 
     const data = node_datas[node];
     var scope = parent_scope;
-    const rhs, scope = try expr(gz, scope, data.rhs);
+    const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
+        const rhs, scope = try expr(gz, scope, data.rhs);
+        break :rhs rhs;
+    } else .none;
     const lhs, scope = try expr(gz, scope, data.lhs);
 
     switch (node_tags[data.lhs]) {
@@ -622,8 +621,12 @@ fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
 
     const data = node_datas[node];
     var scope = parent_scope;
-    const rhs, scope = try expr(gz, scope, data.rhs);
+    const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
+        const rhs, scope = try expr(gz, scope, data.rhs);
+        break :rhs rhs;
+    } else .none;
     const lhs, scope = try expr(gz, scope, data.lhs);
+    var is_misleading = false;
     switch (node_tags[data.lhs]) {
         .identifier => {
             if (astgen.within_fn) {
@@ -649,6 +652,7 @@ fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
                                 },
                                 .warn,
                             );
+                            is_misleading = true;
                         }
                         s = local_val.parent;
                     },
@@ -663,7 +667,13 @@ fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
         else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
     }
 
-    return .{ try gz.addPlNode(.global_assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope };
+    const tag: Zir.Inst.Tag = switch (astgen.within_fn) {
+        true => if (is_misleading) .assign else .global_assign,
+        false => .view,
+    };
+    return .{
+        try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope,
+    };
 }
 
 fn call(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -686,13 +696,19 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
 
     const data = node_datas[node];
     var scope = parent_scope;
-    const rhs, scope = try expr(gz, scope, data.rhs);
+    const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
+        const rhs, scope = try expr(gz, scope, data.rhs);
+        break :rhs rhs;
+    } else .none;
     const lhs, scope = try expr(gz, scope, data.lhs);
     const op: Ast.Node.Index = main_tokens[node];
     const tag: Zir.Inst.Tag = switch (node_tags[op]) {
         .plus => .add,
         .asterisk => .multiply,
-        else => |t| @panic(@tagName(t)),
+        else => |t| {
+            try astgen.appendErrorNode(node, "NYI: {s}", .{@tagName(t)}, .@"error");
+            return .{ .nyi, scope };
+        },
     };
 
     return .{ try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope };
@@ -1177,104 +1193,130 @@ const GenZir = struct {
         const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
         const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
+        // Required in order to handle 'a:a:1' correctly.
         var identifiers = std.ArrayList(Ast.Node.Index).init(gpa);
         defer identifiers.deinit();
+        var stack = std.ArrayList(Ast.Node.Index).init(gpa);
+        defer stack.deinit();
 
         // TODO: Finish traversal.
         var it = std.mem.reverseIterator(body_nodes);
         while (it.next()) |body_node| {
-            var stack = std.ArrayList(Ast.Node.Index).init(gpa);
-            defer stack.deinit();
-
+            assert(stack.items.len == 0);
             try stack.append(body_node);
-            while (stack.popOrNull()) |node| {
-                switch (node_tags[node]) {
-                    .root => unreachable,
-                    .empty => {},
+            while (stack.popOrNull()) |node| switch (node_tags[node]) {
+                .root => unreachable,
 
-                    .grouped_expression => try stack.append(node_datas[node].lhs),
-                    .empty_list => {},
-                    .list => {
-                        const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
-                        const slice = tree.extra_data[sub_range.start..sub_range.end];
-                        try stack.appendSlice(slice);
-                    },
-                    .table_literal => {},
+                .grouped_expression => try stack.append(node_datas[node].lhs),
+                .list => {
+                    const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
+                    const slice = tree.extra_data[sub_range.start..sub_range.end];
+                    try stack.appendSlice(slice);
+                },
+                // TODO: ([]x:(a:1 2 3))
+                .table_literal => {
+                    const data = node_datas[node];
+                    const table = tree.extraData(data.lhs, Ast.Node.Table);
+                    const keys_slice = tree.extra_data[table.keys_start..table.keys_end];
+                    _ = keys_slice; // autofix
+                    const columns_slice = tree.extra_data[table.columns_start..table.columns_end];
+                    _ = columns_slice; // autofix
+                },
 
-                    .lambda => {},
-                    .lambda_semicolon => {},
+                .expr_block => {
+                    const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
+                    const slice = tree.extra_data[sub_range.start..sub_range.end];
+                    try stack.ensureUnusedCapacity(slice.len);
+                    var inner_it = std.mem.reverseIterator(slice);
+                    while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
+                },
 
-                    .expr_block => {
-                        const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
-                        const slice = tree.extra_data[sub_range.start..sub_range.end];
-                        try stack.ensureUnusedCapacity(slice.len);
-                        var inner_it = std.mem.reverseIterator(slice);
-                        while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
-                    },
+                .@"return",
+                .signal,
+                => try stack.append(node_datas[node].rhs),
 
-                    .@"return",
-                    .signal,
-                    => try stack.append(node_datas[node].rhs),
+                .assign => {
+                    const data = node_datas[node];
+                    if (node_tags[data.lhs] == .identifier) {
+                        try identifiers.append(data.lhs);
+                    } else {
+                        assert(node_tags[data.lhs] == .call);
+                        try stack.append(data.lhs);
+                    }
+                    try stack.append(data.rhs);
+                },
+                .global_assign,
+                => {
+                    const data = node_datas[node];
+                    try stack.ensureUnusedCapacity(2);
+                    stack.appendAssumeCapacity(data.lhs);
+                    stack.appendAssumeCapacity(data.rhs);
+                },
 
-                    .assign => {
-                        const data = node_datas[node];
-                        try stack.append(data.rhs);
-                        if (node_tags[data.lhs] == .identifier) {
-                            try identifiers.append(data.lhs);
-                        } else {
-                            assert(node_tags[data.lhs] == .call);
-                            try stack.append(data.lhs);
-                        }
-                    },
-                    .global_assign,
-                    => {
-                        const data = node_datas[node];
-                        try stack.ensureUnusedCapacity(2);
-                        stack.appendAssumeCapacity(data.rhs);
-                        stack.appendAssumeCapacity(data.lhs);
-                    },
+                .apostrophe,
+                .apostrophe_colon,
+                .slash,
+                .slash_colon,
+                .backslash,
+                .backslash_colon,
+                => {
+                    const data = node_datas[node];
+                    if (data.lhs != 0) try stack.append(data.lhs);
+                },
 
-                    .call,
-                    .apply_unary,
-                    => {
-                        const data = node_datas[node];
-                        try stack.ensureUnusedCapacity(2);
-                        stack.appendAssumeCapacity(data.rhs);
-                        stack.appendAssumeCapacity(data.lhs);
-                    },
-                    .apply_binary => {
-                        const data = node_datas[node];
-                        try stack.ensureUnusedCapacity(3);
-                        stack.appendAssumeCapacity(data.rhs);
-                        stack.appendAssumeCapacity(main_tokens[node]);
-                        stack.appendAssumeCapacity(data.lhs);
-                    },
+                .call,
+                => {
+                    const data = node_datas[node];
+                    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+                    const slice = tree.extra_data[sub_range.start..sub_range.end];
+                    try stack.ensureUnusedCapacity(slice.len + 1);
+                    stack.appendAssumeCapacity(data.lhs);
+                    stack.appendSliceAssumeCapacity(slice);
+                },
+                .apply_unary,
+                => {
+                    const data = node_datas[node];
+                    try stack.ensureUnusedCapacity(2);
+                    stack.appendAssumeCapacity(data.lhs);
+                    stack.appendAssumeCapacity(data.rhs);
+                },
+                .apply_binary => {
+                    const data = node_datas[node];
+                    try stack.ensureUnusedCapacity(if (data.rhs != 0) 3 else 2);
+                    stack.appendAssumeCapacity(data.lhs);
+                    stack.appendAssumeCapacity(main_tokens[node]);
+                    if (data.rhs != 0) stack.appendAssumeCapacity(data.rhs);
+                },
 
-                    // TODO: select from a:([]til 10)
-                    .select => unreachable,
-                    .exec => unreachable,
-                    .update => unreachable,
-                    .delete_rows => unreachable,
-                    .delete_cols => unreachable,
+                inline .select, .exec, .update, .delete_rows, .delete_cols => |t| {
+                    const data = node_datas[node];
+                    const select = tree.extraData(data.lhs, switch (t) {
+                        .select => Ast.Node.Select,
+                        .exec => Ast.Node.Exec,
+                        .update => Ast.Node.Update,
+                        .delete_rows => Ast.Node.DeleteRows,
+                        .delete_cols => Ast.Node.DeleteCols,
+                        else => comptime unreachable,
+                    });
+                    try stack.append(select.from);
+                },
 
-                    .do,
-                    .@"if",
-                    .@"while",
-                    => {
-                        const data = node_datas[node];
-                        const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
-                        const slice = tree.extra_data[sub_range.start..sub_range.end];
-                        try stack.ensureUnusedCapacity(slice.len + 1);
-                        var inner_it = std.mem.reverseIterator(slice);
-                        while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
-                        stack.appendAssumeCapacity(data.lhs);
-                    },
-                    // TODO: cond
-                    .cond => unreachable,
+                .do,
+                .@"if",
+                .@"while",
+                .cond,
+                => {
+                    const data = node_datas[node];
+                    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+                    const slice = tree.extra_data[sub_range.start..sub_range.end];
+                    try stack.ensureUnusedCapacity(slice.len + 1);
+                    var inner_it = std.mem.reverseIterator(slice);
+                    while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
+                    stack.appendAssumeCapacity(data.lhs);
+                },
 
-                    else => {},
-                }
-            }
+                else => {},
+            };
         }
 
         while (identifiers.popOrNull()) |ident_node| {

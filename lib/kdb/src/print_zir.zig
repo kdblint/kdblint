@@ -210,6 +210,7 @@ const Writer = struct {
 
             .assign,
             .global_assign,
+            .view,
             .add,
             .subtract,
             .multiply,
@@ -2747,6 +2748,7 @@ const Writer = struct {
 };
 
 fn testZir(source: [:0]const u8, expected: []const u8) !void {
+    try noFailZir(source);
     inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
         try testZirMode(@enumFromInt(field.value), source, expected);
     }
@@ -2789,6 +2791,7 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
 }
 
 fn warnZir(source: [:0]const u8, expected: []const u8) !void {
+    try noFailZir(source);
     inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
         try warnZirMode(@enumFromInt(field.value), source, expected);
     }
@@ -2844,6 +2847,7 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
 }
 
 fn failZir(source: [:0]const u8, expected: []const u8) !void {
+    try noFailZir(source);
     inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
         try failZirMode(@enumFromInt(field.value), source, expected);
     }
@@ -2880,6 +2884,84 @@ fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     try std.testing.expectEqual('\n', output.getLast());
 }
 
+fn noFailZir(source: [:0]const u8) !void {
+    inline for (@typeInfo(Ast.Mode).@"enum".fields) |mode_field| {
+        inline for (@typeInfo(Ast.Version).@"enum".fields) |version_field| {
+            try noFailZirModeVersion(
+                @enumFromInt(mode_field.value),
+                @enumFromInt(version_field.value),
+                source,
+            );
+        }
+    }
+}
+
+fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const u8) !void {
+    const gpa = std.testing.allocator;
+
+    const settings: Ast.ParseSettings = .{ .mode = mode, .version = version };
+
+    for (0..source.len) |i| {
+        const src = try gpa.dupeZ(u8, source[0..i]);
+        defer gpa.free(src);
+
+        var tree = try Ast.parse(gpa, src, settings);
+        defer tree.deinit(gpa);
+
+        var zir = try AstGen.generate(gpa, tree);
+        defer zir.deinit(gpa);
+    }
+
+    for (0..source.len) |i| {
+        const src = try gpa.allocSentinel(u8, source.len - 1, 0);
+        defer gpa.free(src);
+
+        @memcpy(src[0..i], source[0..i]);
+        @memcpy(src[i..], source[i + 1 ..]);
+
+        var tree = try Ast.parse(gpa, src, settings);
+        defer tree.deinit(gpa);
+
+        var zir = try AstGen.generate(gpa, tree);
+        defer zir.deinit(gpa);
+    }
+}
+
+test "binary" {
+    try testZir("x+1",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:1 to :1:2
+        \\  %2 = add(%1, @one) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("{[]x+1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:4 to :1:5
+        \\    %3 = add(%2, @one) node_offset:1:4 to :1:7
+        \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+    try testZir("x+2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("x") token_offset:1:1 to :1:2
+        \\  %3 = add(%2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("{[]x+2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = identifier("x") token_offset:1:4 to :1:5
+        \\    %4 = add(%3, %2) node_offset:1:4 to :1:7
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+}
+
 test "assign" {
     try testZir("x:1",
         \\%0 = file({
@@ -2887,11 +2969,62 @@ test "assign" {
         \\  %2 = assign(%1, @one) node_offset:1:1 to :1:4
         \\})
     );
+    try testZir("{[]x:1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:4 to :1:5
+        \\    %3 = assign(%2, @one) node_offset:1:4 to :1:7
+        \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+    try testZir("x::1",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:1 to :1:2
+        \\  %2 = view(%1, @one) node_offset:1:1 to :1:5
+        \\})
+    );
+    try testZir("{[]x::1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:4 to :1:5
+        \\    %3 = global_assign(%2, @one) node_offset:1:4 to :1:8
+        \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\})
+    );
     try testZir("x:2",
         \\%0 = file({
         \\  %1 = long(2)
         \\  %2 = identifier("x") token_offset:1:1 to :1:2
         \\  %3 = assign(%2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("{[]x:2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = identifier("x") token_offset:1:4 to :1:5
+        \\    %4 = assign(%3, %2) node_offset:1:4 to :1:7
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+    try testZir("x::2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("x") token_offset:1:1 to :1:2
+        \\  %3 = view(%2, %1) node_offset:1:1 to :1:5
+        \\})
+    );
+    try testZir("{[]x::2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = identifier("x") token_offset:1:4 to :1:5
+        \\    %4 = global_assign(%3, %2) node_offset:1:4 to :1:8
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
 }
@@ -3295,7 +3428,7 @@ test "misleading global assign" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = global_assign(%2, @one) node_offset:1:5 to :1:9
+        \\    %3 = assign(%2, @one) node_offset:1:5 to :1:9
         \\    %4 = ret_node(%3) node_offset:1:5 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
         \\})
@@ -3316,9 +3449,37 @@ test "misleading global assign" {
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:2:3 to :2:4
         \\    %3 = assign(%2, @one) node_offset:2:3 to :2:6
-        \\    %4 = global_assign(%2, @one) node_offset:3:3 to :3:7
+        \\    %4 = assign(%2, @one) node_offset:3:3 to :3:7
         \\    %5 = ret_implicit(@null) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
         \\})
     );
+}
+
+fn testPropertiesUpheld(source: []const u8) anyerror!void {
+    const gpa = std.testing.allocator;
+
+    const source0 = try std.testing.allocator.dupeZ(u8, source);
+    defer gpa.free(source0);
+
+    inline for (@typeInfo(Ast.Mode).@"enum".fields) |mode_field| {
+        inline for (@typeInfo(Ast.Version).@"enum".fields) |version_field| {
+            var tree = try Ast.parse(gpa, source0, .{
+                .mode = @enumFromInt(mode_field.value),
+                .version = @enumFromInt(version_field.value),
+            });
+            defer tree.deinit(gpa);
+
+            var zir = try AstGen.generate(gpa, tree);
+            defer zir.deinit(gpa);
+        }
+    }
+}
+
+test "fuzzable properties upheld" {
+    return std.testing.fuzz(testPropertiesUpheld, .{
+        .corpus = &.{
+            "{[]x:}",
+        },
+    });
 }

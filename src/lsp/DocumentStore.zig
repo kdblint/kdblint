@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const tracy = @import("tracy");
@@ -6,15 +7,18 @@ const zls = @import("zls");
 const URI = zls.URI;
 const kdb = @import("kdb");
 const Ast = kdb.Ast;
+const AstGen = kdb.AstGen;
+const Zir = kdb.Zir;
 const offsets = @import("offsets.zig");
 const Config = @import("Config.zig");
 const analysis = @import("analysis.zig");
+const DocumentScope = @import("DocumentScope.zig");
 
 const log = std.log.scoped(.kdblint_store);
 
 const DocumentStore = @This();
 
-allocator: std.mem.Allocator,
+allocator: Allocator,
 /// the DocumentStore ussumes that `config` is not modified while calling one of its functions.
 config: Config,
 lock: std.Thread.RwLock = .{},
@@ -45,14 +49,15 @@ pub const Handle = struct {
     /// private field
     impl: struct {
         /// @bitCast from/to `Status`
-        status: std.atomic.Value(u32) = std.atomic.Value(u32).init(@bitCast(Status{})),
+        status: std.atomic.Value(u32) = .init(@bitCast(Status{})),
         /// TODO can we avoid storing one allocator per Handle?
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
 
         lock: std.Thread.Mutex = .{},
         condition: std.Thread.Condition = .{},
 
-        // document_scope: DocumentScope = undefined,
+        document_scope: DocumentScope = undefined,
+        zir: Zir = undefined,
     },
 
     const Status = packed struct(u32) {
@@ -62,14 +67,26 @@ pub const Handle = struct {
         open: bool = false,
         /// true if a thread has acquired the permission to compute the `DocumentScope`
         /// all other threads will wait until the given thread has computed the `DocumentScope` before reading it.
-        // has_document_scope_lock: bool = false,
+        has_document_scope_lock: bool = false,
         /// true if `handle.impl.document_scope` has been set
-        // has_document_scope: bool = false,
-        _: u31 = undefined,
+        has_document_scope: bool = false,
+        /// true if a thread has acquired the permission to compute the `ZIR`
+        has_zir_lock: bool = false,
+        /// all other threads will wait until the given thread has computed the `ZIR` before reading it.
+        /// true if `handle.impl.zir` has been set
+        has_zir: bool = false,
+        zir_outdated: bool = undefined,
+        _: u26 = undefined,
+    };
+
+    pub const ZirStatus = enum {
+        none,
+        outdated,
+        done,
     };
 
     /// takes ownership of `text`
-    pub fn init(allocator: std.mem.Allocator, uri: Uri, text: [:0]const u8, settings: Ast.ParseSettings) error{OutOfMemory}!Handle {
+    pub fn init(allocator: Allocator, uri: Uri, text: [:0]const u8, settings: Ast.ParseSettings) error{OutOfMemory}!Handle {
         const duped_uri = try allocator.dupe(u8, uri);
         errdefer allocator.free(duped_uri);
 
@@ -83,6 +100,106 @@ pub const Handle = struct {
                 .allocator = allocator,
             },
         };
+    }
+
+    pub fn getDocumentScope(self: *Handle) error{OutOfMemory}!DocumentScope {
+        if (self.getStatus().has_document_scope) return self.impl.document_scope;
+        return try self.getDocumentScopeCold();
+    }
+
+    /// Asserts that `getDocumentScope` has been previously called on `handle`.
+    pub fn getDocumentScopeCached(self: *Handle) DocumentScope {
+        if (builtin.mode == .Debug) {
+            std.debug.assert(self.getStatus().has_document_scope);
+        }
+        return self.impl.document_scope;
+    }
+
+    pub fn getZir(self: *Handle) error{OutOfMemory}!Zir {
+        if (self.getStatus().has_zir) return self.impl.zir;
+        return try self.getZirCold();
+    }
+
+    pub fn getZirStatus(self: *const Handle) ZirStatus {
+        const status = self.getStatus();
+        if (!status.has_zir) return .none;
+        return if (status.zir_outdated) .outdated else .done;
+    }
+
+    fn getDocumentScopeCold(self: *Handle) error{OutOfMemory}!DocumentScope {
+        @branchHint(.cold);
+        const tracy_zone = tracy.trace(@src());
+        defer tracy_zone.end();
+
+        self.impl.lock.lock();
+        defer self.impl.lock.unlock();
+        while (true) {
+            const status = self.getStatus();
+            if (status.has_document_scope) break;
+            if (status.has_document_scope_lock or
+                self.impl.status.bitSet(@bitOffsetOf(Status, "has_document_scope_lock"), .release) != 0)
+            {
+                // another thread is currently computing the document scope
+                self.impl.condition.wait(&self.impl.lock);
+                continue;
+            }
+            defer self.impl.condition.broadcast();
+
+            self.impl.document_scope = blk: {
+                var document_scope = try DocumentScope.init(self.impl.allocator, self.tree);
+                errdefer document_scope.deinit(self.impl.allocator);
+
+                // remove unused capacity
+                document_scope.extra.shrinkAndFree(self.impl.allocator, document_scope.extra.items.len);
+                try document_scope.declarations.setCapacity(self.impl.allocator, document_scope.declarations.len);
+                try document_scope.scopes.setCapacity(self.impl.allocator, document_scope.scopes.len);
+
+                break :blk document_scope;
+            };
+            const old_has_document_scope = self.impl.status.bitSet(@bitOffsetOf(Status, "has_document_scope"), .release); // atomically set has_document_scope
+            std.debug.assert(old_has_document_scope == 0); // race condition: another thread set `has_document_scope` even though we hold the lock
+        }
+        return self.impl.document_scope;
+    }
+
+    fn getZirCold(self: *Handle) error{OutOfMemory}!Zir {
+        @branchHint(.cold);
+        const tracy_zone = tracy.trace(@src());
+        defer tracy_zone.end();
+
+        self.impl.lock.lock();
+        defer self.impl.lock.unlock();
+        while (true) {
+            const status = self.getStatus();
+            if (status.has_zir) break;
+            if (status.has_zir_lock or
+                self.impl.status.bitSet(@bitOffsetOf(Status, "has_zir_lock"), .release) != 0)
+            {
+                // another thread is currently computing the ZIR
+                self.impl.condition.wait(&self.impl.lock);
+                continue;
+            }
+            defer self.impl.condition.broadcast();
+
+            self.impl.zir = blk: {
+                const tracy_zone_inner = tracy.traceNamed(@src(), "AstGen.generate");
+                defer tracy_zone_inner.end();
+
+                var zir = try AstGen.generate(self.impl.allocator, self.tree);
+                errdefer zir.deinit(self.impl.allocator);
+
+                // remove unused capacity
+                var instructions = zir.instructions.toMultiArrayList();
+                try instructions.setCapacity(self.impl.allocator, instructions.len);
+                zir.instructions = instructions.slice();
+
+                break :blk zir;
+            };
+            _ = self.impl.status.bitReset(@bitOffsetOf(Status, "zir_outdated"), .release); // atomically set zir_outdated
+            const old_has_zir = self.impl.status.bitSet(@bitOffsetOf(Status, "has_zir"), .release); // atomically set has_zir
+            std.debug.assert(old_has_zir == 0); // race condition: another thread set `has_zir` even though we hold the lock
+        }
+        return self.impl.zir;
     }
 
     fn getStatus(self: Handle) Status {
@@ -102,7 +219,7 @@ pub const Handle = struct {
         }
     }
 
-    fn parseTree(allocator: std.mem.Allocator, new_text: [:0]const u8, settings: Ast.ParseSettings) error{OutOfMemory}!Ast {
+    fn parseTree(allocator: Allocator, new_text: [:0]const u8, settings: Ast.ParseSettings) error{OutOfMemory}!Ast {
         const tracy_zone_inner = tracy.traceNamed(@src(), "Ast.parse");
         defer tracy_zone_inner.end();
 
@@ -135,14 +252,19 @@ pub const Handle = struct {
         self.impl.lock.lock();
         errdefer @compileError("");
 
-        const old_status: Handle.Status = @bitCast(self.impl.status.swap(@bitCast(new_status), .acq_rel));
-        _ = old_status;
+        const old_status: Handle.Status = @bitCast(
+            self.impl.status.swap(@bitCast(new_status), .acq_rel),
+        );
 
         var old_tree = self.tree;
         var old_import_uris = self.import_uris;
+        var old_document_scope: ?DocumentScope = if (old_status.has_document_scope) self.impl.document_scope else null;
+        var old_zir: ?Zir = if (old_status.has_zir) self.impl.zir else null;
 
         self.tree = new_tree;
         self.import_uris = .{};
+        self.impl.document_scope = undefined;
+        self.impl.zir = undefined;
 
         self.impl.lock.unlock();
 
@@ -151,14 +273,21 @@ pub const Handle = struct {
 
         for (old_import_uris.items) |uri| self.impl.allocator.free(uri);
         old_import_uris.deinit(self.impl.allocator);
+
+        if (old_document_scope) |*document_scope| document_scope.deinit(self.impl.allocator);
+        if (old_zir) |*zir| zir.deinit(self.impl.allocator);
     }
 
     fn deinit(self: *Handle) void {
         const tracy_zone = tracy.trace(@src());
         defer tracy_zone.end();
 
+        const status = self.getStatus();
+
         const allocator = self.impl.allocator;
 
+        if (status.has_zir) self.impl.zir.deinit(allocator);
+        if (status.has_document_scope) self.impl.document_scope.deinit(allocator);
         allocator.free(self.tree.source);
         self.tree.deinit(allocator);
         allocator.free(self.uri);
@@ -453,7 +582,7 @@ fn collectImportUris(self: *DocumentStore, handle: *Handle) error{OutOfMemory}!s
 /// **Thread safe** takes a shared lock
 pub fn collectDependencies(
     store: *DocumentStore,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     handle: *Handle,
     dependencies: *std.ArrayListUnmanaged(Uri),
 ) error{OutOfMemory}!void {
@@ -462,7 +591,7 @@ pub fn collectDependencies(
 
 fn collectDependenciesInternal(
     store: *DocumentStore,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     handle: *Handle,
     dependencies: *std.ArrayListUnmanaged(Uri),
     lock: bool,
@@ -484,7 +613,7 @@ fn collectDependenciesInternal(
 /// **Thread safe** takes a shared lock
 pub fn collectIncludeDirs(
     store: *DocumentStore,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     handle: *Handle,
     include_dirs: *std.ArrayListUnmanaged([]const u8),
 ) !bool {
@@ -508,7 +637,7 @@ pub fn collectIncludeDirs(
 /// and returns it's uri
 /// caller owns the returned memory
 /// **Thread safe** takes a shared lock
-pub fn uriFromImportStr(allocator: std.mem.Allocator, handle: *Handle, import_str: []const u8) error{OutOfMemory}!?Uri {
+pub fn uriFromImportStr(allocator: Allocator, handle: *Handle, import_str: []const u8) error{OutOfMemory}!?Uri {
     const tracy_zone = tracy.trace(@src());
     defer tracy_zone.end();
 
