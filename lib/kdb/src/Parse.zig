@@ -470,7 +470,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
             const assign_index = try p.reserveNode(assign_tag);
             errdefer p.unreserveNode(assign_index);
 
-            const rhs = try p.parseExpr(sql_identifier);
+            const rhs = try p.expectExpr(sql_identifier);
             return p.setNode(assign_index, .{
                 .tag = assign_tag,
                 .main_token = main_token,
@@ -594,16 +594,18 @@ fn parseToken(p: *Parse, token_tag: Token.Tag, node_tag: Node.Tag) !Node.Index {
 }
 
 fn parseEmpty(p: *Parse) !Node.Index {
-    const tag: Token.Tag = p.tokens.items(.tag)[p.tok_i];
-    assert(tag == .semicolon or tag == .r_paren or tag == .r_brace or tag == .r_bracket);
-    return p.addNode(.{
-        .tag = .empty,
-        .main_token = p.tok_i,
-        .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
-        },
-    });
+    const token_tags: []Token.Tag = p.tokens.items(.tag);
+    switch (token_tags[p.tok_i]) {
+        .semicolon, .r_paren, .r_brace, .r_bracket => return p.addNode(.{
+            .tag = .empty,
+            .main_token = p.tok_i,
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        else => return p.failExpected(p.ends_expr.getLast()),
+    }
 }
 
 /// Group

@@ -20,6 +20,8 @@ string_bytes: []u8,
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
 extra: []u32,
 
+compile_duration: u64,
+
 pub const ExtraIndex = enum(u32) {
     /// If this is 0, no compile errors. Otherwise there is a `CompileErrors`
     /// payload at this index.
@@ -116,6 +118,9 @@ pub const Inst = struct {
         /// Global variable assignment.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         global_assign,
+        /// View
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        view,
         /// `+`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         add,
@@ -229,6 +234,8 @@ pub const Inst = struct {
         x,
         y,
         z,
+
+        nyi,
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.

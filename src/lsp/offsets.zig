@@ -154,6 +154,73 @@ pub fn getNCodeUnitByteCount(text: []const u8, n: usize, encoding: Encoding) usi
     }
 }
 
+pub fn convertRangeEncoding(
+    text: []const u8,
+    range: types.Range,
+    from_encoding: Encoding,
+    to_encoding: Encoding,
+) types.Range {
+    assert(orderPosition(range.start, range.end) != .gt);
+    if (from_encoding == to_encoding) return range;
+    return .{
+        .start = convertPositionEncoding(
+            text,
+            range.start,
+            from_encoding,
+            to_encoding,
+        ),
+        .end = convertPositionEncoding(
+            text,
+            range.end,
+            from_encoding,
+            to_encoding,
+        ),
+    };
+}
+
+pub fn orderPosition(a: types.Position, b: types.Position) std.math.Order {
+    const line_order = std.math.order(a.line, b.line);
+    if (line_order != .eq) return line_order;
+    return std.math.order(a.character, b.character);
+}
+
+pub fn convertPositionEncoding(
+    text: []const u8,
+    position: types.Position,
+    from_encoding: Encoding,
+    to_encoding: Encoding,
+) types.Position {
+    if (from_encoding == to_encoding) return position;
+
+    const line_loc = lineLocUntilPosition(text, position, from_encoding);
+
+    return .{
+        .line = position.line,
+        .character = @intCast(locLength(text, line_loc, to_encoding)),
+    };
+}
+
+pub fn lineLocUntilPosition(text: []const u8, position: types.Position, encoding: Encoding) Loc {
+    return lineLocUntilIndex(text, positionToIndex(text, position, encoding));
+}
+
+pub fn positionToIndex(text: []const u8, position: types.Position, encoding: Encoding) usize {
+    var line: u32 = 0;
+    var line_start_index: usize = 0;
+    for (text, 0..) |c, i| {
+        if (line == position.line) break;
+        if (c == '\n') {
+            line += 1;
+            line_start_index = i + 1;
+        }
+    } else return text.len;
+
+    const line_text = std.mem.sliceTo(text[line_start_index..], '\n');
+    const line_byte_length = getNCodeUnitByteCount(line_text, position.character, encoding);
+
+    return line_start_index + line_byte_length;
+}
+
 test {
     @import("std").testing.refAllDecls(@This());
 }
