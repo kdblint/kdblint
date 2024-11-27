@@ -3296,21 +3296,6 @@ test "assign" {
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\})
     );
-    try testZir("x::1",
-        \\%0 = file({
-        \\  %1 = identifier("x") token_offset:1:1 to :1:2
-        \\  %2 = view(%1, @one) node_offset:1:1 to :1:5
-        \\})
-    );
-    try testZir("{[]x::1}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = identifier("x") token_offset:1:4 to :1:5
-        \\    %3 = global_assign(%2, @one) node_offset:1:4 to :1:8
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
-        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
-        \\})
-    );
     try testZir("x:2",
         \\%0 = file({
         \\  %1 = long(2)
@@ -3326,6 +3311,24 @@ test "assign" {
         \\    %4 = assign(%3, %2) node_offset:1:4 to :1:7
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+}
+
+test "global assign" {
+    try testZir("x::1",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:1 to :1:2
+        \\  %2 = view(%1, @one) node_offset:1:1 to :1:5
+        \\})
+    );
+    try testZir("{[]x::1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:4 to :1:5
+        \\    %3 = global_assign(%2, @one) node_offset:1:4 to :1:8
+        \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
     try testZir("x::2",
@@ -3345,10 +3348,6 @@ test "assign" {
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
-}
-
-test "global assign" {
-    return error.SkipZigTest;
 }
 
 test "colon" {
