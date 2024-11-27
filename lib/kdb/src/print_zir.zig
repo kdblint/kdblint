@@ -226,6 +226,7 @@ const Writer = struct {
             .greater_than_or_equal,
             .join,
             .match,
+            .apply_at,
             .dynamic_load,
             => try self.writePlNodeBin(stream, inst),
 
