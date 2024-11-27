@@ -269,6 +269,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         .apply_binary => return applyBinary(gz, scope, node),
 
         .number_literal => return .{ try numberLiteral(gz, node), scope },
+        .symbol_literal => return .{ try symbolLiteral(gz, node), scope },
 
         .identifier => return identifier(gz, scope, node),
 
@@ -738,8 +739,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
-    const num_token = main_tokens[node];
-    const bytes = tree.tokenSlice(num_token);
+    const bytes = tree.tokenSlice(main_tokens[node]);
 
     const result: Zir.Inst.Ref = switch (bytes[0]) {
         '-' => switch (kdb.parseNumberLiteral(bytes[1..])) {
@@ -760,6 +760,16 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     };
 
     return result;
+}
+
+fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const main_tokens = tree.nodes.items(.main_token);
+
+    const sym_token = main_tokens[node];
+    const sym = try astgen.symLitAsString(sym_token);
+    return gz.addStrTok(.sym, sym, sym_token);
 }
 
 fn identifier(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
@@ -1653,10 +1663,20 @@ fn errNoteNode(
 }
 
 fn identAsString(astgen: *AstGen, ident_token: Ast.Token.Index) !Zir.NullTerminatedString {
+    const ident_bytes = astgen.tree.tokenSlice(ident_token);
+    return astgen.bytesAsString(ident_bytes);
+}
+
+fn symLitAsString(astgen: *AstGen, sym_lit_token: Ast.Token.Index) !Zir.NullTerminatedString {
+    const token_bytes = astgen.tree.tokenSlice(sym_lit_token)[1..];
+    return astgen.bytesAsString(token_bytes);
+}
+
+fn bytesAsString(astgen: *AstGen, bytes: []const u8) !Zir.NullTerminatedString {
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const str_index: u32 = @intCast(string_bytes.items.len);
-    try string_bytes.appendSlice(gpa, astgen.tree.tokenSlice(ident_token));
+    try string_bytes.appendSlice(gpa, bytes);
     const key: []const u8 = string_bytes.items[str_index..];
     const gop = try astgen.string_table.getOrPutContextAdapted(gpa, key, StringIndexAdapter{
         .bytes = string_bytes,
