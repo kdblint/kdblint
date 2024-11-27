@@ -166,6 +166,9 @@ pub const Inst = struct {
         /// `~`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         match,
+        /// `@`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        apply_at,
         /// `2:`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         dynamic_load,

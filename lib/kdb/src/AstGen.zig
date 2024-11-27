@@ -265,6 +265,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         .call => return call(gz, scope, node),
 
+        .apply_unary => return applyUnary(gz, scope, node),
         .apply_binary => return applyBinary(gz, scope, node),
 
         .number_literal => return .{ try numberLiteral(gz, node), scope },
@@ -687,6 +688,22 @@ fn call(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     return .{ call_inst.toRef(), scope };
 }
 
+fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    const data = node_datas[node];
+    var scope = parent_scope;
+    const rhs, scope = try expr(gz, scope, data.rhs);
+    const lhs, scope = try expr(gz, scope, data.lhs);
+
+    return .{
+        try gz.addPlNode(.apply_at, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }),
+        scope,
+    };
+}
+
 fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -711,7 +728,10 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
         },
     };
 
-    return .{ try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope };
+    return .{
+        try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }),
+        scope,
+    };
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
