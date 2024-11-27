@@ -274,6 +274,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         .apply_binary => return applyBinary(gz, scope, node),
 
         .number_literal => return .{ try numberLiteral(gz, node), scope },
+        .string_literal => return .{ try stringLiteral(gz, node), scope },
         .symbol_literal => return .{ try symbolLiteral(gz, node), scope },
 
         .identifier => return identifier(gz, scope, node),
@@ -795,6 +796,16 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     };
 
     return result;
+}
+
+fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const main_tokens = tree.nodes.items(.main_token);
+
+    const sym_token = main_tokens[node];
+    const sym = try astgen.strLitAsString(sym_token);
+    return gz.addStrTok(.str, sym, sym_token);
 }
 
 fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -1703,9 +1714,14 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.Token.Index) !Zir.NullTermina
     return astgen.bytesAsString(ident_bytes);
 }
 
+fn strLitAsString(astgen: *AstGen, sym_lit_token: Ast.Token.Index) !Zir.NullTerminatedString {
+    const token_bytes = astgen.tree.tokenSlice(sym_lit_token);
+    return astgen.bytesAsString(token_bytes[1 .. token_bytes.len - 1]);
+}
+
 fn symLitAsString(astgen: *AstGen, sym_lit_token: Ast.Token.Index) !Zir.NullTerminatedString {
-    const token_bytes = astgen.tree.tokenSlice(sym_lit_token)[1..];
-    return astgen.bytesAsString(token_bytes);
+    const token_bytes = astgen.tree.tokenSlice(sym_lit_token);
+    return astgen.bytesAsString(token_bytes[1..]);
 }
 
 fn bytesAsString(astgen: *AstGen, bytes: []const u8) !Zir.NullTerminatedString {

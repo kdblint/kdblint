@@ -205,8 +205,7 @@ const Writer = struct {
             .ret_node,
             => try self.writeUnNode(stream, inst),
 
-            .ret_implicit,
-            => try self.writeUnTok(stream, inst),
+            .ret_implicit => try self.writeUnTok(stream, inst),
 
             .assign,
             .global_assign,
@@ -231,16 +230,17 @@ const Writer = struct {
             => try self.writePlNodeBin(stream, inst),
 
             .lambda => try self.writeLambda(stream, inst),
+
             .long => try self.writeLong(stream, inst),
-            .sym => try self.writeStrTok(stream, inst),
 
-            .param_node,
-            => try self.writeStrNode(stream, inst),
-            .param_implicit,
-            => try self.writeUnTok(stream, inst),
-
-            .identifier,
+            .str,
+            .sym,
             => try self.writeStrTok(stream, inst),
+
+            .param_node => try self.writeStrNode(stream, inst),
+            .param_implicit => try self.writeUnTok(stream, inst),
+
+            .identifier => try self.writeStrTok(stream, inst),
 
             .call => unreachable,
         }
