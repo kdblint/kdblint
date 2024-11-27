@@ -256,6 +256,8 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         .empty,
         => unreachable,
 
+        .grouped_expression => return groupedExpression(gz, scope, node),
+
         .lambda,
         .lambda_semicolon,
         => return lambda(gz, scope, node),
@@ -280,6 +282,15 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     }
 
     unreachable;
+}
+
+fn groupedExpression(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    const data = node_datas[node];
+    return expr(gz, scope, data.lhs);
 }
 
 fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {

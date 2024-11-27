@@ -2962,7 +2962,24 @@ test "empty" {
 }
 
 test "grouped expression" {
-    return error.SkipZigTest;
+    try testZir("3*4+5",
+        \\%0 = file({
+        \\  %1 = long(5)
+        \\  %2 = long(4)
+        \\  %3 = add(%2, %1) node_offset:1:3 to :1:6
+        \\  %4 = long(3)
+        \\  %5 = multiply(%4, %3) node_offset:1:1 to :1:6
+        \\})
+    );
+    try testZir("(3*4)+5",
+        \\%0 = file({
+        \\  %1 = long(5)
+        \\  %2 = long(4)
+        \\  %3 = long(3)
+        \\  %4 = multiply(%3, %2) node_offset:1:2 to :1:5
+        \\  %5 = add(%4, %1) node_offset:1:1 to :1:8
+        \\})
+    );
 }
 
 test "empty list" {
