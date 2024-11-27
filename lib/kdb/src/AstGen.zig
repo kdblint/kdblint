@@ -257,6 +257,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         => unreachable,
 
         .grouped_expression => return groupedExpression(gz, scope, node),
+        .empty_list => return .{ .empty_list, scope },
 
         .lambda,
         .lambda_semicolon,

@@ -14,6 +14,8 @@ pub const Index = enum(u32) {
     negative_one,
     /// `::` (untyped)
     null,
+    /// `()` (untyped)
+    empty_list,
     /// `x`
     x,
     /// `y`
