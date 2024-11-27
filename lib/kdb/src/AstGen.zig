@@ -541,6 +541,13 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     };
 
     for (full_lambda.body, 0..) |body_node, i| {
+        if (fn_gz.endsWithNoReturn()) {
+            assert(i > 0);
+            try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
+                try gz.astgen.errNoteNode(full_lambda.body[i - 1], "control flow is diverted here", .{}),
+            }, .warn);
+        }
+
         if (i < full_lambda.body.len - 1) {
             _, params_scope = try expr(&fn_gz, params_scope, body_node);
         } else if (node_tags[body_node] == .empty) {
@@ -1013,15 +1020,16 @@ const GenZir = struct {
         }
     }
 
-    fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
-        return .{
-            .decl_node_index = gz.decl_node_index,
-            .decl_line = gz.decl_line,
-            .parent = scope,
-            .astgen = gz.astgen,
-            .instructions = gz.instructions,
-            .instructions_top = gz.instructions.items.len,
-        };
+    fn isEmpty(self: *const GenZir) bool {
+        return (self.instructions_top == unstacked_top) or (self.instructions.items.len == self.instructions_top);
+    }
+
+    /// Assumes nothing stacked on `gz`.
+    fn endsWithNoReturn(gz: GenZir) bool {
+        if (gz.isEmpty()) return false;
+        const tags: []Zir.Inst.Tag = gz.astgen.instructions.items(.tag);
+        const last_inst = gz.instructions.items[gz.instructions.items.len - 1];
+        return tags[@intFromEnum(last_inst)].isNoReturn();
     }
 
     fn instructionsSlice(self: *const GenZir) []Zir.Inst.Index {

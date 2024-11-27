@@ -3934,3 +3934,24 @@ test "misleading global assign" {
         \\})
     );
 }
+
+test "unreachable code" {
+    try warnZir(
+        \\{[]
+        \\  :1;
+        \\  1}
+    ,
+        \\test:3:3: warn: unreachable code
+        \\  1}
+        \\  ^
+        \\test:2:3: note: control flow is diverted here
+        \\  :1;
+        \\  ^~
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
+        \\    %3 = ret_node(@one) node_offset:3:3 to :3:4
+        \\  }) (lbrace=1:1,rbrace=3:4) node_offset:1:1 to :1:2
+        \\})
+    );
+}

@@ -207,6 +207,46 @@ pub const Inst = struct {
         identifier,
 
         call,
+
+        /// Returns whether the instruction is one of the control flow "noreturn" types.
+        /// Function calls do not count.
+        pub fn isNoReturn(tag: Tag) bool {
+            return switch (tag) {
+                .file,
+                .assign,
+                .global_assign,
+                .view,
+                .add,
+                .subtract,
+                .multiply,
+                .divide,
+                .lesser,
+                .greater,
+                .fill,
+                .equal,
+                .less_than,
+                .less_than_or_equal,
+                .not_equal,
+                .greater_than,
+                .greater_than_or_equal,
+                .join,
+                .match,
+                .apply_at,
+                .dynamic_load,
+                .lambda,
+                .param_node,
+                .param_implicit,
+                .long,
+                .sym,
+                .identifier,
+                .call,
+                => false,
+
+                .ret_node,
+                .ret_implicit,
+                => true,
+            };
+        }
     };
 
     /// The position of a ZIR instruction within the `Zir` instructions array.
