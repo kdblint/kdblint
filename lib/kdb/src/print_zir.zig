@@ -2957,106 +2957,24 @@ test "fuzzable properties upheld" {
     });
 }
 
-test "binary" {
-    try testZir("x+1",
-        \\%0 = file({
-        \\  %1 = identifier("x") token_offset:1:1 to :1:2
-        \\  %2 = add(%1, @one) node_offset:1:1 to :1:4
-        \\})
-    );
-    try testZir("{[]x+1}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = identifier("x") token_offset:1:4 to :1:5
-        \\    %3 = add(%2, @one) node_offset:1:4 to :1:7
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
-        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
-        \\})
-    );
-    try testZir("x+2",
-        \\%0 = file({
-        \\  %1 = long(2)
-        \\  %2 = identifier("x") token_offset:1:1 to :1:2
-        \\  %3 = add(%2, %1) node_offset:1:1 to :1:4
-        \\})
-    );
-    try testZir("{[]x+2}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = long(2)
-        \\    %3 = identifier("x") token_offset:1:4 to :1:5
-        \\    %4 = add(%3, %2) node_offset:1:4 to :1:7
-        \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
-        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
-        \\})
-    );
+test "empty" {
+    return error.SkipZigTest;
 }
 
-test "assign" {
-    try testZir("x:1",
-        \\%0 = file({
-        \\  %1 = identifier("x") token_offset:1:1 to :1:2
-        \\  %2 = assign(%1, @one) node_offset:1:1 to :1:4
-        \\})
-    );
-    try testZir("{[]x:1}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = identifier("x") token_offset:1:4 to :1:5
-        \\    %3 = assign(%2, @one) node_offset:1:4 to :1:7
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
-        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
-        \\})
-    );
-    try testZir("x::1",
-        \\%0 = file({
-        \\  %1 = identifier("x") token_offset:1:1 to :1:2
-        \\  %2 = view(%1, @one) node_offset:1:1 to :1:5
-        \\})
-    );
-    try testZir("{[]x::1}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = identifier("x") token_offset:1:4 to :1:5
-        \\    %3 = global_assign(%2, @one) node_offset:1:4 to :1:8
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
-        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
-        \\})
-    );
-    try testZir("x:2",
-        \\%0 = file({
-        \\  %1 = long(2)
-        \\  %2 = identifier("x") token_offset:1:1 to :1:2
-        \\  %3 = assign(%2, %1) node_offset:1:1 to :1:4
-        \\})
-    );
-    try testZir("{[]x:2}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = long(2)
-        \\    %3 = identifier("x") token_offset:1:4 to :1:5
-        \\    %4 = assign(%3, %2) node_offset:1:4 to :1:7
-        \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
-        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
-        \\})
-    );
-    try testZir("x::2",
-        \\%0 = file({
-        \\  %1 = long(2)
-        \\  %2 = identifier("x") token_offset:1:1 to :1:2
-        \\  %3 = view(%2, %1) node_offset:1:1 to :1:5
-        \\})
-    );
-    try testZir("{[]x::2}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = long(2)
-        \\    %3 = identifier("x") token_offset:1:4 to :1:5
-        \\    %4 = global_assign(%3, %2) node_offset:1:4 to :1:8
-        \\    %5 = ret_node(%4) node_offset:1:4 to :1:8
-        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
-        \\})
-    );
+test "grouped expression" {
+    return error.SkipZigTest;
+}
+
+test "empty list" {
+    return error.SkipZigTest;
+}
+
+test "list" {
+    return error.SkipZigTest;
+}
+
+test "table literal" {
+    return error.SkipZigTest;
 }
 
 test "lambda" {
@@ -3273,6 +3191,426 @@ test "lambda" {
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\})
     );
+}
+
+test "lambda semicolon" {
+    return error.SkipZigTest;
+}
+
+test "expr block" {
+    return error.SkipZigTest;
+}
+
+test "return" {
+    return error.SkipZigTest;
+}
+
+test "signal" {
+    return error.SkipZigTest;
+}
+
+test "assign" {
+    try testZir("x:1",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:1 to :1:2
+        \\  %2 = assign(%1, @one) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("{[]x:1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:4 to :1:5
+        \\    %3 = assign(%2, @one) node_offset:1:4 to :1:7
+        \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+    try testZir("x::1",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:1 to :1:2
+        \\  %2 = view(%1, @one) node_offset:1:1 to :1:5
+        \\})
+    );
+    try testZir("{[]x::1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:4 to :1:5
+        \\    %3 = global_assign(%2, @one) node_offset:1:4 to :1:8
+        \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\})
+    );
+    try testZir("x:2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("x") token_offset:1:1 to :1:2
+        \\  %3 = assign(%2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("{[]x:2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = identifier("x") token_offset:1:4 to :1:5
+        \\    %4 = assign(%3, %2) node_offset:1:4 to :1:7
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+    try testZir("x::2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("x") token_offset:1:1 to :1:2
+        \\  %3 = view(%2, %1) node_offset:1:1 to :1:5
+        \\})
+    );
+    try testZir("{[]x::2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = identifier("x") token_offset:1:4 to :1:5
+        \\    %4 = global_assign(%3, %2) node_offset:1:4 to :1:8
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:8
+        \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\})
+    );
+}
+
+test "global assign" {
+    return error.SkipZigTest;
+}
+
+test "colon" {
+    return error.SkipZigTest;
+}
+
+test "colon colon" {
+    return error.SkipZigTest;
+}
+
+test "plus" {
+    return error.SkipZigTest;
+}
+
+test "plus colon" {
+    return error.SkipZigTest;
+}
+
+test "minus" {
+    return error.SkipZigTest;
+}
+
+test "minus colon" {
+    return error.SkipZigTest;
+}
+
+test "asterisk" {
+    return error.SkipZigTest;
+}
+
+test "asterisk colon" {
+    return error.SkipZigTest;
+}
+
+test "percent" {
+    return error.SkipZigTest;
+}
+
+test "percent colon" {
+    return error.SkipZigTest;
+}
+
+test "ampersand" {
+    return error.SkipZigTest;
+}
+
+test "ampersand colon" {
+    return error.SkipZigTest;
+}
+
+test "pipe" {
+    return error.SkipZigTest;
+}
+
+test "pipe colon" {
+    return error.SkipZigTest;
+}
+
+test "caret" {
+    return error.SkipZigTest;
+}
+
+test "caret colon" {
+    return error.SkipZigTest;
+}
+
+test "equal" {
+    return error.SkipZigTest;
+}
+
+test "equal colon" {
+    return error.SkipZigTest;
+}
+
+test "angle bracket left" {
+    return error.SkipZigTest;
+}
+
+test "angle bracket left colon" {
+    return error.SkipZigTest;
+}
+
+test "angle bracket left equal" {
+    return error.SkipZigTest;
+}
+
+test "angle bracket left right" {
+    return error.SkipZigTest;
+}
+
+test "angle bracket right" {
+    return error.SkipZigTest;
+}
+
+test "angle bracket right colon" {
+    return error.SkipZigTest;
+}
+
+test "angle bracket right equal" {
+    return error.SkipZigTest;
+}
+
+test "dollar" {
+    return error.SkipZigTest;
+}
+
+test "dollar colon" {
+    return error.SkipZigTest;
+}
+
+test "comma" {
+    return error.SkipZigTest;
+}
+
+test "comma colon" {
+    return error.SkipZigTest;
+}
+
+test "hash" {
+    return error.SkipZigTest;
+}
+
+test "hash colon" {
+    return error.SkipZigTest;
+}
+
+test "underscore" {
+    return error.SkipZigTest;
+}
+
+test "underscore colon" {
+    return error.SkipZigTest;
+}
+
+test "tilde" {
+    return error.SkipZigTest;
+}
+
+test "tilde colon" {
+    return error.SkipZigTest;
+}
+
+test "bang" {
+    return error.SkipZigTest;
+}
+
+test "bang colon" {
+    return error.SkipZigTest;
+}
+
+test "question mark" {
+    return error.SkipZigTest;
+}
+
+test "question mark colon" {
+    return error.SkipZigTest;
+}
+
+test "at" {
+    return error.SkipZigTest;
+}
+
+test "at colon" {
+    return error.SkipZigTest;
+}
+
+test "period" {
+    return error.SkipZigTest;
+}
+
+test "period colon" {
+    return error.SkipZigTest;
+}
+
+test "zero colon" {
+    return error.SkipZigTest;
+}
+
+test "zero colon colon" {
+    return error.SkipZigTest;
+}
+
+test "one colon" {
+    return error.SkipZigTest;
+}
+
+test "one colon colon" {
+    return error.SkipZigTest;
+}
+
+test "two colon" {
+    return error.SkipZigTest;
+}
+
+test "apostrophe" {
+    return error.SkipZigTest;
+}
+
+test "apostrophe colon" {
+    return error.SkipZigTest;
+}
+
+test "slash" {
+    return error.SkipZigTest;
+}
+
+test "slash colon" {
+    return error.SkipZigTest;
+}
+
+test "backslash" {
+    return error.SkipZigTest;
+}
+
+test "backslash colon" {
+    return error.SkipZigTest;
+}
+
+test "call" {
+    return error.SkipZigTest;
+}
+
+test "apply unary" {
+    try testZir("f x",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:3 to :1:4
+        \\  %2 = identifier("f") token_offset:1:1 to :1:2
+        \\  %3 = apply_at(%2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
+}
+
+test "apply binary" {
+    try testZir("x+1",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:1 to :1:2
+        \\  %2 = add(%1, @one) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("{[]x+1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:4 to :1:5
+        \\    %3 = add(%2, @one) node_offset:1:4 to :1:7
+        \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+    try testZir("x+2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("x") token_offset:1:1 to :1:2
+        \\  %3 = add(%2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("{[]x+2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = identifier("x") token_offset:1:4 to :1:5
+        \\    %4 = add(%3, %2) node_offset:1:4 to :1:7
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
+        \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\})
+    );
+}
+
+test "number literal" {
+    return error.SkipZigTest;
+}
+
+test "number list literal" {
+    return error.SkipZigTest;
+}
+
+test "string literal" {
+    return error.SkipZigTest;
+}
+
+test "symbol literal" {
+    try testZir("`symbol123",
+        \\%0 = file({
+        \\  %1 = sym("symbol123") token_offset:1:1 to :1:11
+        \\})
+    );
+}
+
+test "symbol list literal" {
+    return error.SkipZigTest;
+}
+
+test "identifier" {
+    return error.SkipZigTest;
+}
+
+test "builtin" {
+    return error.SkipZigTest;
+}
+
+test "select" {
+    return error.SkipZigTest;
+}
+
+test "exec" {
+    return error.SkipZigTest;
+}
+
+test "update" {
+    return error.SkipZigTest;
+}
+
+test "delete rows" {
+    return error.SkipZigTest;
+}
+
+test "delete cols" {
+    return error.SkipZigTest;
+}
+
+test "do" {
+    return error.SkipZigTest;
+}
+
+test "if" {
+    return error.SkipZigTest;
+}
+
+test "while" {
+    return error.SkipZigTest;
+}
+
+test "cond" {
+    return error.SkipZigTest;
 }
 
 test "too many parameters" {
@@ -3540,24 +3878,6 @@ test "misleading global assign" {
         \\    %4 = assign(%2, @one) node_offset:3:3 to :3:7
         \\    %5 = ret_implicit(@null) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
-        \\})
-    );
-}
-
-test "apply unary" {
-    try testZir("f x",
-        \\%0 = file({
-        \\  %1 = identifier("x") token_offset:1:3 to :1:4
-        \\  %2 = identifier("f") token_offset:1:1 to :1:2
-        \\  %3 = apply_at(%2, %1) node_offset:1:1 to :1:4
-        \\})
-    );
-}
-
-test "symbols" {
-    try testZir("`symbol123",
-        \\%0 = file({
-        \\  %1 = sym("symbol123") token_offset:1:1 to :1:11
         \\})
     );
 }
