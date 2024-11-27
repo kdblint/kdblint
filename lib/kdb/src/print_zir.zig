@@ -3232,7 +3232,30 @@ test "expr block" {
 }
 
 test "return" {
-    return error.SkipZigTest;
+    try testZir(
+        \\{[]
+        \\  :1
+        \\  }
+    ,
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
+        \\    %3 = ret_node(%2) node_offset:2:3 to :2:5
+        \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
+        \\})
+    );
+    try testZir(
+        \\{[]
+        \\  :1;
+        \\  }
+    ,
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
+        \\    %3 = ret_implicit(@null) token_offset:3:3 to :3:4
+        \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
+        \\})
+    );
 }
 
 test "signal" {

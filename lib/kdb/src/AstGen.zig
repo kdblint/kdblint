@@ -263,6 +263,8 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         .lambda_semicolon,
         => return lambda(gz, scope, node),
 
+        .@"return" => return @"return"(gz, scope, node),
+
         .assign => return assign(gz, scope, node),
         .global_assign => return globalAssign(gz, scope, node),
 
@@ -589,6 +591,20 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope) InnerError!v
             .top => unreachable,
         }
     }
+}
+
+fn @"return"(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    assert(astgen.within_fn);
+
+    const data = node_datas[node];
+    var scope = parent_scope;
+    const rhs, scope = try expr(gz, scope, data.rhs);
+
+    return .{ try gz.addUnNode(.ret_node, rhs, node), scope };
 }
 
 fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
