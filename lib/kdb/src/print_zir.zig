@@ -203,6 +203,7 @@ const Writer = struct {
             .file => try self.writePlNodeBlockWithoutSrc(stream, inst),
 
             .ret_node,
+            .signal,
             => try self.writeUnNode(stream, inst),
 
             .ret_implicit => try self.writeUnTok(stream, inst),
@@ -3259,7 +3260,24 @@ test "return" {
 }
 
 test "signal" {
-    return error.SkipZigTest;
+    try testZir("'`signal",
+        \\%0 = file({
+        \\  %1 = sym("signal") token_offset:1:2 to :1:9
+        \\  %2 = signal(%1) node_offset:1:1 to :1:9
+        \\})
+    );
+    try testZir("'\"signal\"",
+        \\%0 = file({
+        \\  %1 = str("signal") token_offset:1:2 to :1:10
+        \\  %2 = signal(%1) node_offset:1:1 to :1:10
+        \\})
+    );
+    try testZir("'break",
+        \\%0 = file({
+        \\  %1 = identifier("break") token_offset:1:2 to :1:7
+        \\  %2 = signal(%1) node_offset:1:1 to :1:7
+        \\})
+    );
 }
 
 test "assign" {
@@ -3952,6 +3970,40 @@ test "unreachable code" {
         \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
         \\    %3 = ret_node(@one) node_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:4) node_offset:1:1 to :1:2
+        \\})
+    );
+    try warnZir(
+        \\{[]
+        \\  'break;
+        \\  1}
+    ,
+        \\test:3:3: warn: unreachable code
+        \\  1}
+        \\  ^
+        \\test:2:3: note: control flow is diverted here
+        \\  'break;
+        \\  ^~~~~~
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("break") token_offset:2:4 to :2:9
+        \\    %3 = signal(%2) node_offset:2:3 to :2:9
+        \\    %4 = ret_node(@one) node_offset:3:3 to :3:4
+        \\  }) (lbrace=1:1,rbrace=3:4) node_offset:1:1 to :1:2
+        \\})
+    );
+    try warnZir(
+        \\'break;
+        \\1
+    ,
+        \\test:2:1: warn: unreachable code
+        \\1
+        \\^
+        \\test:1:1: note: control flow is diverted here
+        \\'break;
+        \\^~~~~~
+        \\%0 = file({
+        \\  %1 = identifier("break") token_offset:1:2 to :1:7
+        \\  %2 = signal(%1) node_offset:1:1 to :1:7
         \\})
     );
 }

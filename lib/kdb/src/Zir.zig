@@ -195,6 +195,10 @@ pub const Inst = struct {
         /// Uses the `un_tok` union field.
         ret_implicit,
 
+        /// Signals an error.
+        /// Uses the `un_node` union field.
+        signal,
+
         /// Integer literal that fits in an i64.
         /// Uses the `long` union field.
         long,
@@ -248,6 +252,7 @@ pub const Inst = struct {
 
                 .ret_node,
                 .ret_implicit,
+                .signal,
                 => true,
             };
         }
