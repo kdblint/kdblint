@@ -237,6 +237,7 @@ pub const Inst = struct {
         one,
         negative_one,
         null,
+        empty_list,
         x,
         y,
         z,

@@ -2983,7 +2983,20 @@ test "grouped expression" {
 }
 
 test "empty list" {
-    return error.SkipZigTest;
+    try testZir("()", "%0 = file({})");
+    try testZir("a:()",
+        \\%0 = file({
+        \\  %1 = identifier("a") token_offset:1:1 to :1:2
+        \\  %2 = assign(%1, @empty_list) node_offset:1:1 to :1:5
+        \\})
+    );
+    try testZir("{[]()}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = ret_node(@empty_list) node_offset:1:4 to :1:6
+        \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\})
+    );
 }
 
 test "list" {
