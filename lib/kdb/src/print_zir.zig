@@ -3852,7 +3852,11 @@ test "symbol list literal" {
 }
 
 test "identifier" {
-    return error.SkipZigTest;
+    try testZir("a",
+        \\%0 = file({
+        \\  %1 = identifier("a") token_offset:1:1 to :1:2
+        \\})
+    );
 }
 
 test "builtin" {
