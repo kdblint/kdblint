@@ -232,6 +232,7 @@ const Writer = struct {
 
             .lambda => try self.writeLambda(stream, inst),
             .long => try self.writeLong(stream, inst),
+            .sym => try self.writeStrTok(stream, inst),
 
             .param_node,
             => try self.writeStrNode(stream, inst),
@@ -2928,6 +2929,34 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
     }
 }
 
+fn testPropertiesUpheld(source: []const u8) anyerror!void {
+    const gpa = std.testing.allocator;
+
+    const source0 = try std.testing.allocator.dupeZ(u8, source);
+    defer gpa.free(source0);
+
+    inline for (@typeInfo(Ast.Mode).@"enum".fields) |mode_field| {
+        inline for (@typeInfo(Ast.Version).@"enum".fields) |version_field| {
+            var tree = try Ast.parse(gpa, source0, .{
+                .mode = @enumFromInt(mode_field.value),
+                .version = @enumFromInt(version_field.value),
+            });
+            defer tree.deinit(gpa);
+
+            var zir = try AstGen.generate(gpa, tree);
+            defer zir.deinit(gpa);
+        }
+    }
+}
+
+test "fuzzable properties upheld" {
+    return std.testing.fuzz(testPropertiesUpheld, .{
+        .corpus = &.{
+            "{[]x:}",
+        },
+    });
+}
+
 test "binary" {
     try testZir("x+1",
         \\%0 = file({
@@ -3515,30 +3544,20 @@ test "misleading global assign" {
     );
 }
 
-fn testPropertiesUpheld(source: []const u8) anyerror!void {
-    const gpa = std.testing.allocator;
-
-    const source0 = try std.testing.allocator.dupeZ(u8, source);
-    defer gpa.free(source0);
-
-    inline for (@typeInfo(Ast.Mode).@"enum".fields) |mode_field| {
-        inline for (@typeInfo(Ast.Version).@"enum".fields) |version_field| {
-            var tree = try Ast.parse(gpa, source0, .{
-                .mode = @enumFromInt(mode_field.value),
-                .version = @enumFromInt(version_field.value),
-            });
-            defer tree.deinit(gpa);
-
-            var zir = try AstGen.generate(gpa, tree);
-            defer zir.deinit(gpa);
-        }
-    }
+test "apply unary" {
+    try testZir("f x",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:3 to :1:4
+        \\  %2 = identifier("f") token_offset:1:1 to :1:2
+        \\  %3 = apply_at(%2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
 }
 
-test "fuzzable properties upheld" {
-    return std.testing.fuzz(testPropertiesUpheld, .{
-        .corpus = &.{
-            "{[]x:}",
-        },
-    });
+test "symbols" {
+    try testZir("`symbol123",
+        \\%0 = file({
+        \\  %1 = sym("symbol123") token_offset:1:1 to :1:11
+        \\})
+    );
 }

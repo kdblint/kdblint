@@ -198,6 +198,9 @@ pub const Inst = struct {
         /// Integer literal that fits in an i64.
         /// Uses the `long` union field.
         long,
+        /// Symbol literal
+        /// Uses the `str_tok` union field. Token is the symbol literal. String is the symbol content.
+        sym,
 
         /// Identifier.
         /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
