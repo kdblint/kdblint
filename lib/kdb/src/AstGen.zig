@@ -234,7 +234,15 @@ fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
     };
     defer namespace.deinit(gpa);
 
-    for (tree.getBlocks()) |node| {
+    const blocks = tree.getBlocks();
+    for (blocks, 0..) |node, i| {
+        if (gz.endsWithNoReturn()) {
+            assert(i > 0);
+            try gz.astgen.appendErrorNodeNotes(node, "unreachable code", .{}, &.{
+                try gz.astgen.errNoteNode(blocks[i - 1], "control flow is diverted here", .{}),
+            }, .warn);
+        }
+
         // TODO: Namespace block.
         // TODO: Something should wrap expr to return an index to show or discard value.
         _, _ = try expr(gz, &namespace.base, node);
@@ -264,6 +272,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         => return lambda(gz, scope, node),
 
         .@"return" => return @"return"(gz, scope, node),
+        .signal => return signal(gz, scope, node),
 
         .assign => return assign(gz, scope, node),
         .global_assign => return globalAssign(gz, scope, node),
@@ -613,6 +622,18 @@ fn @"return"(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError
     const rhs, scope = try expr(gz, scope, data.rhs);
 
     return .{ try gz.addUnNode(.ret_node, rhs, node), scope };
+}
+
+fn signal(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    const data = node_datas[node];
+    var scope = parent_scope;
+    const rhs, scope = try expr(gz, scope, data.rhs);
+
+    return .{ try gz.addUnNode(.signal, rhs, node), scope };
 }
 
 fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
