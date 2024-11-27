@@ -198,6 +198,9 @@ pub const Inst = struct {
         /// Integer literal that fits in an i64.
         /// Uses the `long` union field.
         long,
+        /// String literal
+        /// Uses the `str_tok` union field. Token is the string literal. String is the string content.
+        str,
         /// Symbol literal
         /// Uses the `str_tok` union field. Token is the symbol literal. String is the symbol content.
         sym,
@@ -237,6 +240,7 @@ pub const Inst = struct {
                 .param_node,
                 .param_implicit,
                 .long,
+                .str,
                 .sym,
                 .identifier,
                 .call,
