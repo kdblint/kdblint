@@ -1290,6 +1290,33 @@ pub const Node = struct {
                 => .other,
             };
         }
+
+        pub fn isCompoundAssignment(tag: Tag) bool {
+            return switch (tag) {
+                .plus_colon,
+                .minus_colon,
+                .asterisk_colon,
+                .percent_colon,
+                .ampersand_colon,
+                .pipe_colon,
+                .caret_colon,
+                .equal_colon,
+                .angle_bracket_left_colon,
+                .angle_bracket_right_colon,
+                .dollar_colon,
+                .comma_colon,
+                .hash_colon,
+                .underscore_colon,
+                .tilde_colon,
+                .bang_colon,
+                .question_mark_colon,
+                .at_colon,
+                .period_colon,
+                => true,
+
+                else => false,
+            };
+        }
     };
 
     pub const Data = struct {
@@ -1409,6 +1436,16 @@ pub fn tokensToSpan(tree: *const Ast, start: Ast.Token.Index, end: Ast.Token.Ind
         .start = @intCast(start_off),
         .end = @intCast(end_off),
         .main = @intCast(token_locs[main].start),
+    };
+}
+
+pub fn isCompoundAssignment(tree: *const Ast, node: Ast.Node.Index) bool {
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    return switch (node_tags[node]) {
+        .apply_binary => node_tags[main_tokens[node]].isCompoundAssignment(),
+        else => false,
     };
 }
 
