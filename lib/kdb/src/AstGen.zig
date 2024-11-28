@@ -270,6 +270,8 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         .lambda_semicolon,
         => return lambda(gz, scope, node),
 
+        .expr_block => return exprBlock(gz, scope, node),
+
         .@"return" => return @"return"(gz, scope, node),
         .signal => return signal(gz, scope, node),
 
@@ -607,6 +609,29 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope) InnerError!v
             .top => unreachable,
         }
     }
+}
+
+fn exprBlock(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    const data = node_datas[node];
+    var scope = parent_scope;
+    if (data.lhs != 0) {
+        const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+        const slice = tree.extra_data[sub_range.start..sub_range.end];
+        for (slice[0 .. slice.len - 1]) |n| {
+            _, scope = try expr(gz, scope, n);
+        }
+
+        const n = slice[slice.len - 1];
+        const inst, scope = try expr(gz, scope, n);
+        if (tree.isCompoundAssignment(n)) return .{ .null, scope };
+        return .{ inst, scope };
+    }
+
+    return .{ .null, scope };
 }
 
 fn @"return"(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
