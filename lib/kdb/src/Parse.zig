@@ -18,6 +18,7 @@ source: []const u8,
 tokens: std.MultiArrayList(Token) = .{},
 tok_i: Token.Index = 0,
 eob: bool = false,
+within_fn: bool = false,
 ends_expr: std.ArrayListUnmanaged(Token.Tag) = .{},
 errors: std.ArrayListUnmanaged(Ast.Error) = .{},
 nodes: std.MultiArrayList(Node) = .{},
@@ -146,13 +147,24 @@ fn tokenSlice(p: *Parse, token_index: Token.Index) []const u8 {
 fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     assert(lhs != null_node);
     assert(rhs != null_node);
-    const tags: []Node.Tag = p.nodes.items(.tag);
+    const node_tags: []Node.Tag = p.nodes.items(.tag);
+    const node_datas: []Node.Data = p.nodes.items(.data);
     const main_tokens: []Token.Index = p.nodes.items(.main_token);
+    const token_tags: []Token.Tag = p.tokens.items(.tag);
 
-    const tag = tags[lhs];
+    const tag = node_tags[lhs];
     switch (tag.getType()) {
         // Fail if we are applying a unary operator directly in q.
-        .unary_operator => if (p.mode == .q) {
+        .unary_operator => if (p.mode == .q and
+            (!p.within_fn or tag != .colon or switch (token_tags[main_tokens[lhs] - 1]) {
+            .l_paren,
+            .l_brace,
+            .l_bracket,
+            .r_bracket,
+            .semicolon,
+            => false,
+            else => true,
+        })) {
             return p.warnMsg(.{
                 .tag = .cannot_apply_operator_directly,
                 .token = main_tokens[lhs],
@@ -160,7 +172,7 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
         },
 
         // Fail if we are applying an iterator directly in q.
-        .iterator => if (p.mode == .q and tags[rhs] != .expr_block) {
+        .iterator => if (p.mode == .q and (tag != .apostrophe or node_datas[lhs].lhs != 0)) {
             return p.warnMsg(.{
                 .tag = .cannot_apply_iterator_directly,
                 .token = main_tokens[lhs],
@@ -306,8 +318,6 @@ fn parseNoun(p: *Parse) !Node.Index {
         => try p.parseExprBlock(),
 
         .colon,
-        => try p.parseColon(),
-
         .colon_colon,
         .plus,
         .plus_colon,
@@ -358,8 +368,6 @@ fn parseNoun(p: *Parse) !Node.Index {
         => try p.parseOperator(),
 
         .apostrophe,
-        => try p.parseApostrophe(),
-
         .apostrophe_colon,
         .slash,
         .slash_colon,
@@ -429,58 +437,39 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .keyword_update,
         .keyword_delete,
         => {
+            const apply_index = try p.reserveNode(.apply_unary);
+            errdefer p.unreserveNode(apply_index);
+
             const op = try p.parseNoun();
             assert(op != null_node);
 
-            const tags: []Node.Tag = p.nodes.items(.tag);
-            switch (tags[op].getType()) {
-                .iterator,
-                => {
-                    const rhs = try p.parseExpr(sql_identifier);
-                    return p.addNode(.{
-                        .tag = .apply_binary,
-                        .main_token = op,
-                        .data = .{
-                            .lhs = lhs,
-                            .rhs = rhs,
-                        },
-                    });
-                },
-                else => {
-                    const rhs = try p.parseVerb(op, sql_identifier);
-                    try p.validateUnaryApplication(lhs, rhs);
-                    return p.addNode(.{
-                        .tag = .apply_unary,
-                        .main_token = undefined,
-                        .data = .{
-                            .lhs = lhs,
-                            .rhs = rhs,
-                        },
-                    });
-                },
+            const node_tags: []Node.Tag = p.nodes.items(.tag);
+            if (node_tags[op].getType() == .iterator) {
+                const rhs = try p.parseExpr(sql_identifier);
+                return p.setNode(apply_index, .{
+                    .tag = .apply_binary,
+                    .main_token = op,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    },
+                });
+            } else {
+                const rhs = try p.parseVerb(op, sql_identifier);
+                try p.validateUnaryApplication(lhs, rhs);
+                return p.setNode(apply_index, .{
+                    .tag = .apply_unary,
+                    .main_token = undefined,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    },
+                });
             }
         },
 
-        inline .colon,
+        .colon,
         .colon_colon,
-        => |t| {
-            const main_token = p.assertToken(t);
-
-            const assign_tag: Node.Tag = comptime if (t == .colon) .assign else .global_assign;
-            const assign_index = try p.reserveNode(assign_tag);
-            errdefer p.unreserveNode(assign_index);
-
-            const rhs = try p.expectExpr(sql_identifier);
-            return p.setNode(assign_index, .{
-                .tag = assign_tag,
-                .main_token = main_token,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = rhs,
-                },
-            });
-        },
-
         .plus,
         .plus_colon,
         .minus,
@@ -527,43 +516,31 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        => {
-            const op = try p.parseNoun();
-            assert(op != null_node);
-
-            const rhs = try p.parseExpr(sql_identifier);
-            return p.addNode(.{
-                .tag = .apply_binary,
-                .main_token = op,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = rhs,
-                },
-            });
-        },
-
         .infix_builtin,
         => {
+            const apply_index = try p.reserveNode(.apply_binary);
+            errdefer p.unreserveNode(apply_index);
+
             const op = try p.parseNoun();
             assert(op != null_node);
 
-            const tags: []Node.Tag = p.nodes.items(.tag);
-            if (tags[op] == .builtin or tags[op].getType() == .iterator) {
-                const rhs = try p.parseExpr(sql_identifier);
-                return p.addNode(.{
-                    .tag = .apply_binary,
-                    .main_token = op,
+            const node_tags: []Node.Tag = p.nodes.items(.tag);
+            if (node_tags[op] == .call) {
+                const rhs = try p.parseVerb(op, sql_identifier);
+                try p.validateUnaryApplication(lhs, rhs);
+                return p.setNode(apply_index, .{
+                    .tag = .apply_unary,
+                    .main_token = undefined,
                     .data = .{
                         .lhs = lhs,
                         .rhs = rhs,
                     },
                 });
             } else {
-                const rhs = try p.parseVerb(op, sql_identifier);
-                try p.validateUnaryApplication(lhs, rhs);
-                return p.addNode(.{
-                    .tag = .apply_unary,
-                    .main_token = undefined,
+                const rhs = try p.parseExpr(sql_identifier);
+                return p.setNode(apply_index, .{
+                    .tag = .apply_binary,
+                    .main_token = op,
                     .data = .{
                         .lhs = lhs,
                         .rhs = rhs,
@@ -755,6 +732,10 @@ fn parseLambda(p: *Parse) !Node.Index {
         _ = try p.expectToken(.r_bracket);
         assert(p.ends_expr.pop() == .r_bracket);
     }
+
+    const prev_within_fn = p.within_fn;
+    defer p.within_fn = prev_within_fn;
+    p.within_fn = true;
 
     const body_top = p.scratch.items.len;
     while (true) {
@@ -1269,41 +1250,6 @@ fn parseStatement(p: *Parse, comptime token_tag: Token.Tag) !Node.Index {
     });
 }
 
-fn parseColon(p: *Parse) !Node.Index {
-    const in_lambda = for (p.ends_expr.items) |tag| {
-        if (tag == .r_brace) break true;
-    } else false;
-
-    if (in_lambda) {
-        const main_token = p.assertToken(.colon);
-        const return_node = try p.reserveNode(.@"return");
-        errdefer p.unreserveNode(return_node);
-
-        const expr = try p.parseExpr(null);
-        if (expr == null_node) {
-            return p.setNode(return_node, .{
-                .main_token = main_token,
-                .tag = .colon,
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            });
-        }
-
-        return p.setNode(return_node, .{
-            .main_token = main_token,
-            .tag = .@"return",
-            .data = .{
-                .lhs = undefined,
-                .rhs = expr,
-            },
-        });
-    }
-
-    return p.parseToken(.colon, .colon);
-}
-
 /// Operator
 ///     <- PLUS
 ///      / MINUS
@@ -1333,6 +1279,7 @@ fn parseColon(p: *Parse) !Node.Index {
 fn parseOperator(p: *Parse) !Node.Index {
     const token_tag: Token.Tag = p.peekTag();
     const node_tag: Node.Tag = switch (token_tag) {
+        .colon => .colon,
         .colon_colon => .colon_colon,
         .plus => .plus,
         .plus_colon => .plus_colon,
@@ -1383,33 +1330,6 @@ fn parseOperator(p: *Parse) !Node.Index {
         else => unreachable,
     };
     return p.parseToken(token_tag, node_tag);
-}
-
-fn parseApostrophe(p: *Parse) !Node.Index {
-    const main_token = p.assertToken(.apostrophe);
-    const node_index = try p.reserveNode(.signal);
-    errdefer p.unreserveNode(node_index);
-
-    const expr = try p.parseExpr(null);
-    if (expr == null_node) {
-        return p.setNode(node_index, .{
-            .tag = .apostrophe,
-            .main_token = main_token,
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        });
-    }
-
-    return p.setNode(node_index, .{
-        .tag = .signal,
-        .main_token = main_token,
-        .data = .{
-            .lhs = undefined,
-            .rhs = expr,
-        },
-    });
 }
 
 /// Iterator
