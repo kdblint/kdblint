@@ -260,9 +260,8 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
 
     switch (node_tags[node]) {
-        .root, // TODO: Test unreserved node.
-        .empty,
-        => unreachable,
+        // TODO: Test unreserved node.
+        .root => unreachable,
 
         .grouped_expression => return groupedExpression(gz, scope, node),
         .empty_list => return .{ .empty_list, scope },
@@ -644,12 +643,7 @@ fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Re
 
     const data = node_datas[node];
     var scope = parent_scope;
-    const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
-        const rhs, scope = try expr(gz, scope, data.rhs);
-        break :rhs rhs;
-    } else .none;
-
-    // TODO: Handle a[b]:c
+    const rhs, scope = try expr(gz, scope, data.rhs);
     const lhs = lhs: {
         const prev_within_assign = astgen.within_assign;
         defer astgen.within_assign = prev_within_assign;
@@ -659,6 +653,10 @@ fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Re
         break :lhs lhs;
     };
 
+    switch (node_tags[data.rhs]) {
+        .expr_block => return astgen.failNode(data.rhs, "invalid right-hand side to assignment", .{}),
+        else => {},
+    }
     switch (node_tags[data.lhs]) {
         .identifier => {},
         // TODO: a[1]:1
@@ -671,6 +669,8 @@ fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Re
 
 fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
+    if (!astgen.within_fn) return view(gz, parent_scope, node);
+
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
@@ -678,58 +678,67 @@ fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
 
     const data = node_datas[node];
     var scope = parent_scope;
-    const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
-        const rhs, scope = try expr(gz, scope, data.rhs);
-        break :rhs rhs;
-    } else .none;
+    const rhs, scope = try expr(gz, scope, data.rhs);
     const lhs, scope = try expr(gz, scope, data.lhs);
+
     var is_misleading = false;
     switch (node_tags[data.lhs]) {
         .identifier => {
-            if (astgen.within_fn) {
-                const ident_token = main_tokens[data.lhs];
-                const ident_name = try astgen.identAsString(ident_token);
+            const ident_token = main_tokens[data.lhs];
+            const ident_name = try astgen.identAsString(ident_token);
 
-                var s = scope;
-                while (s != &gz.base) switch (s.tag) {
-                    .local_val => {
-                        const local_val = s.cast(Scope.LocalVal).?;
+            var s = scope;
+            while (s != &gz.base) switch (s.tag) {
+                .local_val => {
+                    const local_val = s.cast(Scope.LocalVal).?;
 
-                        if (local_val.name == ident_name) {
-                            try astgen.appendErrorNodeNotes(
-                                node,
-                                "misleading global-assign of {s} '{s}'",
-                                .{ @tagName(local_val.id_cat), tree.tokenSlice(ident_token) },
-                                &.{
-                                    try astgen.errNoteTok(
-                                        local_val.token_src,
-                                        "{s} declared here",
-                                        .{@tagName(local_val.id_cat)},
-                                    ),
-                                },
-                                .warn,
-                            );
-                            is_misleading = true;
-                        }
-                        s = local_val.parent;
-                    },
-                    .gen_zir => break,
-                    .namespace => break,
-                    .top => unreachable,
-                };
-            }
+                    if (local_val.name == ident_name) {
+                        try astgen.appendErrorNodeNotes(
+                            node,
+                            "misleading global-assign of {s} '{s}'",
+                            .{ @tagName(local_val.id_cat), tree.tokenSlice(ident_token) },
+                            &.{
+                                try astgen.errNoteTok(
+                                    local_val.token_src,
+                                    "{s} declared here",
+                                    .{@tagName(local_val.id_cat)},
+                                ),
+                            },
+                            .warn,
+                        );
+                        is_misleading = true;
+                    }
+                    s = local_val.parent;
+                },
+                .gen_zir => break,
+                .namespace => break,
+                .top => unreachable,
+            };
         },
         // TODO: call
         .call => unreachable,
         else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
     }
 
-    const tag: Zir.Inst.Tag = switch (astgen.within_fn) {
-        true => if (is_misleading) .assign else .global_assign,
-        false => .view,
-    };
+    const tag: Zir.Inst.Tag = if (is_misleading) .assign else .global_assign;
     return .{
         try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope,
+    };
+}
+
+fn view(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+
+    const data = node_datas[node];
+    var scope = parent_scope;
+    const rhs, scope = try expr(gz, scope, data.rhs);
+    const lhs, scope = try expr(gz, scope, data.lhs);
+
+    return .{
+        try gz.addPlNode(.view, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }),
+        scope,
     };
 }
 
@@ -762,6 +771,7 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErro
     };
 }
 
+// TODO: Test
 fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -778,18 +788,42 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
     const lhs, scope = try expr(gz, scope, data.lhs);
     const op: Ast.Node.Index = main_tokens[node];
     const tag: Zir.Inst.Tag = switch (node_tags[op]) {
-        .plus => .add,
-        .asterisk => .multiply,
+        .plus, .plus_colon => .add,
+        .minus, .minus_colon => .subtract,
+        .asterisk, .asterisk_colon => .multiply,
+        .percent, .percent_colon => .divide,
+        .ampersand, .ampersand_colon => .lesser,
+        .pipe, .pipe_colon => .greater,
+        .caret, .caret_colon => .fill,
+        .equal, .equal_colon => .equal,
+        .angle_bracket_left, .angle_bracket_left_colon => .less_than,
+        .angle_bracket_left_equal => .less_than_or_equal,
+        .angle_bracket_left_right => .not_equal,
+        .angle_bracket_right, .angle_bracket_right_colon => .greater_than,
+        .angle_bracket_right_equal => .greater_than_or_equal,
+        // .dollar, .dollar_colon => unreachable,
+        .comma, .comma_colon => .join,
+        // .hash, .hash_colon => unreachable,
+        // .underscore, .underscore_colon => unreachable,
+        .tilde, .tilde_colon => .match,
+        // .bang, .bang_colon => unreachable,
+        // .question_mark, .question_mark_colon => unreachable,
+        .at, .at_colon => .apply_at,
+        // .period, .period_colon => unreachable,
+        // .zero_colon, .zero_colon_colon => unreachable,
+        // .one_colon, .one_colon_colon => unreachable,
+        .two_colon => .dynamic_load,
         else => |t| {
             try astgen.appendErrorNode(node, "NYI: {s}", .{@tagName(t)}, .@"error");
             return .{ .nyi, scope };
         },
     };
 
-    return .{
-        try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }),
-        scope,
-    };
+    var ref = try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+    if (node_tags[op].isCompoundAssignment()) {
+        ref = try gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = ref });
+    }
+    return .{ ref, scope };
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -1356,7 +1390,6 @@ const GenZir = struct {
                     if (node_tags[data.lhs] == .identifier) {
                         try identifiers.append(data.lhs);
                     } else {
-                        assert(node_tags[data.lhs] == .call);
                         try stack.append(data.lhs);
                     }
                     try stack.append(data.rhs);
@@ -1579,7 +1612,7 @@ fn failNodeNotes(
 
 fn failTok(
     astgen: *AstGen,
-    token: Ast.TokenIndex,
+    token: Ast.Token.Index,
     comptime format: []const u8,
     args: anytype,
 ) InnerError {
@@ -1610,7 +1643,7 @@ fn failTokNotes(
     args: anytype,
     notes: []const u32,
 ) InnerError {
-    try appendErrorTokNotesOff(astgen, token, 0, format, args, notes);
+    try appendErrorTokNotesOff(astgen, token, 0, format, args, notes, .@"error");
     return error.AnalysisFail;
 }
 
