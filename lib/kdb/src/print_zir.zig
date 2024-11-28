@@ -3928,13 +3928,13 @@ test "too many parameters" {
 }
 
 test "declared after use / use of undeclared identifier" {
-    try testZir("{[]a}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = identifier("a") token_offset:1:4 to :1:5
-        \\    %3 = ret_node(%2) node_offset:1:4 to :1:5
-        \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
-        \\})
+    try failZir("{[]x:x::1}",
+        \\test:1:6: error: use of undeclared identifier 'x'
+        \\{[]x:x::1}
+        \\     ^
+        \\test:1:4: note: identifier declared here
+        \\{[]x:x::1}
+        \\   ^
     );
 
     try testZir("{[]a::a+1}",
