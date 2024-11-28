@@ -3441,7 +3441,88 @@ test "lambda semicolon" {
 }
 
 test "expr block" {
-    return error.SkipZigTest;
+    try testZir("[]",
+        \\%0 = file({})
+    );
+    try failZir("a:[]",
+        \\test:1:3: error: invalid right-hand side to assignment
+        \\a:[]
+        \\  ^~
+    );
+
+    try testZir("[1;2;3]",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = long(3)
+        \\})
+    );
+    try failZir("a:[1;2;3]",
+        \\test:1:3: error: invalid right-hand side to assignment
+        \\a:[1;2;3]
+        \\  ^~~~~~~
+    );
+
+    try testZir("{[][a:1;a*:2;a*:2]}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:1:5 to :1:6
+        \\    %3 = assign(%2, @one) node_offset:1:5 to :1:8
+        \\    %4 = long(2)
+        \\    %5 = multiply(%2, %4) node_offset:1:9 to :1:13
+        \\    %6 = assign(%2, %5) node_offset:1:9 to :1:13
+        \\    %7 = long(2)
+        \\    %8 = multiply(%2, %7) node_offset:1:14 to :1:18
+        \\    %9 = assign(%2, %8) node_offset:1:14 to :1:18
+        \\    %10 = ret_node(@null) node_offset:1:4 to :1:19
+        \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\})
+    );
+    try testZir("{[][a:1;a*:2;2*a*:2]}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:1:5 to :1:6
+        \\    %3 = assign(%2, @one) node_offset:1:5 to :1:8
+        \\    %4 = long(2)
+        \\    %5 = multiply(%2, %4) node_offset:1:9 to :1:13
+        \\    %6 = assign(%2, %5) node_offset:1:9 to :1:13
+        \\    %7 = long(2)
+        \\    %8 = multiply(%2, %7) node_offset:1:16 to :1:20
+        \\    %9 = assign(%2, %8) node_offset:1:16 to :1:20
+        \\    %10 = long(2)
+        \\    %11 = multiply(%10, %9) node_offset:1:14 to :1:20
+        \\    %12 = ret_node(%11) node_offset:1:4 to :1:21
+        \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\})
+    );
+    try testZir("{[][a:1;a*:2;a*2]}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:1:5 to :1:6
+        \\    %3 = assign(%2, @one) node_offset:1:5 to :1:8
+        \\    %4 = long(2)
+        \\    %5 = multiply(%2, %4) node_offset:1:9 to :1:13
+        \\    %6 = assign(%2, %5) node_offset:1:9 to :1:13
+        \\    %7 = long(2)
+        \\    %8 = multiply(%2, %7) node_offset:1:14 to :1:17
+        \\    %9 = ret_node(%8) node_offset:1:4 to :1:18
+        \\  }) (lbrace=1:1,rbrace=1:18) node_offset:1:1 to :1:19
+        \\})
+    );
+    try testZir("{[][a:1;a*:2;a:a*2]}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("a") token_offset:1:5 to :1:6
+        \\    %3 = assign(%2, @one) node_offset:1:5 to :1:8
+        \\    %4 = long(2)
+        \\    %5 = multiply(%2, %4) node_offset:1:9 to :1:13
+        \\    %6 = assign(%2, %5) node_offset:1:9 to :1:13
+        \\    %7 = long(2)
+        \\    %8 = multiply(%2, %7) node_offset:1:16 to :1:19
+        \\    %9 = assign(%2, %8) node_offset:1:14 to :1:19
+        \\    %10 = ret_node(%9) node_offset:1:4 to :1:20
+        \\  }) (lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
+        \\})
+    );
 }
 
 test "return" {
