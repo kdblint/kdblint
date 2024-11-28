@@ -830,7 +830,8 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
-    const bytes = tree.tokenSlice(main_tokens[node]);
+    const num_token = main_tokens[node];
+    const bytes = tree.tokenSlice(num_token);
 
     const result: Zir.Inst.Ref = switch (bytes[0]) {
         '-' => switch (kdb.parseNumberLiteral(bytes[1..])) {
@@ -838,7 +839,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                 1 => .negative_one,
                 else => try gz.addLong(-num),
             },
-            .failure => unreachable,
+            .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
         },
         else => switch (kdb.parseNumberLiteral(bytes)) {
             .long => |num| switch (num) {
@@ -846,11 +847,22 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                 1 => .one,
                 else => try gz.addLong(num),
             },
-            .failure => unreachable,
+            .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
         },
     };
 
     return result;
+}
+
+fn failWithNumberError(
+    astgen: *AstGen,
+    err: kdb.number_literal.Error,
+    token: Ast.Token.Index,
+    bytes: []const u8,
+) InnerError {
+    switch (err) {
+        .nyi => return astgen.failTok(token, "nyi: '{s}'", .{bytes}),
+    }
 }
 
 fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
