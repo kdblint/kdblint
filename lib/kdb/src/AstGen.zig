@@ -272,14 +272,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         .expr_block => return exprBlock(gz, scope, node),
 
-        .@"return" => return @"return"(gz, scope, node),
-        .signal => return signal(gz, scope, node),
-
-        .assign => return assign(gz, scope, node),
-        .global_assign => return globalAssign(gz, scope, node),
-
         .call => return call(gz, scope, node),
-
         .apply_unary => return applyUnary(gz, scope, node),
         .apply_binary => return applyBinary(gz, scope, node),
 
@@ -290,7 +283,7 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         .identifier => return identifier(gz, scope, node),
 
         else => |t| {
-            try astgen.appendErrorNode(node, "NYI: {s}", .{@tagName(t)}, .@"error");
+            try astgen.appendErrorNode(node, "expr NYI: {s}", .{@tagName(t)}, .@"error");
             return .{ .nyi, scope };
         },
     }
@@ -425,10 +418,6 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 // TODO: table_literal
                 .table_literal => unreachable,
 
-                .@"return",
-                .signal,
-                => try stack.append(node_datas[n].rhs),
-
                 .apostrophe,
                 .apostrophe_colon,
                 .slash,
@@ -454,8 +443,6 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                     stack.appendAssumeCapacity(data.lhs);
                 },
 
-                .assign,
-                .global_assign,
                 .apply_unary,
                 => {
                     const data = node_datas[n];
@@ -668,7 +655,10 @@ fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Re
 
     const data = node_datas[node];
     var scope = parent_scope;
-    const rhs, scope = try expr(gz, scope, data.rhs);
+    const rhs = if (data.rhs != 0) rhs: {
+        const rhs, scope = try expr(gz, scope, data.rhs);
+        break :rhs rhs;
+    } else .none;
     const lhs = lhs: {
         const prev_within_assign = astgen.within_assign;
         defer astgen.within_assign = prev_within_assign;
@@ -700,9 +690,9 @@ fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+    var scope = parent_scope;
 
     const data = node_datas[node];
-    var scope = parent_scope;
     const rhs, scope = try expr(gz, scope, data.rhs);
     const lhs, scope = try expr(gz, scope, data.lhs);
 
@@ -755,9 +745,9 @@ fn view(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Resu
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    var scope = parent_scope;
 
     const data = node_datas[node];
-    var scope = parent_scope;
     const rhs, scope = try expr(gz, scope, data.rhs);
     const lhs, scope = try expr(gz, scope, data.lhs);
 
@@ -767,14 +757,27 @@ fn view(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Resu
     };
 }
 
-fn call(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn call(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    var scope = parent_scope;
+    _ = &scope;
 
     const full_call = tree.fullCall(node);
     _ = full_call; // autofix
 
     if (astgen.within_assign) unreachable; // TODO: Handle a[b]:c
+
+    const data = node_datas[node];
+    const ref = switch (node_tags[data.lhs]) {
+        else => |t| {
+            try astgen.appendErrorNode(node, "call NYI: {s}", .{@tagName(t)}, .@"error");
+            return .{ .nyi, scope };
+        },
+    };
+    _ = ref; // autofix
 
     const call_inst = try gz.makePlNode(.call, node);
     return .{ call_inst.toRef(), scope };
@@ -783,17 +786,39 @@ fn call(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
 
-    const data = node_datas[node];
     var scope = parent_scope;
-    const rhs, scope = try expr(gz, scope, data.rhs);
-    const lhs, scope = try expr(gz, scope, data.lhs);
 
-    return .{
-        try gz.addPlNode(.apply_at, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }),
-        scope,
+    const data = node_datas[node];
+    const ref = switch (node_tags[data.lhs]) {
+        .colon => blk: {
+            const rhs, scope = try expr(gz, scope, data.rhs);
+            break :blk try gz.addUnNode(.ret_node, rhs, node);
+        },
+
+        .apostrophe => blk: {
+            const rhs, scope = try expr(gz, scope, data.rhs);
+            break :blk try gz.addUnNode(.signal, rhs, node);
+        },
+
+        .identifier => blk: {
+            const rhs, scope = try expr(gz, scope, data.rhs);
+            const lhs, scope = try expr(gz, scope, data.lhs);
+            break :blk try gz.addPlNode(.apply_at, node, Zir.Inst.Bin{
+                .lhs = lhs,
+                .rhs = rhs,
+            });
+        },
+
+        else => |t| {
+            try astgen.appendErrorNode(node, "unary NYI: {s}", .{@tagName(t)}, .@"error");
+            return .{ .nyi, scope };
+        },
     };
+
+    return .{ ref, scope };
 }
 
 // TODO: Test
@@ -804,15 +829,12 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
-    const data = node_datas[node];
     var scope = parent_scope;
-    const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
-        const rhs, scope = try expr(gz, scope, data.rhs);
-        break :rhs rhs;
-    } else .none;
-    const lhs, scope = try expr(gz, scope, data.lhs);
-    const op: Ast.Node.Index = main_tokens[node];
-    const tag: Zir.Inst.Tag = switch (node_tags[op]) {
+
+    const op_node: Ast.Node.Index = main_tokens[node];
+    const tag: Zir.Inst.Tag = switch (node_tags[op_node]) {
+        .colon => return assign(gz, scope, node),
+        .colon_colon => return globalAssign(gz, scope, node),
         .plus, .plus_colon => .add,
         .minus, .minus_colon => .subtract,
         .asterisk, .asterisk_colon => .multiply,
@@ -839,13 +861,20 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
         // .one_colon, .one_colon_colon => unreachable,
         .two_colon => .dynamic_load,
         else => |t| {
-            try astgen.appendErrorNode(node, "NYI: {s}", .{@tagName(t)}, .@"error");
+            try astgen.appendErrorNode(node, "binary NYI: {s}", .{@tagName(t)}, .@"error");
             return .{ .nyi, scope };
         },
     };
 
+    const data = node_datas[node];
+    const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
+        const rhs, scope = try expr(gz, scope, data.rhs);
+        break :rhs rhs;
+    } else .none;
+    const lhs, scope = try expr(gz, scope, data.lhs);
+
     var ref = try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
-    if (node_tags[op].isCompoundAssignment()) {
+    if (node_tags[op_node].isCompoundAssignment()) {
         ref = try gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = ref });
     }
     return .{ ref, scope };
@@ -1418,27 +1447,6 @@ const GenZir = struct {
                     while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
                 },
 
-                .@"return",
-                .signal,
-                => try stack.append(node_datas[node].rhs),
-
-                .assign => {
-                    const data = node_datas[node];
-                    if (node_tags[data.lhs] == .identifier) {
-                        try identifiers.append(data.lhs);
-                    } else {
-                        try stack.append(data.lhs);
-                    }
-                    try stack.append(data.rhs);
-                },
-                .global_assign,
-                => {
-                    const data = node_datas[node];
-                    try stack.ensureUnusedCapacity(2);
-                    stack.appendAssumeCapacity(data.lhs);
-                    stack.appendAssumeCapacity(data.rhs);
-                },
-
                 .apostrophe,
                 .apostrophe_colon,
                 .slash,
@@ -1450,6 +1458,7 @@ const GenZir = struct {
                     if (data.lhs != 0) try stack.append(data.lhs);
                 },
 
+                // TODO: :[a;1]
                 .call,
                 => {
                     const data = node_datas[node];
@@ -1468,10 +1477,21 @@ const GenZir = struct {
                 },
                 .apply_binary => {
                     const data = node_datas[node];
-                    try stack.ensureUnusedCapacity(if (data.rhs != 0) 3 else 2);
-                    stack.appendAssumeCapacity(data.lhs);
-                    stack.appendAssumeCapacity(main_tokens[node]);
-                    if (data.rhs != 0) stack.appendAssumeCapacity(data.rhs);
+                    const op_node: Ast.Node.Index = main_tokens[node];
+                    if (node_tags[op_node] == .colon) {
+                        if (node_tags[data.lhs] == .identifier) {
+                            try identifiers.append(data.lhs);
+                            if (data.rhs != 0) try stack.append(data.rhs);
+                        } else {
+                            try stack.append(data.lhs);
+                            if (data.rhs != 0) try stack.append(data.rhs);
+                        }
+                    } else {
+                        try stack.ensureUnusedCapacity(if (data.rhs != 0) 3 else 2);
+                        stack.appendAssumeCapacity(data.lhs);
+                        stack.appendAssumeCapacity(op_node);
+                        if (data.rhs != 0) stack.appendAssumeCapacity(data.rhs);
+                    }
                 },
 
                 inline .select, .exec, .update, .delete_rows, .delete_cols => |t| {

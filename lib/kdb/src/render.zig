@@ -150,22 +150,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .expr_block,
         => return renderExprBlock(r, node, space),
 
-        .@"return",
-        .signal,
-        => {
-            try renderToken(r, main_tokens[node], .none);
-            return renderExpression(r, datas[node].rhs, space);
-        },
-
-        .assign,
-        .global_assign,
-        => {
-            const args = datas[node];
-            try renderExpression(r, args.lhs, .none);
-            try renderTokenSpace(r, main_tokens[node]);
-            return renderExpression(r, args.rhs, space);
-        },
-
         .colon,
         .colon_colon,
         .plus,
@@ -1091,6 +1075,56 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         .r_brace,
         .r_bracket,
         => tags[token2] == .number_literal and r.tree.tokenSlice(token2)[0] == '-',
+
+        .colon,
+        .colon_colon,
+        .plus,
+        .plus_colon,
+        .minus,
+        .minus_colon,
+        .asterisk,
+        .asterisk_colon,
+        .percent,
+        .percent_colon,
+        .ampersand,
+        .ampersand_colon,
+        .pipe,
+        .pipe_colon,
+        .caret,
+        .caret_colon,
+        .equal,
+        .equal_colon,
+        .angle_bracket_left,
+        .angle_bracket_left_colon,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_colon,
+        .angle_bracket_right_equal,
+        .dollar,
+        .dollar_colon,
+        .comma,
+        .comma_colon,
+        .hash,
+        .hash_colon,
+        .underscore,
+        .underscore_colon,
+        .tilde,
+        .tilde_colon,
+        .bang,
+        .bang_colon,
+        .question_mark,
+        .question_mark_colon,
+        .at,
+        .at_colon,
+        .period,
+        .period_colon,
+        .zero_colon,
+        .zero_colon_colon,
+        .one_colon,
+        .one_colon_colon,
+        .two_colon,
+        => tags[token2] == .colon,
 
         .number_literal,
         => switch (tags[token2]) {
