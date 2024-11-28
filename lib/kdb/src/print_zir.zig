@@ -4130,6 +4130,22 @@ test "redeclaration of function parameter" {
 }
 
 test "misleading global assign" {
+    try warnZir("{[]x::x:1}",
+        \\test:1:5: warn: misleading global-assign of local variable 'x'
+        \\{[]x::x:1}
+        \\   ~^~~~~
+        \\test:1:7: note: local variable declared here
+        \\{[]x::x:1}
+        \\      ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = identifier("x") token_offset:1:7 to :1:8
+        \\    %3 = assign(%2, @one) node_offset:1:7 to :1:10
+        \\    %4 = assign(%2, %3) node_offset:1:4 to :1:10
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:10
+        \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\})
+    );
     try warnZir("{[x]x::1}",
         \\test:1:6: warn: misleading global-assign of function parameter 'x'
         \\{[x]x::1}
