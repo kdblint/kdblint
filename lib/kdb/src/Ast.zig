@@ -589,6 +589,7 @@ pub fn fullCall(tree: Ast, node: Node.Index) full.Call {
 
     const func = data.lhs;
     const args = tree.extra_data[sub_range.start..sub_range.end];
+    assert(args.len > 0);
 
     const l_bracket = tree.nodes.items(.main_token)[node];
     const r_bracket = if (tags[args[args.len - 1]] == .empty)
@@ -1368,6 +1369,18 @@ pub const Node = struct {
         from: Index,
     };
 };
+
+pub fn unwrapGroupedExpr(tree: *const Ast, node: Node.Index) Ast.Node.Index {
+    const node_tags: []Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Node.Data = tree.nodes.items(.data);
+
+    var n = node;
+    while (node_tags[n] == .grouped_expression) {
+        n = node_datas[n].lhs;
+    }
+
+    return n;
+}
 
 pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
     assert(node != 0);
