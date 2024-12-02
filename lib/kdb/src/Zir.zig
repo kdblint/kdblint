@@ -112,15 +112,9 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Block`.
         file,
 
-        /// Local variable assignment.
+        /// Variable assignment.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         assign,
-        /// Global variable assignment.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        global_assign,
-        /// View
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        view,
         /// `+`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         add,
@@ -221,8 +215,6 @@ pub const Inst = struct {
             return switch (tag) {
                 .file,
                 .assign,
-                .global_assign,
-                .view,
                 .add,
                 .subtract,
                 .multiply,

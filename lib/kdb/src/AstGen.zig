@@ -37,8 +37,6 @@ string_table: std.HashMapUnmanaged(
 ) = .empty,
 compile_errors: std.ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
 compile_warnings: std.ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
-within_fn: bool = false,
-within_assign: bool = false,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
 imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.Token.Index) = .empty,
@@ -118,6 +116,7 @@ pub fn generate(gpa: Allocator, tree: Ast) !Zir {
     astgen.extra.items.len += reserved_count;
 
     var top_scope: Scope.Top = .{};
+    defer top_scope.deinit(gpa);
 
     var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
     defer gz_instructions.deinit(gpa);
@@ -219,22 +218,19 @@ fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.ref_table.deinit(gpa);
 }
 
-fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
+fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
     const tree = astgen.tree;
+    var scope = parent_scope;
+
+    assert(parent_scope.isGlobal());
 
     const file_inst = try gz.makeFile();
 
-    var namespace: Scope.Namespace = .{
-        .parent = scope,
-        .node = 0,
-        .inst = file_inst,
-        .declaring_gz = gz,
-    };
-    defer namespace.deinit(gpa);
-
     const blocks = tree.getBlocks();
+    try astgen.scanExprs(blocks, .{
+        .global_decls = &parent_scope.top().global_decls,
+    });
     for (blocks, 0..) |node, i| {
         if (gz.endsWithNoReturn()) {
             assert(i > 0);
@@ -245,7 +241,7 @@ fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
 
         // TODO: Namespace block.
         // TODO: Something should wrap expr to return an index to show or discard value.
-        _, _ = try expr(gz, &namespace.base, node);
+        _, scope = try expr(gz, scope, node);
     }
     try gz.setFile(file_inst);
 
@@ -254,16 +250,18 @@ fn file(gz: *GenZir, scope: *Scope) InnerError!Zir.Inst.Ref {
 
 const Result = struct { Zir.Inst.Ref, *Scope };
 
-fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
 
+    assert(src_node != 0);
+
+    const node = tree.unwrapGroupedExpr(src_node);
     switch (node_tags[node]) {
-        // TODO: Test unreserved node.
         .root => unreachable,
 
-        .grouped_expression => return groupedExpression(gz, scope, node),
+        .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
 
         .lambda,
@@ -279,7 +277,6 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         .number_literal => return .{ try numberLiteral(gz, node), scope },
         .string_literal => return .{ try stringLiteral(gz, node), scope },
         .symbol_literal => return .{ try symbolLiteral(gz, node), scope },
-
         .identifier => return identifier(gz, scope, node),
 
         else => |t| {
@@ -291,21 +288,13 @@ fn expr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     unreachable;
 }
 
-fn groupedExpression(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-
-    const data = node_datas[node];
-    return expr(gz, scope, data.lhs);
-}
-
 fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    _ = node_datas; // autofix
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     astgen.advanceSourceCursorToNode(node);
@@ -316,22 +305,31 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
     const full_lambda = tree.fullLambda(node);
 
-    const prev_within_fn = astgen.within_fn;
-    defer astgen.within_fn = prev_within_fn;
-    astgen.within_fn = true;
+    var lambda_scope: Scope.Lambda = .{
+        .parent = scope,
+        .node = node,
+        .inst = lambda_inst,
+    };
+    defer lambda_scope.deinit(gpa);
+
+    var identifiers: std.StringHashMapUnmanaged(Ast.Node.Index) = .empty;
+    defer identifiers.deinit(gpa);
+
+    try astgen.scanExprs(full_lambda.body, .{
+        .identifiers = &identifiers,
+        .local_decls = &lambda_scope.local_decls,
+        .global_decls = &lambda_scope.global_decls,
+    });
 
     var fn_gz: GenZir = .{
         .decl_node_index = node,
         .decl_line = astgen.source_line,
-        .parent = scope,
+        .parent = &lambda_scope.base,
         .astgen = astgen,
         .instructions = gz.instructions,
         .instructions_top = gz.instructions.items.len,
-        .locals = .empty,
     };
     defer fn_gz.unstack();
-
-    try fn_gz.scanLocals(full_lambda.body);
 
     var params_scope = &fn_gz.base;
     const params_len: u32 = if (full_lambda.params) |p| params_len: {
@@ -342,42 +340,28 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 const param_token = main_tokens[param_node];
                 const param_name = try astgen.identAsString(param_token);
 
-                var found = false;
-                var s = params_scope;
-                while (true) switch (s.tag) {
-                    .local_val => {
-                        const local_val = s.cast(Scope.LocalVal).?;
+                if (params_scope.findLocal(param_name)) |local_val| {
+                    try astgen.appendErrorNodeNotes(
+                        param_node,
+                        "redeclaration of function parameter '{s}'",
+                        .{tree.tokenSlice(main_tokens[param_node])},
+                        &.{
+                            try astgen.errNoteTok(
+                                local_val.token_src,
+                                "previous declaration here",
+                                .{},
+                            ),
+                        },
+                        .warn,
+                    );
+                } else {
+                    try lambda_scope.local_decls.put(gpa, param_name, param_node);
 
-                        if (local_val.name == param_name) {
-                            try astgen.appendErrorNodeNotes(
-                                param_node,
-                                "redeclaration of function parameter '{s}'",
-                                .{tree.tokenSlice(main_tokens[param_node])},
-                                &.{
-                                    try astgen.errNoteTok(
-                                        local_val.token_src,
-                                        "previous declaration here",
-                                        .{},
-                                    ),
-                                },
-                                .warn,
-                            );
-                            found = true;
-                            break;
-                        }
-                        s = local_val.parent;
-                    },
-                    .gen_zir => break,
-                    .namespace => unreachable,
-                    .top => unreachable,
-                };
-                if (!found) {
                     const param_inst = try fn_gz.addStrNode(.param_node, param_name, param_node);
 
                     const sub_scope = try astgen.arena.create(Scope.LocalVal);
                     sub_scope.* = .{
                         .parent = params_scope,
-                        .gen_zir = &fn_gz,
                         .name = param_name,
                         .inst = param_inst,
                         .token_src = param_token,
@@ -393,143 +377,98 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         break :params_len @intCast(p.params.len);
     } else params_len: {
+        var found_x = false;
         var found_y = false;
         var found_z = false;
 
-        var stack = std.ArrayList(Ast.Node.Index).init(gpa);
-        defer stack.deinit();
+        // TODO: Unreferenced implicit parameter.
 
-        // We don't care about the order of traversal in this case - we are just looking for identifiers.
-        for (full_lambda.body) |body_node| {
-            try stack.append(body_node);
-            while (stack.popOrNull()) |n| switch (node_tags[n]) {
-                .root => unreachable,
+        const ident_x = identifiers.get("x");
+        const ident_y = identifiers.get("y");
+        const ident_z = identifiers.get("z");
 
-                .grouped_expression => try stack.append(node_datas[n].lhs),
+        if (ident_x) |ident_node| {
+            const ident_token = main_tokens[ident_node];
+            const ident_name = try astgen.identAsString(ident_token);
+            try lambda_scope.local_decls.put(gpa, ident_name, ident_node);
+            found_x = true;
 
-                .list,
-                .expr_block,
-                => {
-                    const sub_range = tree.extraData(node_datas[n].lhs, Ast.Node.SubRange);
-                    const slice = tree.extra_data[sub_range.start..sub_range.end];
-                    try stack.appendSlice(slice);
-                },
-
-                // TODO: table_literal
-                .table_literal => unreachable,
-
-                .apostrophe,
-                .apostrophe_colon,
-                .slash,
-                .slash_colon,
-                .backslash,
-                .backslash_colon,
-                => {
-                    const data = node_datas[n];
-                    if (data.lhs != 0) try stack.append(data.lhs);
-                },
-
-                .call,
-                .do,
-                .@"if",
-                .@"while",
-                .cond,
-                => {
-                    const data = node_datas[n];
-                    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
-                    const slice = tree.extra_data[sub_range.start..sub_range.end];
-                    try stack.ensureUnusedCapacity(slice.len + 1);
-                    stack.appendSliceAssumeCapacity(slice);
-                    stack.appendAssumeCapacity(data.lhs);
-                },
-
-                .apply_unary,
-                => {
-                    const data = node_datas[n];
-                    try stack.ensureUnusedCapacity(2);
-                    stack.appendAssumeCapacity(data.lhs);
-                    stack.appendAssumeCapacity(data.rhs);
-                },
-
-                .apply_binary => {
-                    const data = node_datas[n];
-                    try stack.ensureUnusedCapacity(if (data.rhs != 0) 3 else 2);
-                    stack.appendAssumeCapacity(data.lhs);
-                    stack.appendAssumeCapacity(main_tokens[n]);
-                    if (data.rhs != 0) stack.appendAssumeCapacity(data.rhs);
-                },
-
-                .identifier => {
-                    const param_token = main_tokens[n];
-                    const param_slice = tree.tokenSlice(param_token);
-                    if (std.mem.eql(u8, param_slice, "z")) {
-                        found_z = true;
-                        break;
-                    } else if (std.mem.eql(u8, param_slice, "y")) {
-                        found_y = true;
-                    }
-                },
-
-                inline .select, .exec, .update, .delete_rows, .delete_cols => |t| {
-                    const data = node_datas[n];
-                    const select = tree.extraData(data.lhs, switch (t) {
-                        .select => Ast.Node.Select,
-                        .exec => Ast.Node.Exec,
-                        .update => Ast.Node.Update,
-                        .delete_rows => Ast.Node.DeleteRows,
-                        .delete_cols => Ast.Node.DeleteCols,
-                        else => comptime unreachable,
-                    });
-                    try stack.append(select.from);
-                },
-
-                else => {},
-            };
-        }
-
-        {
-            const param_inst = try fn_gz.addUnTok(.param_implicit, .x, full_lambda.l_brace);
+            const param_inst = try fn_gz.addUnTok(.param_implicit, .x, ident_token);
             const sub_scope = try astgen.arena.create(Scope.LocalVal);
             sub_scope.* = .{
                 .parent = params_scope,
-                .gen_zir = &fn_gz,
+                .name = ident_name,
+                .inst = param_inst,
+                .token_src = ident_token,
+                .used = ident_token,
+                .id_cat = .@"function parameter",
+            };
+            params_scope = &sub_scope.base;
+        } else if (ident_y != null or ident_z != null) {
+            const param_inst = try fn_gz.addUnTok(
+                .param_implicit,
+                .x,
+                full_lambda.l_brace,
+            );
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = params_scope,
                 .name = undefined, // TODO
                 .inst = param_inst,
                 .token_src = full_lambda.l_brace,
-                // TODO: This should be full_lambda.l_brace, but that could be 0 which means unused.
-                .used = std.math.maxInt(Ast.Token.Index),
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
         }
 
-        if (found_y or found_z) {
-            const param_inst = try fn_gz.addUnTok(.param_implicit, .y, full_lambda.l_brace);
+        if (ident_y) |ident_node| {
+            const ident_token = main_tokens[ident_node];
+            const ident_name = try astgen.identAsString(ident_token);
+            try lambda_scope.local_decls.put(gpa, ident_name, ident_node);
+            found_y = true;
+
+            const param_inst = try fn_gz.addUnTok(.param_implicit, .y, ident_token);
             const sub_scope = try astgen.arena.create(Scope.LocalVal);
             sub_scope.* = .{
                 .parent = params_scope,
-                .gen_zir = &fn_gz,
+                .name = ident_name,
+                .inst = param_inst,
+                .token_src = ident_token,
+                .used = ident_token,
+                .id_cat = .@"function parameter",
+            };
+            params_scope = &sub_scope.base;
+        } else if (ident_z != null) {
+            const param_inst = try fn_gz.addUnTok(
+                .param_implicit,
+                .y,
+                full_lambda.l_brace,
+            );
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = params_scope,
                 .name = undefined, // TODO
                 .inst = param_inst,
                 .token_src = full_lambda.l_brace,
-                // TODO: This should be full_lambda.l_brace, but that could be 0 which means unused.
-                .used = std.math.maxInt(Ast.Token.Index),
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
         }
 
-        if (found_z) {
-            const param_inst = try fn_gz.addUnTok(.param_implicit, .z, full_lambda.l_brace);
+        if (identifiers.get("z")) |ident_node| {
+            const ident_token = main_tokens[ident_node];
+            const ident_name = try astgen.identAsString(ident_token);
+            try lambda_scope.local_decls.put(gpa, ident_name, ident_node);
+            found_z = true;
+
+            const param_inst = try fn_gz.addUnTok(.param_implicit, .z, ident_token);
             const sub_scope = try astgen.arena.create(Scope.LocalVal);
             sub_scope.* = .{
                 .parent = params_scope,
-                .gen_zir = &fn_gz,
-                .name = undefined, // TODO
+                .name = ident_name,
                 .inst = param_inst,
-                .token_src = full_lambda.l_brace,
-                // TODO: This should be full_lambda.l_brace, but that could be 0 which means unused.
-                .used = std.math.maxInt(Ast.Token.Index),
+                .token_src = ident_token,
+                .used = ident_token,
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
@@ -537,6 +476,8 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         break :params_len if (found_z) 3 else if (found_y) 2 else 1;
     };
+
+    assert(full_lambda.body.len > 0);
 
     for (full_lambda.body, 0..) |body_node, i| {
         if (fn_gz.endsWithNoReturn()) {
@@ -560,7 +501,12 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         }
     }
 
-    try checkUsed(gz, &fn_gz.base, params_scope);
+    try checkUsed(
+        gz,
+        &fn_gz.base,
+        params_scope,
+        full_lambda.params == null,
+    );
 
     try gz.setLambda(lambda_inst, .{
         .lbrace_line = lbrace_line,
@@ -573,8 +519,15 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     return .{ lambda_inst.toRef(), scope };
 }
 
-fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope) InnerError!void {
+fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope, implicit_params: bool) InnerError!void {
     const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const token_tags: []Ast.Token.Tag = tree.tokens.items(.tag);
+
+    var buf: [2]*Scope.LocalVal = undefined;
+    var unused_params = std.ArrayListUnmanaged(*Scope.LocalVal).initBuffer(&buf);
+
+    var last_param: ?*Scope.LocalVal = null;
 
     var scope = inner_scope;
     while (scope != outer_scope) {
@@ -582,20 +535,137 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope) InnerError!v
             .gen_zir => scope = scope.cast(GenZir).?.parent,
             .local_val => {
                 const s = scope.cast(Scope.LocalVal).?;
+                if (s.id_cat == .@"function parameter" and last_param == null) last_param = s;
+
                 if (s.used == 0) {
-                    try astgen.appendErrorTok(
-                        s.token_src,
-                        "unused {s}",
-                        .{@tagName(s.id_cat)},
-                        .warn,
-                    );
+                    if (s.id_cat == .@"function parameter" and token_tags[s.token_src] == .l_brace) {
+                        unused_params.appendAssumeCapacity(s);
+                    } else {
+                        try astgen.appendErrorTok(
+                            s.token_src,
+                            "unused {s}",
+                            .{@tagName(s.id_cat)},
+                            .warn,
+                        );
+                    }
                 }
+
                 scope = s.parent;
             },
-            .namespace => unreachable,
+            .lambda => break,
             .top => unreachable,
         }
     }
+
+    if (implicit_params and unused_params.items.len > 0) {
+        assert(last_param != null);
+        if (last_param) |param_scope| {
+            const last_param_tok = param_scope.token_src;
+            const last_param_bytes = tree.tokenSlice(last_param_tok);
+            if (std.mem.eql(u8, last_param_bytes, "z")) {
+                const z_scope = param_scope;
+                switch (unused_params.items.len) {
+                    1 => {
+                        const y_scope = z_scope.parent.cast(Scope.LocalVal).?;
+                        if (unused_params.items[0] == y_scope) {
+                            try astgen.appendErrorTokNotes(
+                                y_scope.token_src,
+                                "unused {s} 'y'",
+                                .{@tagName(y_scope.id_cat)},
+                                &.{
+                                    try astgen.errNoteTok(
+                                        z_scope.token_src,
+                                        "consider renaming 'z' to 'y'",
+                                        .{},
+                                    ),
+                                },
+                                .warn,
+                            );
+                        } else {
+                            const x_scope = unused_params.items[0];
+                            try astgen.appendErrorTokNotes(
+                                x_scope.token_src,
+                                "unused {s} 'x'",
+                                .{@tagName(x_scope.id_cat)},
+                                &.{
+                                    try astgen.errNoteTok(
+                                        y_scope.token_src,
+                                        "consider renaming 'y' to 'x'",
+                                        .{},
+                                    ),
+                                    try astgen.errNoteTok(
+                                        z_scope.token_src,
+                                        "consider renaming 'z' to 'y'",
+                                        .{},
+                                    ),
+                                },
+                                .warn,
+                            );
+                        }
+                    },
+                    2 => {
+                        const y_scope = z_scope.parent.cast(Scope.LocalVal).?;
+                        const x_scope = y_scope.parent.cast(Scope.LocalVal).?;
+
+                        try astgen.appendErrorTokNotes(
+                            y_scope.token_src,
+                            "unused {s} 'y'",
+                            .{@tagName(y_scope.id_cat)},
+                            &.{
+                                try astgen.errNoteTok(
+                                    z_scope.token_src,
+                                    "consider renaming 'z' to 'x'",
+                                    .{},
+                                ),
+                            },
+                            .warn,
+                        );
+                        try astgen.appendErrorTokNotes(
+                            x_scope.token_src,
+                            "unused {s} 'x'",
+                            .{@tagName(x_scope.id_cat)},
+                            &.{
+                                try astgen.errNoteTok(
+                                    z_scope.token_src,
+                                    "consider renaming 'z' to 'x'",
+                                    .{},
+                                ),
+                            },
+                            .warn,
+                        );
+                    },
+                    else => unreachable,
+                }
+            } else if (std.mem.eql(u8, last_param_bytes, "y")) {
+                const y_scope = param_scope;
+                switch (unused_params.items.len) {
+                    1 => {
+                        const x_scope = unused_params.items[0];
+                        try astgen.appendErrorTokNotes(
+                            x_scope.token_src,
+                            "unused {s} 'x'",
+                            .{@tagName(x_scope.id_cat)},
+                            &.{
+                                try astgen.errNoteTok(
+                                    y_scope.token_src,
+                                    "consider renaming 'y' to 'x'",
+                                    .{},
+                                ),
+                            },
+                            .warn,
+                        );
+                    },
+                    else => unreachable,
+                }
+            }
+        }
+    }
+}
+
+/// Given an index into `string_bytes` returns the null-terminated string found there.
+pub fn nullTerminatedString(astgen: *AstGen, index: Zir.NullTerminatedString) [:0]const u8 {
+    const slice = astgen.string_bytes.items[@intFromEnum(index)..];
+    return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
 }
 
 fn exprBlock(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
@@ -621,20 +691,6 @@ fn exprBlock(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError
     return .{ .null, scope };
 }
 
-fn @"return"(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-
-    assert(astgen.within_fn);
-
-    const data = node_datas[node];
-    var scope = parent_scope;
-    const rhs, scope = try expr(gz, scope, data.rhs);
-
-    return .{ try gz.addUnNode(.ret_node, rhs, node), scope };
-}
-
 fn signal(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -647,140 +703,299 @@ fn signal(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Re
     return .{ try gz.addUnNode(.signal, rhs, node), scope };
 }
 
-fn assign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn assign(
+    gz: *GenZir,
+    parent_scope: *Scope,
+    src_node: Ast.Node.Index,
+    ident_node: Ast.Node.Index,
+    expr_node: Ast.Node.Index,
+    is_global_assign: bool,
+) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-
-    const data = node_datas[node];
-    var scope = parent_scope;
-    const rhs = if (data.rhs != 0) rhs: {
-        const rhs, scope = try expr(gz, scope, data.rhs);
-        break :rhs rhs;
-    } else .none;
-    const lhs = lhs: {
-        const prev_within_assign = astgen.within_assign;
-        defer astgen.within_assign = prev_within_assign;
-        astgen.within_assign = true;
-
-        const lhs, scope = try expr(gz, scope, data.lhs);
-        break :lhs lhs;
-    };
-
-    switch (node_tags[data.rhs]) {
-        .expr_block => return astgen.failNode(data.rhs, "invalid right-hand side to assignment", .{}),
-        else => {},
-    }
-    switch (node_tags[data.lhs]) {
-        .identifier => {},
-        // TODO: a[1]:1
-        .call => unreachable,
-        else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
-    }
-
-    return .{ try gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope };
-}
-
-fn globalAssign(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    const astgen = gz.astgen;
-    if (!astgen.within_fn) return view(gz, parent_scope, node);
-
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
     var scope = parent_scope;
 
-    const data = node_datas[node];
-    const rhs, scope = try expr(gz, scope, data.rhs);
-    const lhs, scope = try expr(gz, scope, data.lhs);
+    assert(src_node != 0);
+    assert(ident_node != 0);
+    assert(node_tags[ident_node] == .identifier);
+    assert(expr_node != 0);
 
-    var is_misleading = false;
-    switch (node_tags[data.lhs]) {
-        .identifier => {
-            const ident_token = main_tokens[data.lhs];
-            const ident_name = try astgen.identAsString(ident_token);
+    const rhs, scope = try expr(gz, scope, expr_node);
 
-            var s = scope;
-            while (s != &gz.base) switch (s.tag) {
-                .local_val => {
-                    const local_val = s.cast(Scope.LocalVal).?;
+    const ident_token = main_tokens[ident_node];
+    const ident_bytes = tree.tokenSlice(ident_token);
+    const ident_name = try astgen.bytesAsString(ident_bytes);
 
-                    if (local_val.name == ident_name) {
-                        try astgen.appendErrorNodeNotes(
-                            node,
-                            "misleading global-assign of {s} '{s}'",
-                            .{ @tagName(local_val.id_cat), tree.tokenSlice(ident_token) },
-                            &.{
-                                try astgen.errNoteTok(
-                                    local_val.token_src,
-                                    "{s} declared here",
-                                    .{@tagName(local_val.id_cat)},
-                                ),
-                            },
-                            .warn,
-                        );
-                        is_misleading = true;
-                    }
-                    s = local_val.parent;
-                },
-                .gen_zir => break,
-                .namespace => break,
-                .top => unreachable,
+    if (parent_scope.isGlobal()) {
+        const node = parent_scope.top().global_decls.get(ident_name).?;
+        if (src_node == node) { // declare global
+            const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = scope,
+                .inst = lhs,
+                .token_src = ident_token,
+                .name = ident_name,
+                .id_cat = .@"global variable",
             };
-        },
-        // TODO: call
-        .call => unreachable,
-        else => return astgen.failNode(data.lhs, "invalid left-hand side to assignment", .{}),
+            scope = &sub_scope.base;
+
+            return .{
+                try gz.addPlNode(
+                    .assign,
+                    src_node,
+                    Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
+                ),
+                scope,
+            };
+        } else if (scope.findGlobal(ident_name)) |lhs| { // assign global
+            return .{
+                try gz.addPlNode(
+                    .assign,
+                    src_node,
+                    Zir.Inst.Bin{ .lhs = lhs.inst, .rhs = rhs },
+                ),
+                scope,
+            };
+        } else {
+            return astgen.failNode(src_node, "undefined global variable", .{});
+            // unreachable; // undefined global
+        }
     }
 
-    const tag: Zir.Inst.Tag = if (is_misleading) .assign else .global_assign;
-    return .{
-        try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), scope,
-    };
+    const lambda_scope = parent_scope.lambda().?;
+
+    if (is_global_assign) {
+        if (lambda_scope.local_decls.get(ident_name)) |local_decl| {
+            const local_ident = switch (node_tags[local_decl]) {
+                .identifier => local_decl,
+                .apply_binary => tree.unwrapGroupedExpr(node_datas[local_decl].lhs),
+                .call => blk: {
+                    const sub_range = tree.extraData(node_datas[local_decl].rhs, Ast.Node.SubRange);
+                    break :blk tree.unwrapGroupedExpr(tree.extra_data[sub_range.start]);
+                },
+                else => unreachable,
+            };
+            assert(node_tags[local_ident] == .identifier);
+
+            // TODO: Continue
+
+            std.log.debug("global assign, local decl", .{});
+
+            if (scope.findLocal(ident_name)) |local_val| { // local before global
+                std.log.debug("found local", .{});
+                try astgen.appendErrorNodeNotes(src_node, "misleading global-assign of {s} '{s}'", .{
+                    @tagName(local_val.id_cat),
+                    ident_bytes,
+                }, &.{
+                    try astgen.errNoteNode(
+                        local_ident,
+                        "{s} declared here",
+                        .{@tagName(local_val.id_cat)},
+                    ),
+                }, .warn);
+
+                if (local_val.used == 0) local_val.used = ident_token;
+
+                return .{
+                    try gz.addPlNode(
+                        .assign,
+                        src_node,
+                        Zir.Inst.Bin{ .lhs = local_val.inst, .rhs = rhs },
+                    ),
+                    scope,
+                };
+            } else { // global before local
+                std.log.debug("not found local", .{});
+                return astgen.failNodeNotes(
+                    local_ident,
+                    "global variable '{s}' used as local",
+                    .{ident_bytes},
+                    &.{
+                        try astgen.errNoteTok(
+                            ident_token,
+                            "global variable declared here",
+                            .{},
+                        ),
+                    },
+                );
+            }
+        } else {
+            const node = lambda_scope.global_decls.get(ident_name).?;
+            if (src_node == node) { // declare global
+                const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+
+                const sub_scope = try astgen.arena.create(Scope.LocalVal);
+                sub_scope.* = .{
+                    .parent = scope,
+                    .inst = lhs,
+                    .token_src = ident_token,
+                    .name = ident_name,
+                    .id_cat = .@"global variable",
+                };
+                scope = &sub_scope.base;
+
+                return .{
+                    try gz.addPlNode(
+                        .assign,
+                        src_node,
+                        Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
+                    ),
+                    scope,
+                };
+            } else if (scope.findGlobal(ident_name)) |lhs| { // assign global
+                return .{
+                    try gz.addPlNode(
+                        .assign,
+                        src_node,
+                        Zir.Inst.Bin{ .lhs = lhs.inst, .rhs = rhs },
+                    ),
+                    scope,
+                };
+            } else {
+                return astgen.failNode(src_node, "undefined global variable", .{});
+                // unreachable; // undefined global
+            }
+        }
+    }
+
+    if (std.mem.indexOfScalar(u8, ident_bytes, '.')) |_| {
+        const node = lambda_scope.global_decls.get(ident_name).?;
+        if (src_node == node) { // declare global
+            const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = scope,
+                .inst = lhs,
+                .token_src = ident_token,
+                .name = ident_name,
+                .id_cat = .@"global variable",
+            };
+            scope = &sub_scope.base;
+
+            return .{
+                try gz.addPlNode(
+                    .assign,
+                    src_node,
+                    Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
+                ),
+                scope,
+            };
+        } else { // assign global
+            if (scope.findGlobal(ident_name)) |lhs| {
+                return .{
+                    try gz.addPlNode(
+                        .assign,
+                        src_node,
+                        Zir.Inst.Bin{ .lhs = lhs.inst, .rhs = rhs },
+                    ),
+                    scope,
+                };
+            } else {
+                return astgen.failNode(src_node, "undefined global variable", .{});
+                // unreachable; // undefined global
+            }
+        }
+    } else {
+        const node = scope.lambda().?.local_decls.get(ident_name).?;
+        if (src_node == node) { // declare local
+            const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = scope,
+                .inst = lhs,
+                .token_src = ident_token,
+                .name = ident_name,
+                .id_cat = .@"local variable",
+            };
+            scope = &sub_scope.base;
+
+            return .{
+                try gz.addPlNode(
+                    .assign,
+                    src_node,
+                    Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
+                ),
+                scope,
+            };
+        } else { // assign local
+            if (scope.findLocal(ident_name)) |local_val| {
+                return .{
+                    try gz.addPlNode(
+                        .assign,
+                        src_node,
+                        Zir.Inst.Bin{ .lhs = local_val.inst, .rhs = rhs },
+                    ),
+                    scope,
+                };
+            } else {
+                return astgen.failNode(src_node, "undefined local variable", .{});
+                // unreachable; // undefined local
+            }
+        }
+    }
 }
 
-fn view(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-    var scope = parent_scope;
-
-    const data = node_datas[node];
-    const rhs, scope = try expr(gz, scope, data.rhs);
-    const lhs, scope = try expr(gz, scope, data.lhs);
-
-    return .{
-        try gz.addPlNode(.view, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }),
-        scope,
-    };
-}
-
-fn call(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     var scope = parent_scope;
     _ = &scope;
 
-    const full_call = tree.fullCall(node);
-    _ = full_call; // autofix
+    assert(node_tags[src_node] == .call);
 
-    if (astgen.within_assign) unreachable; // TODO: Handle a[b]:c
+    const full_call = tree.fullCall(src_node);
 
-    const data = node_datas[node];
-    const ref = switch (node_tags[data.lhs]) {
-        else => |t| {
-            try astgen.appendErrorNode(node, "call NYI: {s}", .{@tagName(t)}, .@"error");
-            return .{ .nyi, scope };
+    const func_node = tree.unwrapGroupedExpr(full_call.func);
+    switch (node_tags[func_node]) {
+        inline .colon, .colon_colon => |t| {
+            switch (full_call.args.len) {
+                0 => unreachable,
+                1 => {
+                    try astgen.appendErrorNode(
+                        src_node,
+                        "expected 2 argument(s), found {d}",
+                        .{@as(u32, if (node_tags[full_call.args[0]] == .empty) 0 else 1)},
+                        .warn,
+                    );
+
+                    // TODO: We should return some generic call/projection instruction here.
+                    return .{ .null, scope };
+                },
+                2 => {},
+                else => return astgen.failNode(
+                    src_node,
+                    "expected 2 argument(s), found {d}",
+                    .{full_call.args.len},
+                ),
+            }
+
+            const ident_node = tree.unwrapGroupedExpr(full_call.args[0]);
+            if (node_tags[ident_node] != .identifier) return astgen.failNode(
+                full_call.args[0],
+                "invalid left-hand side to assignment",
+                .{},
+            );
+
+            return assign(
+                gz,
+                scope,
+                src_node,
+                tree.unwrapGroupedExpr(full_call.args[0]),
+                full_call.args[1],
+                t == .colon_colon,
+            );
         },
-    };
-    _ = ref; // autofix
 
-    const call_inst = try gz.makePlNode(.call, node);
-    return .{ call_inst.toRef(), scope };
+        else => |t| return astgen.failNode(src_node, "call NYI: {s}", .{@tagName(t)}),
+    }
 }
 
 fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
@@ -788,7 +1003,6 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErro
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-
     var scope = parent_scope;
 
     const data = node_datas[node];
@@ -821,20 +1035,30 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErro
     return .{ ref, scope };
 }
 
-// TODO: Test
 fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
-
     var scope = parent_scope;
 
     const op_node: Ast.Node.Index = main_tokens[node];
     const tag: Zir.Inst.Tag = switch (node_tags[op_node]) {
-        .colon => return assign(gz, scope, node),
-        .colon_colon => return globalAssign(gz, scope, node),
+        inline .colon, .colon_colon => |t| {
+            if (node_datas[node].rhs == 0) return astgen.failNode(node, "binary TODO", .{});
+            const ident_node = tree.unwrapGroupedExpr(node_datas[node].lhs);
+            if (node_tags[ident_node] != .identifier) return astgen.failNode(node, "{}", .{node_tags[ident_node]});
+            return assign(
+                gz,
+                scope,
+                node,
+                ident_node,
+                node_datas[node].rhs,
+                t == .colon_colon,
+            );
+        },
+
         .plus, .plus_colon => .add,
         .minus, .minus_colon => .subtract,
         .asterisk, .asterisk_colon => .multiply,
@@ -860,10 +1084,8 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
         // .zero_colon, .zero_colon_colon => unreachable,
         // .one_colon, .one_colon_colon => unreachable,
         .two_colon => .dynamic_load,
-        else => |t| {
-            try astgen.appendErrorNode(node, "binary NYI: {s}", .{@tagName(t)}, .@"error");
-            return .{ .nyi, scope };
-        },
+
+        else => |t| return astgen.failNode(node, "binary NYI: {s}", .{@tagName(t)}),
     };
 
     const data = node_datas[node];
@@ -939,67 +1161,377 @@ fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     return gz.addStrTok(.sym, sym, sym_token);
 }
 
-fn identifier(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     const ident_token = main_tokens[node];
-    const ident_name = try astgen.identAsString(ident_token);
+    const ident_bytes = tree.tokenSlice(ident_token);
+    const ident_name = try astgen.bytesAsString(ident_bytes);
 
-    if (astgen.within_fn) {
-        var s = parent_scope;
-        while (s != &gz.base) switch (s.tag) {
-            .local_val => {
-                const local_val = s.cast(Scope.LocalVal).?;
+    if (scope.lambda()) |lambda_scope| if (lambda_scope.local_decls.get(ident_name)) |local_decl| {
+        if (scope.findLocal(ident_name)) |local_val| {
+            if (local_val.used == 0) local_val.used = ident_token;
+            return .{ local_val.inst, scope };
+        }
 
-                if (local_val.name == ident_name) {
-                    if (local_val.used == 0 and !astgen.within_assign) {
-                        local_val.used = ident_token;
-                    }
-
-                    return .{ local_val.inst, parent_scope };
-                }
-                s = local_val.parent;
+        const local_ident = switch (node_tags[local_decl]) {
+            .identifier => local_decl,
+            .apply_binary => tree.unwrapGroupedExpr(node_datas[local_decl].lhs),
+            .call => blk: {
+                const sub_range = tree.extraData(node_datas[local_decl].rhs, Ast.Node.SubRange);
+                break :blk tree.unwrapGroupedExpr(tree.extra_data[sub_range.start]);
             },
-            .gen_zir => break,
-            .namespace => break,
-            .top => unreachable,
+            else => unreachable,
         };
+        assert(node_tags[local_ident] == .identifier);
 
-        if (astgen.within_assign) {
-            const inst = try gz.addStrTok(.identifier, ident_name, ident_token);
+        return astgen.failNodeNotes(
+            node,
+            "use of undeclared identifier '{s}'",
+            .{ident_bytes},
+            &.{
+                try astgen.errNoteNode(local_ident, "identifier declared here", .{}),
+            },
+        );
+    };
 
-            var scope = parent_scope;
-            const sub_scope = try astgen.arena.create(Scope.LocalVal);
-            sub_scope.* = .{
-                .parent = scope,
-                .gen_zir = gz,
-                .name = ident_name,
-                .inst = inst,
-                .token_src = ident_token,
-                .id_cat = .@"local variable",
-            };
-            scope = &sub_scope.base;
-
-            return .{ inst, scope };
-        }
-
-        if (gz.locals.?.get(ident_name)) |decl_token| {
-            if (ident_token != decl_token) {
-                return astgen.failNodeNotes(
-                    node,
-                    "use of undeclared identifier '{s}'",
-                    .{tree.tokenSlice(ident_token)},
-                    &.{
-                        try astgen.errNoteTok(decl_token, "identifier declared here", .{}),
-                    },
-                );
-            }
-        }
+    if (scope.findGlobal(ident_name)) |local_val| {
+        if (local_val.used == 0) local_val.used = ident_token;
+        return .{ local_val.inst, scope };
     }
 
-    return .{ try gz.addStrTok(.identifier, ident_name, ident_token), parent_scope };
+    return .{ try gz.addStrTok(.identifier, ident_name, ident_token), scope };
+}
+
+const ScanArgs = struct {
+    identifiers: ?*std.StringHashMapUnmanaged(Ast.Node.Index) = null,
+    local_decls: ?*std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = null,
+    global_decls: *std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index),
+};
+
+fn scanExprs(
+    astgen: *AstGen,
+    exprs: []const Ast.Node.Index,
+    args: ScanArgs,
+) !void {
+    var it = std.mem.reverseIterator(exprs);
+    while (it.next()) |node| try astgen.scanNode(node, args);
+}
+
+fn scanNode(
+    astgen: *AstGen,
+    node: Ast.Node.Index,
+    args: ScanArgs,
+) !void {
+    if (node == 0) return;
+
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    switch (node_tags[node]) {
+        .root => unreachable,
+
+        .grouped_expression => try astgen.scanNode(node_datas[node].lhs, args),
+        .list => {
+            const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
+            const slice = tree.extra_data[sub_range.start..sub_range.end];
+            for (slice) |n| try astgen.scanNode(n, args);
+        },
+        .table_literal => {
+            const table = tree.extraData(node_datas[node].lhs, Ast.Node.Table);
+            const keys_slice = tree.extra_data[table.keys_start..table.keys_end];
+            const columns_slice = tree.extra_data[table.columns_start..table.columns_end];
+            for (&[_][]Ast.Node.Index{ keys_slice, columns_slice }) |table_slice| {
+                for (table_slice) |n| {
+                    var next = tree.unwrapGroupedExpr(n);
+                    if (node_tags[next] == .apply_binary) {
+                        const data = node_datas[next];
+                        const op_node: Ast.Node.Index = main_tokens[next];
+                        if (node_tags[op_node] == .colon or node_tags[op_node] == .colon_colon) {
+                            next = tree.unwrapGroupedExpr(data.lhs);
+                            try astgen.scanNode(next, args);
+                        } else {
+                            try astgen.scanNode(data.lhs, args);
+                            try astgen.scanNode(op_node, args);
+                        }
+                        try astgen.scanNode(data.rhs, args);
+                    } else if (node_tags[next] == .call) {
+                        const data = node_datas[next];
+                        const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+                        const slice = tree.extra_data[sub_range.start..sub_range.end];
+
+                        next = tree.unwrapGroupedExpr(data.lhs);
+
+                        try astgen.scanNode(next, args);
+                        for (slice) |nn| try astgen.scanNode(nn, args);
+                    } else {
+                        try astgen.scanNode(next, args);
+                    }
+                }
+            }
+        },
+
+        .expr_block => {
+            const data = node_datas[node];
+            if (data.lhs != 0) {
+                const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
+                const slice = tree.extra_data[sub_range.start..sub_range.end];
+                var it = std.mem.reverseIterator(slice);
+                while (it.next()) |n| try astgen.scanNode(n, args);
+            }
+        },
+
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => try astgen.scanNode(node_datas[node].lhs, args),
+
+        .call,
+        => {
+            const data = node_datas[node];
+            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const slice = tree.extra_data[sub_range.start..sub_range.end];
+
+            var next = tree.unwrapGroupedExpr(data.lhs);
+            if (node_tags[next] == .colon and slice.len == 2) {
+                next = tree.unwrapGroupedExpr(slice[0]);
+                if (node_tags[next] == .identifier) {
+                    const ident_token = main_tokens[next];
+                    const ident_bytes = tree.tokenSlice(ident_token);
+                    const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                    if (args.identifiers) |identifiers| try identifiers.put(
+                        gpa,
+                        ident_bytes,
+                        next,
+                    );
+
+                    if (std.mem.indexOfScalar(u8, ident_bytes, '.') != null or args.local_decls == null) {
+                        try args.global_decls.put(gpa, ident_name, node);
+                    } else {
+                        try args.local_decls.?.put(gpa, ident_name, node);
+                    }
+                    try astgen.scanNode(slice[1], args);
+                } else {
+                    for (slice) |n| try astgen.scanNode(n, args);
+                }
+            } else if (node_tags[next] == .colon_colon and slice.len == 2) {
+                next = tree.unwrapGroupedExpr(slice[0]);
+                if (node_tags[next] == .identifier) {
+                    const ident_token = main_tokens[next];
+                    const ident_bytes = tree.tokenSlice(ident_token);
+                    const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                    if (args.identifiers) |identifiers| try identifiers.put(
+                        gpa,
+                        ident_bytes,
+                        next,
+                    );
+
+                    try args.global_decls.put(gpa, ident_name, node);
+                    try astgen.scanNode(slice[1], args);
+                } else {
+                    for (slice) |n| try astgen.scanNode(n, args);
+                }
+            } else {
+                try astgen.scanNode(data.lhs, args);
+                for (slice) |n| try astgen.scanNode(n, args);
+            }
+        },
+        .apply_unary,
+        => {
+            const data = node_datas[node];
+            try astgen.scanNode(data.lhs, args);
+            try astgen.scanNode(data.rhs, args);
+        },
+        .apply_binary => {
+            const data = node_datas[node];
+            const op_node: Ast.Node.Index = main_tokens[node];
+            if (node_tags[op_node] == .colon) {
+                const next = tree.unwrapGroupedExpr(data.lhs);
+                if (node_tags[next] == .identifier) {
+                    const ident_token = main_tokens[next];
+                    const ident_bytes = tree.tokenSlice(ident_token);
+                    const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                    if (args.identifiers) |identifiers| try identifiers.put(
+                        gpa,
+                        ident_bytes,
+                        next,
+                    );
+
+                    if (std.mem.indexOfScalar(u8, ident_bytes, '.') != null or args.local_decls == null) {
+                        try args.global_decls.put(gpa, ident_name, node);
+                    } else {
+                        try args.local_decls.?.put(gpa, ident_name, node);
+                    }
+                } else {
+                    try astgen.scanNode(next, args);
+                }
+            } else if (node_tags[op_node] == .colon_colon) {
+                const next = tree.unwrapGroupedExpr(data.lhs);
+                if (node_tags[next] == .identifier) {
+                    const ident_token = main_tokens[next];
+                    const ident_bytes = tree.tokenSlice(ident_token);
+                    const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                    if (args.identifiers) |identifiers| try identifiers.put(
+                        gpa,
+                        ident_bytes,
+                        next,
+                    );
+
+                    try args.global_decls.put(gpa, ident_name, node);
+                } else {
+                    try astgen.scanNode(next, args);
+                }
+            } else {
+                try astgen.scanNode(data.lhs, args);
+                try astgen.scanNode(op_node, args);
+            }
+            try astgen.scanNode(data.rhs, args);
+        },
+
+        inline .select, .exec, .update, .delete_rows, .delete_cols => |t| {
+            const sql = tree.extraData(node_datas[node].lhs, switch (t) {
+                .select => Ast.Node.Select,
+                .exec => Ast.Node.Exec,
+                .update => Ast.Node.Update,
+                .delete_rows => Ast.Node.DeleteRows,
+                .delete_cols => Ast.Node.DeleteCols,
+                else => comptime unreachable,
+            });
+            try astgen.scanNode(sql.from, args);
+        },
+
+        .do,
+        .@"if",
+        .@"while",
+        .cond,
+        => {
+            const data = node_datas[node];
+            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+            const slice = tree.extra_data[sub_range.start..sub_range.end];
+            var it = std.mem.reverseIterator(slice);
+            while (it.next()) |n| try astgen.scanNode(n, args);
+            try astgen.scanNode(data.lhs, args);
+        },
+
+        .identifier => if (args.identifiers) |identifiers| {
+            const ident_token = main_tokens[node];
+            const ident_bytes = tree.tokenSlice(ident_token);
+
+            try identifiers.put(gpa, ident_bytes, node);
+        },
+
+        else => {},
+    }
+}
+
+fn testScanExprs(source: [:0]const u8, expected: []const []const u8) !void {
+    const gpa = std.testing.allocator;
+    var tree = try Ast.parse(gpa, source, .{
+        .mode = .q,
+        .version = .@"4.0",
+    });
+    defer tree.deinit(gpa);
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+
+    var astgen: AstGen = .{
+        .gpa = gpa,
+        .arena = arena.allocator(),
+        .tree = &tree,
+    };
+    defer astgen.deinit(gpa);
+
+    var lambda_scope: Scope.Lambda = .{
+        .parent = undefined,
+        .node = 0,
+        .inst = undefined,
+    };
+    defer lambda_scope.deinit(gpa);
+
+    try astgen.scanExprs(tree.getBlocks(), .{
+        .local_decls = &lambda_scope.local_decls,
+        .global_decls = &lambda_scope.global_decls,
+    });
+
+    try std.testing.expectEqual(expected.len, lambda_scope.local_decls.size);
+    var it = lambda_scope.local_decls.valueIterator();
+    var i: u32 = 0;
+    while (it.next()) |entry| : (i += 1) {
+        const span = tree.nodeToSpan(entry.*);
+        try std.testing.expectEqualStrings(expected[i], tree.source[span.start..span.end]);
+    }
+}
+
+test "scan decls" {
+    try testScanExprs("a:1", &.{"a:1"});
+    try testScanExprs("a:1;a:2", &.{"a:1"});
+    try testScanExprs("a:1+a:2", &.{"a:2"});
+    try testScanExprs("(a):1", &.{"(a):1"});
+    try testScanExprs("(a):1;(a):2", &.{"(a):1"});
+    try testScanExprs("(a):1+(a):2", &.{"(a):2"});
+    try testScanExprs("((a)):1", &.{"((a)):1"});
+    try testScanExprs("((a)):1;((a)):2", &.{"((a)):1"});
+    try testScanExprs("((a)):1+((a)):2", &.{"((a)):2"});
+
+    try testScanExprs(":[a;1]", &.{":[a;1]"});
+    try testScanExprs(":[a;1];:[a;2]", &.{":[a;1]"});
+    try testScanExprs(":[a;1+a:2]", &.{"a:2"});
+    try testScanExprs(":[a;1+:[a;2]]", &.{":[a;1+:[a;2]]"});
+    try testScanExprs(":[a;1+ :[a;2]]", &.{":[a;2]"});
+    try testScanExprs("(:)[a;1]", &.{"(:)[a;1]"});
+    try testScanExprs("(:)[a;1];(:)[a;2]", &.{"(:)[a;1]"});
+    try testScanExprs("(:)[a;1+(a):2]", &.{"(a):2"});
+    try testScanExprs("(:)[a;1+(:)[a;2]]", &.{"(:)[a;2]"});
+    try testScanExprs("((:))[a;1]", &.{"((:))[a;1]"});
+    try testScanExprs("((:))[a;1];((:))[a;2]", &.{"((:))[a;1]"});
+    try testScanExprs("((:))[a;1+((a)):2]", &.{"((a)):2"});
+    try testScanExprs("((:))[a;1+((:))[a;2]]", &.{"((:))[a;2]"});
+
+    try testScanExprs("([]x:(a:1),1)", &.{"a:1"});
+    try testScanExprs("([](x:(a:1),1))", &.{"a:1"});
+    try testScanExprs("([]((x:(a:1),1)))", &.{"a:1"});
+    try testScanExprs("([](x):(a:1),1)", &.{"a:1"});
+    try testScanExprs("([]((x):(a:1),1))", &.{"a:1"});
+    try testScanExprs("([](((x):(a:1),1)))", &.{"a:1"});
+    try testScanExprs("([]((x)):(a:1),1)", &.{"a:1"});
+    try testScanExprs("([](((x)):(a:1),1))", &.{"a:1"});
+    try testScanExprs("([]((((x)):(a:1),1)))", &.{"a:1"});
+    try testScanExprs("([]:[x;(a:1),1])", &.{"a:1"});
+    try testScanExprs("([](:[x;(a:1),1]))", &.{"a:1"});
+    try testScanExprs("([]((:[x;(a:1),1])))", &.{"a:1"});
+    try testScanExprs("([]:[(x);(a:1),1])", &.{"a:1"});
+    try testScanExprs("([](:[(x);(a:1),1]))", &.{"a:1"});
+    try testScanExprs("([]((:[(x);(a:1),1])))", &.{"a:1"});
+    try testScanExprs("([]:[((x));(a:1),1])", &.{"a:1"});
+    try testScanExprs("([](:[((x));(a:1),1]))", &.{"a:1"});
+    try testScanExprs("([]((:[((x));(a:1),1])))", &.{"a:1"});
+    try testScanExprs("([](:)[x;(a:1),1])", &.{"a:1"});
+    try testScanExprs("([]((:)[x;(a:1),1]))", &.{"a:1"});
+    try testScanExprs("([](((:)[x;(a:1),1])))", &.{"a:1"});
+    try testScanExprs("([](:)[(x);(a:1),1])", &.{"a:1"});
+    try testScanExprs("([]((:)[(x);(a:1),1]))", &.{"a:1"});
+    try testScanExprs("([](((:)[(x);(a:1),1])))", &.{"a:1"});
+    try testScanExprs("([](:)[((x));(a:1),1])", &.{"a:1"});
+    try testScanExprs("([]((:)[((x));(a:1),1]))", &.{"a:1"});
+    try testScanExprs("([](((:)[((x));(a:1),1])))", &.{"a:1"});
+    try testScanExprs("([]((:))[x;(a:1),1])", &.{"a:1"});
+    try testScanExprs("([](((:))[x;(a:1),1]))", &.{"a:1"});
+    try testScanExprs("([]((((:))[x;(a:1),1])))", &.{"a:1"});
 }
 
 fn lowerAstErrors(astgen: *AstGen) !void {
@@ -1051,15 +1583,75 @@ const Scope = struct {
         return switch (base.tag) {
             .gen_zir => base.cast(GenZir).?.parent,
             .local_val => base.cast(LocalVal).?.parent,
-            .namespace => base.cast(Namespace).?.parent,
+            .lambda => base.cast(Lambda).?.parent,
             .top => null,
         };
+    }
+
+    fn isGlobal(base: *Scope) bool {
+        return base.parent().?.tag == .top;
+    }
+
+    fn top(base: *Scope) *Top {
+        var scope = base;
+        while (true) switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => scope = scope.cast(LocalVal).?.parent,
+            .lambda => scope = scope.cast(Lambda).?.parent,
+            .top => return scope.cast(Top).?,
+        };
+        unreachable;
+    }
+
+    fn lambda(base: *Scope) ?*Lambda {
+        var scope = base;
+        while (true) switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => scope = scope.cast(LocalVal).?.parent,
+            .lambda => return scope.cast(Lambda).?,
+            .top => break,
+        };
+        return null;
+    }
+
+    fn findLocal(base: *Scope, name: Zir.NullTerminatedString) ?*LocalVal {
+        var scope = base;
+        while (true) switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => {
+                const local_val = scope.cast(LocalVal).?;
+                if (local_val.name == name and local_val.id_cat != .@"global variable") {
+                    return local_val;
+                }
+                scope = local_val.parent;
+            },
+            .lambda => break,
+            .top => break,
+        };
+        return null;
+    }
+
+    fn findGlobal(base: *Scope, name: Zir.NullTerminatedString) ?*LocalVal {
+        var scope = base;
+        while (true) switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => {
+                const local_val = scope.cast(LocalVal).?;
+                if (local_val.name == name and local_val.id_cat == .@"global variable") {
+                    return local_val;
+                }
+                scope = local_val.parent;
+            },
+            .lambda => scope = scope.cast(Lambda).?.parent,
+            .top => break,
+        };
+        return null;
     }
 
     const Tag = enum {
         gen_zir,
         local_val,
-        namespace,
+        lambda,
         top,
     };
 
@@ -1078,7 +1670,6 @@ const Scope = struct {
         base: Scope = .{ .tag = base_tag },
         /// Parents can be: `LocalVal`, `GenZir`, `Namespace`.
         parent: *Scope,
-        gen_zir: *GenZir,
         inst: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: Ast.Token.Index,
@@ -1092,24 +1683,20 @@ const Scope = struct {
 
     /// Represents a global scope that has any number of declarations in it.
     /// Each declaration has this as the parent scope.
-    const Namespace = struct {
-        const base_tag: Tag = .namespace;
+    const Lambda = struct {
+        const base_tag: Tag = .lambda;
         base: Scope = .{ .tag = base_tag },
 
-        /// Parents can be: `LocalVal`, `GenZir`, `Namespace`.
+        /// Parents can be: `LocalVal`, `GenZir`, `Namespace`, `Top`.
         parent: *Scope,
-        /// Maps string table index to the source location of declaration,
-        /// for the purposes of reporting name shadowing compile errors.
-        decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
+        local_decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
+        global_decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
         node: Ast.Node.Index,
         inst: Zir.Inst.Index,
 
-        /// The astgen scope containing this namespace.
-        /// Only valid during astgen.
-        declaring_gz: ?*GenZir,
-
-        fn deinit(self: *Namespace, gpa: Allocator) void {
-            self.decls.deinit(gpa);
+        fn deinit(self: *Lambda, gpa: Allocator) void {
+            self.local_decls.deinit(gpa);
+            self.global_decls.deinit(gpa);
             self.* = undefined;
         }
     };
@@ -1117,6 +1704,13 @@ const Scope = struct {
     const Top = struct {
         const base_tag: Scope.Tag = .top;
         base: Scope = .{ .tag = base_tag },
+
+        global_decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
+
+        fn deinit(self: *Top, gpa: Allocator) void {
+            self.global_decls.deinit(gpa);
+            self.* = undefined;
+        }
     };
 };
 
@@ -1137,7 +1731,6 @@ const GenZir = struct {
     /// A sub-block may share its instructions ArrayList with containing GenZir,
     /// if use is strictly nested. This saves prior size of list for unstacking.
     instructions_top: usize,
-    locals: ?std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Token.Index) = null,
 
     const unstacked_top = std.math.maxInt(usize);
     /// Call unstack before adding any new instructions to containing GenZir.
@@ -1145,10 +1738,6 @@ const GenZir = struct {
         if (self.instructions_top != unstacked_top) {
             self.instructions.items.len = self.instructions_top;
             self.instructions_top = unstacked_top;
-        }
-        if (self.locals) |*locals| {
-            locals.deinit(self.astgen.gpa);
-            self.locals = null;
         }
     }
 
@@ -1399,141 +1988,6 @@ const GenZir = struct {
 
         return new_index;
     }
-
-    fn scanLocals(gz: *GenZir, body_nodes: []const Ast.Node.Index) !void {
-        const astgen = gz.astgen;
-        assert(astgen.within_fn);
-        const gpa = astgen.gpa;
-        const tree = astgen.tree;
-        const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-        const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-        const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
-
-        // Required in order to handle 'a:a:1' correctly.
-        var identifiers = std.ArrayList(Ast.Node.Index).init(gpa);
-        defer identifiers.deinit();
-        var stack = std.ArrayList(Ast.Node.Index).init(gpa);
-        defer stack.deinit();
-
-        // TODO: Finish traversal.
-        var it = std.mem.reverseIterator(body_nodes);
-        while (it.next()) |body_node| {
-            assert(stack.items.len == 0);
-            try stack.append(body_node);
-            while (stack.popOrNull()) |node| switch (node_tags[node]) {
-                .root => unreachable,
-
-                .grouped_expression => try stack.append(node_datas[node].lhs),
-                .list => {
-                    const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
-                    const slice = tree.extra_data[sub_range.start..sub_range.end];
-                    try stack.appendSlice(slice);
-                },
-                // TODO: ([]x:(a:1 2 3))
-                .table_literal => {
-                    const data = node_datas[node];
-                    const table = tree.extraData(data.lhs, Ast.Node.Table);
-                    const keys_slice = tree.extra_data[table.keys_start..table.keys_end];
-                    _ = keys_slice; // autofix
-                    const columns_slice = tree.extra_data[table.columns_start..table.columns_end];
-                    _ = columns_slice; // autofix
-                },
-
-                .expr_block => {
-                    const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
-                    const slice = tree.extra_data[sub_range.start..sub_range.end];
-                    try stack.ensureUnusedCapacity(slice.len);
-                    var inner_it = std.mem.reverseIterator(slice);
-                    while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
-                },
-
-                .apostrophe,
-                .apostrophe_colon,
-                .slash,
-                .slash_colon,
-                .backslash,
-                .backslash_colon,
-                => {
-                    const data = node_datas[node];
-                    if (data.lhs != 0) try stack.append(data.lhs);
-                },
-
-                // TODO: :[a;1]
-                .call,
-                => {
-                    const data = node_datas[node];
-                    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
-                    const slice = tree.extra_data[sub_range.start..sub_range.end];
-                    try stack.ensureUnusedCapacity(slice.len + 1);
-                    stack.appendAssumeCapacity(data.lhs);
-                    stack.appendSliceAssumeCapacity(slice);
-                },
-                .apply_unary,
-                => {
-                    const data = node_datas[node];
-                    try stack.ensureUnusedCapacity(2);
-                    stack.appendAssumeCapacity(data.lhs);
-                    stack.appendAssumeCapacity(data.rhs);
-                },
-                .apply_binary => {
-                    const data = node_datas[node];
-                    const op_node: Ast.Node.Index = main_tokens[node];
-                    if (node_tags[op_node] == .colon) {
-                        if (node_tags[data.lhs] == .identifier) {
-                            try identifiers.append(data.lhs);
-                            if (data.rhs != 0) try stack.append(data.rhs);
-                        } else {
-                            try stack.append(data.lhs);
-                            if (data.rhs != 0) try stack.append(data.rhs);
-                        }
-                    } else {
-                        try stack.ensureUnusedCapacity(if (data.rhs != 0) 3 else 2);
-                        stack.appendAssumeCapacity(data.lhs);
-                        stack.appendAssumeCapacity(op_node);
-                        if (data.rhs != 0) stack.appendAssumeCapacity(data.rhs);
-                    }
-                },
-
-                inline .select, .exec, .update, .delete_rows, .delete_cols => |t| {
-                    const data = node_datas[node];
-                    const select = tree.extraData(data.lhs, switch (t) {
-                        .select => Ast.Node.Select,
-                        .exec => Ast.Node.Exec,
-                        .update => Ast.Node.Update,
-                        .delete_rows => Ast.Node.DeleteRows,
-                        .delete_cols => Ast.Node.DeleteCols,
-                        else => comptime unreachable,
-                    });
-                    try stack.append(select.from);
-                },
-
-                .do,
-                .@"if",
-                .@"while",
-                .cond,
-                => {
-                    const data = node_datas[node];
-                    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
-                    const slice = tree.extra_data[sub_range.start..sub_range.end];
-                    try stack.ensureUnusedCapacity(slice.len + 1);
-                    var inner_it = std.mem.reverseIterator(slice);
-                    while (inner_it.next()) |n| stack.appendAssumeCapacity(n);
-                    stack.appendAssumeCapacity(data.lhs);
-                },
-
-                else => {},
-            };
-        }
-
-        while (identifiers.popOrNull()) |ident_node| {
-            const ident_token = main_tokens[ident_node];
-            const ident_name = try astgen.identAsString(ident_token);
-            const gop = try gz.locals.?.getOrPut(gpa, ident_name);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = ident_token;
-            }
-        }
-    }
 };
 
 /// Advances the source cursor to the beginning of `node`.
@@ -1700,7 +2154,15 @@ fn failTokNotes(
     args: anytype,
     notes: []const u32,
 ) InnerError {
-    try appendErrorTokNotesOff(astgen, token, 0, format, args, notes, .@"error");
+    try appendErrorTokNotesOff(
+        astgen,
+        token,
+        0,
+        format,
+        args,
+        notes,
+        .@"error",
+    );
     return error.AnalysisFail;
 }
 
@@ -1710,8 +2172,17 @@ fn appendErrorTokNotes(
     comptime format: []const u8,
     args: anytype,
     notes: []const u32,
+    kind: Zir.Inst.CompileErrors.Kind,
 ) !void {
-    return appendErrorTokNotesOff(astgen, token, 0, format, args, notes);
+    return appendErrorTokNotesOff(
+        astgen,
+        token,
+        0,
+        format,
+        args,
+        notes,
+        kind,
+    );
 }
 
 /// Same as `fail`, except given a token plus an offset from its starting byte
