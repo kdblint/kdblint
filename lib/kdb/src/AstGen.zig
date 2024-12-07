@@ -241,7 +241,8 @@ fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
 
         // TODO: Namespace block.
         // TODO: Something should wrap expr to return an index to show or discard value.
-        _, scope = try expr(gz, scope, node);
+        const expr_ref, scope = try expr(gz, scope, node);
+        _ = expr_ref;
     }
     try gz.setFile(file_inst);
 
@@ -944,10 +945,10 @@ fn assign(
 
 fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
+    const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
-    _ = &scope;
 
     assert(node_tags[src_node] == .call);
 
@@ -994,8 +995,70 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
             );
         },
 
-        else => |t| return astgen.failNode(src_node, "call NYI: {s}", .{@tagName(t)}),
+        .identifier,
+        .lambda,
+        => {},
+
+        else => |t| {
+            try astgen.appendErrorNode(src_node, "call NYI: {s}", .{@tagName(t)}, .@"error");
+            return .{ .nyi, scope };
+        },
     }
+
+    const call_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
+    const call_inst = call_index.toRef();
+    try gz.astgen.instructions.append(gpa, undefined);
+    try gz.instructions.append(astgen.gpa, call_index);
+
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.items.len = scratch_top;
+
+    var scratch_index = scratch_top;
+    try astgen.scratch.resize(astgen.gpa, scratch_top + full_call.args.len);
+
+    const args_len: u32 = if (full_call.args.len == 1 and node_tags[full_call.args[0]] == .empty) 0 else args_len: {
+        var it = std.mem.reverseIterator(full_call.args);
+        while (it.next()) |param_node| {
+            var arg_block = gz.makeSubBlock(scope);
+            defer arg_block.unstack();
+
+            const arg_ref, scope = try expr(&arg_block, scope, param_node);
+            _ = try arg_block.addBreakWithSrcNode(
+                .break_inline,
+                call_index,
+                arg_ref,
+                param_node,
+            );
+
+            const body = arg_block.instructionsSlice();
+            try astgen.scratch.ensureUnusedCapacity(
+                gpa,
+                astgen.countBodyLenAfterFixups(body),
+            );
+            astgen.appendBodyWithFixupsArrayList(&astgen.scratch, body);
+
+            astgen.scratch.items[scratch_index] = @intCast(astgen.scratch.items.len - scratch_top);
+            scratch_index += 1;
+        }
+        break :args_len @intCast(full_call.args.len);
+    };
+
+    const callee, scope = try expr(gz, scope, full_call.func);
+
+    const payload_index = try astgen.addExtra(Zir.Inst.Call{
+        .callee = callee,
+        .args_len = args_len,
+    });
+    try astgen.extra.appendSlice(gpa, astgen.scratch.items[scratch_top..]);
+    astgen.instructions.set(@intFromEnum(call_index), .{
+        .tag = .call,
+        .data = .{ .pl_node = .{
+            .src_node = gz.nodeIndexToRelative(src_node),
+            .payload_index = payload_index,
+        } },
+    });
+
+    return .{ call_inst, scope };
 }
 
 fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
@@ -1085,7 +1148,10 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
         // .one_colon, .one_colon_colon => unreachable,
         .two_colon => .dynamic_load,
 
-        else => |t| return astgen.failNode(node, "binary NYI: {s}", .{@tagName(t)}),
+        else => |t| {
+            try astgen.appendErrorNode(node, "binary NYI: {s}", .{@tagName(t)}, .@"error");
+            return .{ .nyi, scope };
+        },
     };
 
     const data = node_datas[node];
@@ -1589,7 +1655,7 @@ const Scope = struct {
     }
 
     fn isGlobal(base: *Scope) bool {
-        return base.parent().?.tag == .top;
+        return base.lambda() == null;
     }
 
     fn top(base: *Scope) *Top {
@@ -1743,6 +1809,17 @@ const GenZir = struct {
 
     fn isEmpty(self: *const GenZir) bool {
         return (self.instructions_top == unstacked_top) or (self.instructions.items.len == self.instructions_top);
+    }
+
+    fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
+        return .{
+            .decl_node_index = gz.decl_node_index,
+            .decl_line = gz.decl_line,
+            .parent = scope,
+            .astgen = gz.astgen,
+            .instructions = gz.instructions,
+            .instructions_top = gz.instructions.items.len,
+        };
     }
 
     /// Assumes nothing stacked on `gz`.
@@ -1970,6 +2047,67 @@ const GenZir = struct {
                 .src_tok = gz.tokenIndexToRelative(abs_tok_index),
             } },
         });
+    }
+
+    fn addBreakWithSrcNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        block_inst: Zir.Inst.Index,
+        operand: Zir.Inst.Ref,
+        operand_src_node: Ast.Node.Index,
+    ) !Zir.Inst.Index {
+        const gpa = gz.astgen.gpa;
+        try gz.instructions.ensureUnusedCapacity(gpa, 1);
+
+        const new_index = try gz.makeBreakWithSrcNode(
+            tag,
+            block_inst,
+            operand,
+            operand_src_node,
+        );
+        gz.instructions.appendAssumeCapacity(new_index);
+        return new_index;
+    }
+
+    fn makeBreakWithSrcNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        block_inst: Zir.Inst.Index,
+        operand: Zir.Inst.Ref,
+        operand_src_node: Ast.Node.Index,
+    ) !Zir.Inst.Index {
+        return gz.makeBreakCommon(tag, block_inst, operand, operand_src_node);
+    }
+
+    fn makeBreakCommon(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        block_inst: Zir.Inst.Index,
+        operand: Zir.Inst.Ref,
+        operand_src_node: ?Ast.Node.Index,
+    ) !Zir.Inst.Index {
+        const gpa = gz.astgen.gpa;
+        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+        try gz.astgen.extra.ensureUnusedCapacity(
+            gpa,
+            @typeInfo(Zir.Inst.Break).@"struct".fields.len,
+        );
+
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        gz.astgen.instructions.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = .{ .@"break" = .{
+                .operand = operand,
+                .payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Break{
+                    .operand_src_node = if (operand_src_node) |src_node|
+                        gz.nodeIndexToRelative(src_node)
+                    else
+                        Zir.Inst.Break.no_src_node,
+                    .block_inst = block_inst,
+                }),
+            } },
+        });
+        return new_index;
     }
 
     fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {
