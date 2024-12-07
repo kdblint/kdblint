@@ -207,7 +207,17 @@ pub const Inst = struct {
         /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
         identifier,
 
+        /// Function call.
+        /// Uses the `pl_node` union field with payload `Call`.
+        /// AST node is the function call.
         call,
+
+        /// Return a value from a block. This instruction is used as the terminator
+        /// of a `block_inline`. It allows using the return value from `Sema.analyzeBody`.
+        /// This instruction may also be used when it is known that there is only one
+        /// break instruction in a block, and the target block is the parent.
+        /// Uses the `break` union field.
+        break_inline,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -242,6 +252,7 @@ pub const Inst = struct {
                 .call,
                 => false,
 
+                .break_inline,
                 .ret_node,
                 .ret_implicit,
                 .signal,
@@ -360,6 +371,11 @@ pub const Inst = struct {
             /// index into extra to a `Lambda` payload.
             payload_index: u32,
         },
+        @"break": struct {
+            operand: Ref,
+            /// Index of a `Break` payload.
+            payload_index: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -369,6 +385,22 @@ pub const Inst = struct {
                 assert(@sizeOf(Data) == 8);
             }
         }
+    };
+
+    pub const Break = struct {
+        pub const no_src_node = std.math.maxInt(i32);
+
+        operand_src_node: i32,
+        block_inst: Index,
+    };
+
+    /// Stored inside extra, with trailing arguments according to `args_len`.
+    /// Implicit 0. arg_0_start: u32, // always same as `args_len`
+    /// 1. arg_end: u32, // for each `args_len`
+    /// arg_N_start is the same as arg_N-1_end
+    pub const Call = struct {
+        callee: Ref,
+        args_len: u32,
     };
 
     /// Trailing:
