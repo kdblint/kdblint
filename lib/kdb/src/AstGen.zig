@@ -280,6 +280,8 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .symbol_literal => return .{ try symbolLiteral(gz, node), scope },
         .identifier => return identifier(gz, scope, node),
 
+        .cond => return cond(gz, scope, node),
+
         else => |t| {
             try astgen.appendErrorNode(node, "expr NYI: {s}", .{@tagName(t)}, .@"error");
             return .{ .nyi, scope };
@@ -1271,6 +1273,60 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Resul
     }
 
     return .{ try gz.addStrTok(.identifier, ident_name, ident_token), scope };
+}
+
+fn cond(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    var scope = parent_scope;
+
+    assert(node_tags[src_node] == .cond);
+
+    const data = node_datas[src_node];
+
+    const cond_expr, scope = try expr(gz, scope, data.lhs);
+    _ = cond_expr; // autofix
+
+    // q)$[a;a:1b;a]
+    // 'a
+    //   [0]  $[a;a:1b;a]
+    //          ^
+
+    // q)$[a;a;a:1b]
+    // 'a
+    //   [0]  $[a;a;a:1b]
+    //          ^
+
+    // q)$[1b;a:1b;a]
+    // 1b
+
+    // q)$[1b;a;a:1b]
+    // 'a
+    //   [0]  $[1b;a;a:1b]
+    //             ^
+
+    // q)$[0b;a:1b;a]
+    // 'a
+    //   [0]  $[0b;a:1b;a]
+    //                  ^
+
+    // q)$[0b;a;a:1b]
+    // 1b
+
+    // TODO: https://kdblint.atlassian.net/browse/KLS-66
+    // TODO: https://kdblint.atlassian.net/browse/KLS-310
+
+    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
+    const extra_data = tree.extra_data[sub_range.start..sub_range.end];
+    assert(extra_data.len > 0);
+    for (extra_data, 0..) |node, i| {
+        const inst, scope = try expr(gz, scope, node);
+        if (i == extra_data.len - 1) return .{ inst, scope };
+    }
+
+    unreachable;
 }
 
 const ScanArgs = struct {
