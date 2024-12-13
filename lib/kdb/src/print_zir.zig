@@ -2496,6 +2496,27 @@ test "call" {
         \\:[1;2]
         \\  ^
     );
+
+    if (true) return error.SkipZigTest; // https://kdblint.atlassian.net/browse/KLS-309
+
+    try testZir("f[1;2;3]",
+        \\%0 = file({
+        \\  %1 = call(%7, [
+        \\    {
+        \\      %6 = break_inline(%1, @one)
+        \\    },
+        \\    {
+        \\      %4 = long(2)
+        \\      %5 = break_inline(%1, %4)
+        \\    },
+        \\    {
+        \\      %2 = long(3)
+        \\      %3 = break_inline(%1, %2)
+        \\    },
+        \\  ]) node_offset:1:1 to :1:9
+        \\  %7 = identifier("f") token_offset:1:1 to :1:2
+        \\})
+    );
 }
 
 test "apply unary" {
