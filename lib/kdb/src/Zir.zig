@@ -207,6 +207,14 @@ pub const Inst = struct {
         /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
         identifier,
 
+        /// Builtin.
+        /// Uses the `str_tok` union field. Token is the builtin name. String is the builtin name.
+        builtin,
+
+        /// Apply.
+        /// Uses the `pl_node` union field with payload `Apply`.
+        apply,
+
         /// Function call.
         /// Uses the `pl_node` union field with payload `Call`.
         /// AST node is the function call.
@@ -249,6 +257,8 @@ pub const Inst = struct {
                 .str,
                 .sym,
                 .identifier,
+                .builtin,
+                .apply,
                 .call,
                 => false,
 
@@ -392,6 +402,12 @@ pub const Inst = struct {
 
         operand_src_node: i32,
         block_inst: Index,
+    };
+
+    pub const Apply = struct {
+        callee: Ref,
+        lhs: Ref,
+        rhs: Ref,
     };
 
     /// Stored inside extra, with trailing arguments according to `args_len`.
