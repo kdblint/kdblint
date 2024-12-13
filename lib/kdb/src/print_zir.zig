@@ -2633,7 +2633,19 @@ test "while" {
 }
 
 test "cond" {
-    return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
+
+    try testZir("{$[x;a:1;a]}", "");
+    try testZir("{$[x;a;a:1]}", "");
+
+    try testZir("{$[x;a:1;a;a]}", "");
+    try testZir("{$[x;a;a:1;a]}", "");
+    try testZir("{$[x;a;a;a:1]}", "");
+
+    try testZir("{$[x;a:1;a;a;a]}", "");
+    try testZir("{$[x;a;a:1;a;a]}", "");
+    try testZir("{$[x;a;a;a:1;a]}", "");
+    try testZir("{$[x;a;a;a;a:1]}", "");
 }
 
 test "too many parameters" {

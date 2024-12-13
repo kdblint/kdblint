@@ -241,7 +241,10 @@ fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
 
         // TODO: Namespace block.
         // TODO: Something should wrap expr to return an index to show or discard value.
-        const expr_ref, scope = try expr(gz, scope, node);
+        const expr_ref, scope = expr(gz, scope, node) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => continue,
+        };
         _ = expr_ref;
     }
     try gz.setFile(file_inst);
@@ -543,7 +546,7 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope, implicit_par
                 if (s.used == 0) {
                     if (s.id_cat == .@"function parameter" and token_tags[s.token_src] == .l_brace) {
                         unused_params.appendAssumeCapacity(s);
-                    } else {
+                    } else if (s.id_cat != .@"global variable") {
                         try astgen.appendErrorTok(
                             s.token_src,
                             "unused {s}",
@@ -1315,18 +1318,37 @@ fn cond(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
     // q)$[0b;a;a:1b]
     // 1b
 
-    // TODO: https://kdblint.atlassian.net/browse/KLS-66
     // TODO: https://kdblint.atlassian.net/browse/KLS-310
+
+    const prev_scope = scope;
 
     const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
     const extra_data = tree.extra_data[sub_range.start..sub_range.end];
     assert(extra_data.len > 0);
-    for (extra_data, 0..) |node, i| {
+    const inst: Zir.Inst.Ref = for (extra_data, 0..) |node, i| {
         const inst, scope = try expr(gz, scope, node);
-        if (i == extra_data.len - 1) return .{ inst, scope };
-    }
+        if (i == extra_data.len - 1) break inst;
+    } else unreachable;
 
-    unreachable;
+    var temp_scope = scope;
+    while (temp_scope != prev_scope) switch (temp_scope.tag) {
+        .local_val => {
+            const local_val = scope.cast(Scope.LocalVal).?;
+            if (local_val.id_cat == .@"local variable") {
+                try astgen.appendErrorTokNotes(
+                    local_val.token_src,
+                    "conditionally declared {s}",
+                    .{@tagName(local_val.id_cat)},
+                    &.{},
+                    .warn,
+                );
+            }
+            temp_scope = local_val.parent;
+        },
+        else => temp_scope = temp_scope.parent().?,
+    };
+
+    return .{ inst, scope };
 }
 
 const ScanArgs = struct {
