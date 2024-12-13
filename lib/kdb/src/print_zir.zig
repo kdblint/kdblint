@@ -178,8 +178,11 @@ const Writer = struct {
             .param_node => try self.writeStrNode(stream, inst),
             .param_implicit => try self.writeUnTok(stream, inst),
 
-            .identifier => try self.writeStrTok(stream, inst),
+            .identifier,
+            .builtin,
+            => try self.writeStrTok(stream, inst),
 
+            .apply => try self.writePlNodeApply(stream, inst),
             .call => try self.writeCall(stream, inst),
 
             .break_inline,
@@ -217,6 +220,18 @@ const Writer = struct {
     fn writePlNodeBin(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(") ");
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writePlNodeApply(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.Apply, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.callee);
+        try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
@@ -2597,7 +2612,47 @@ test "identifier" {
 }
 
 test "builtin" {
-    return error.SkipZigTest;
+    try testZir("value x",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:7 to :1:8
+        \\  %2 = builtin("value") token_offset:1:1 to :1:6
+        \\  %3 = apply_at(%2, %1) node_offset:1:1 to :1:8
+        \\})
+    );
+    try testZir("value[x]",
+        \\%0 = file({
+        \\  %1 = call(%4, [
+        \\    {
+        \\      %2 = identifier("x") token_offset:1:7 to :1:8
+        \\      %3 = break_inline(%1, %2)
+        \\    },
+        \\  ]) node_offset:1:1 to :1:9
+        \\  %4 = builtin("value") token_offset:1:1 to :1:6
+        \\})
+    );
+    try testZir("x sv y",
+        \\%0 = file({
+        \\  %1 = identifier("y") token_offset:1:6 to :1:7
+        \\  %2 = builtin("sv") token_offset:1:3 to :1:5
+        \\  %3 = identifier("x") token_offset:1:1 to :1:2
+        \\  %4 = apply(%2, %3, %1) node_offset:1:1 to :1:7
+        \\})
+    );
+    try testZir("sv[x;y]",
+        \\%0 = file({
+        \\  %1 = call(%6, [
+        \\    {
+        \\      %2 = identifier("y") token_offset:1:6 to :1:7
+        \\      %3 = break_inline(%1, %2)
+        \\    },
+        \\    {
+        \\      %4 = identifier("x") token_offset:1:4 to :1:5
+        \\      %5 = break_inline(%1, %4)
+        \\    },
+        \\  ]) node_offset:1:1 to :1:8
+        \\  %6 = builtin("sv") token_offset:1:1 to :1:3
+        \\})
+    );
 }
 
 test "select" {

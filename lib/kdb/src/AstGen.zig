@@ -282,13 +282,11 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .string_literal => return .{ try stringLiteral(gz, node), scope },
         .symbol_literal => return .{ try symbolLiteral(gz, node), scope },
         .identifier => return identifier(gz, scope, node),
+        .builtin => return .{ try builtin(gz, node), scope },
 
         .cond => return cond(gz, scope, node),
 
-        else => |t| {
-            try astgen.appendErrorNode(node, "expr NYI: {s}", .{@tagName(t)}, .@"error");
-            return .{ .nyi, scope };
-        },
+        else => |t| return astgen.failNode(node, "expr NYI: {s}", .{@tagName(t)}),
     }
 
     unreachable;
@@ -344,13 +342,14 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         for (p.params) |param_node| {
             if (node_tags[param_node] == .identifier) {
                 const param_token = main_tokens[param_node];
-                const param_name = try astgen.identAsString(param_token);
+                const param_bytes = tree.tokenSlice(main_tokens[param_node]);
+                const param_name = try astgen.bytesAsString(param_bytes);
 
                 if (params_scope.findLocal(param_name)) |local_val| {
                     try astgen.appendErrorNodeNotes(
                         param_node,
                         "redeclaration of function parameter '{s}'",
-                        .{tree.tokenSlice(main_tokens[param_node])},
+                        .{param_bytes},
                         &.{
                             try astgen.errNoteTok(
                                 local_val.token_src,
@@ -395,7 +394,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         if (ident_x) |ident_node| {
             const ident_token = main_tokens[ident_node];
-            const ident_name = try astgen.identAsString(ident_token);
+            const ident_name = try astgen.tokenAsString(ident_token);
             try lambda_scope.local_decls.put(gpa, ident_name, ident_node);
             found_x = true;
 
@@ -429,7 +428,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         if (ident_y) |ident_node| {
             const ident_token = main_tokens[ident_node];
-            const ident_name = try astgen.identAsString(ident_token);
+            const ident_name = try astgen.tokenAsString(ident_token);
             try lambda_scope.local_decls.put(gpa, ident_name, ident_node);
             found_y = true;
 
@@ -463,7 +462,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
         if (identifiers.get("z")) |ident_node| {
             const ident_token = main_tokens[ident_node];
-            const ident_name = try astgen.identAsString(ident_token);
+            const ident_name = try astgen.tokenAsString(ident_token);
             try lambda_scope.local_decls.put(gpa, ident_name, ident_node);
             found_z = true;
 
@@ -1000,8 +999,9 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
             );
         },
 
-        .identifier,
         .lambda,
+        .identifier,
+        .builtin,
         => {},
 
         else => |t| {
@@ -1085,7 +1085,9 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErro
             break :blk try gz.addUnNode(.signal, rhs, node);
         },
 
-        .identifier => blk: {
+        .identifier,
+        .builtin, // TODO: https://kdblint.atlassian.net/browse/KLS-311
+        => blk: {
             const rhs, scope = try expr(gz, scope, data.rhs);
             const lhs, scope = try expr(gz, scope, data.lhs);
             break :blk try gz.addPlNode(.apply_at, node, Zir.Inst.Bin{
@@ -1153,6 +1155,23 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
         // .one_colon, .one_colon_colon => unreachable,
         .two_colon => .dynamic_load,
 
+        .builtin => {
+            const data = node_datas[node];
+            const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
+                const rhs, scope = try expr(gz, scope, data.rhs);
+                break :rhs rhs;
+            } else .none;
+            const callee, scope = try expr(gz, scope, main_tokens[node]);
+            const lhs, scope = try expr(gz, scope, data.lhs);
+
+            const result = try gz.addPlNode(.apply, node, Zir.Inst.Apply{
+                .callee = callee,
+                .lhs = lhs,
+                .rhs = rhs,
+            });
+            return .{ result, scope };
+        },
+
         else => |t| {
             try astgen.appendErrorNode(node, "binary NYI: {s}", .{@tagName(t)}, .@"error");
             return .{ .nyi, scope };
@@ -1215,17 +1234,17 @@ fn failWithNumberError(
 fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const main_tokens = tree.nodes.items(.main_token);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
-    const sym_token = main_tokens[node];
-    const sym = try astgen.strLitAsString(sym_token);
-    return gz.addStrTok(.str, sym, sym_token);
+    const str_token = main_tokens[node];
+    const str = try astgen.strLitAsString(str_token);
+    return gz.addStrTok(.str, str, str_token);
 }
 
 fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const main_tokens = tree.nodes.items(.main_token);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     const sym_token = main_tokens[node];
     const sym = try astgen.symLitAsString(sym_token);
@@ -1276,6 +1295,20 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Resul
     }
 
     return .{ try gz.addStrTok(.identifier, ident_name, ident_token), scope };
+}
+
+fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    assert(node_tags[node] == .builtin);
+
+    const builtin_token = main_tokens[node];
+    const builtin_name = try astgen.tokenAsString(builtin_token);
+
+    return gz.addStrTok(.builtin, builtin_name, builtin_token);
 }
 
 fn cond(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
@@ -2507,13 +2540,13 @@ fn errNoteNode(
     });
 }
 
-fn identAsString(astgen: *AstGen, ident_token: Ast.Token.Index) !Zir.NullTerminatedString {
-    const ident_bytes = astgen.tree.tokenSlice(ident_token);
-    return astgen.bytesAsString(ident_bytes);
+fn tokenAsString(astgen: *AstGen, token: Ast.Token.Index) !Zir.NullTerminatedString {
+    const token_bytes = astgen.tree.tokenSlice(token);
+    return astgen.bytesAsString(token_bytes);
 }
 
-fn strLitAsString(astgen: *AstGen, sym_lit_token: Ast.Token.Index) !Zir.NullTerminatedString {
-    const token_bytes = astgen.tree.tokenSlice(sym_lit_token);
+fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.Token.Index) !Zir.NullTerminatedString {
+    const token_bytes = astgen.tree.tokenSlice(str_lit_token);
     return astgen.bytesAsString(token_bytes[1 .. token_bytes.len - 1]);
 }
 
