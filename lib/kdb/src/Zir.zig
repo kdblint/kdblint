@@ -226,6 +226,9 @@ pub const Inst = struct {
         /// Symbol literal
         /// Uses the `str_tok` union field. Token is the symbol literal. String is the symbol content.
         sym,
+        /// Symbol list literal
+        /// Uses the `pl_node` union field with payload `SymList`.
+        sym_list,
 
         /// Identifier.
         /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
@@ -288,6 +291,7 @@ pub const Inst = struct {
                 .long,
                 .str,
                 .sym,
+                .sym_list,
                 .identifier,
                 .builtin,
                 .apply,
@@ -467,6 +471,12 @@ pub const Inst = struct {
             /// rbrace_column is most significant bits u16
             columns: u32,
         };
+    };
+
+    /// Trailing:
+    /// 1. elem: NullTerminatedString // for each len
+    pub const StrList = struct {
+        len: u32,
     };
 
     /// The meaning of these operands depends on the corresponding `Tag`.

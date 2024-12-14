@@ -183,6 +183,8 @@ const Writer = struct {
             .sym,
             => try self.writeStrTok(stream, inst),
 
+            .sym_list => try self.writePlNodeStrList(stream, inst),
+
             .param_node => try self.writeStrNode(stream, inst),
             .param_implicit => try self.writeUnTok(stream, inst),
 
@@ -244,6 +246,20 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(") ");
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writePlNodeStrList(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.StrList, inst_data.payload_index);
+        const strs = self.code.extra[extra.end..][0..extra.data.len];
+
+        for (strs[0 .. strs.len - 1]) |str| {
+            try stream.print("\"{}\", ", .{std.zig.fmtEscapes(self.code.nullTerminatedString(@enumFromInt(str)))});
+        }
+        try stream.print("\"{}\") ", .{
+            std.zig.fmtEscapes(self.code.nullTerminatedString(@enumFromInt(strs[strs.len - 1]))),
+        });
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
@@ -2608,7 +2624,11 @@ test "symbol literal" {
 }
 
 test "symbol list literal" {
-    return error.SkipZigTest;
+    try testZir("`abc`def",
+        \\%0 = file({
+        \\  %1 = sym_list("abc", "def") node_offset:1:1 to :1:9
+        \\})
+    );
 }
 
 test "identifier" {

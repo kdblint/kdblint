@@ -281,6 +281,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .number_literal => return .{ try numberLiteral(gz, node), scope },
         .string_literal => return .{ try stringLiteral(gz, node), scope },
         .symbol_literal => return .{ try symbolLiteral(gz, node), scope },
+        .symbol_list_literal => return .{ try symbolListLiteral(gz, node), scope },
         .identifier => return identifier(gz, scope, node),
         .builtin => return .{ try builtin(gz, node), scope },
 
@@ -1249,6 +1250,36 @@ fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const sym_token = main_tokens[node];
     const sym = try astgen.symLitAsString(sym_token);
     return gz.addStrTok(.sym, sym, sym_token);
+}
+
+fn symbolListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
+
+    const first_token = main_tokens[node];
+    const last_token = node_datas[node].lhs;
+    const len = last_token - first_token + 1;
+    try astgen.scratch.ensureUnusedCapacity(gpa, len);
+
+    var i: u32 = first_token;
+    while (i <= last_token) : (i += 1) {
+        const sym = try astgen.symLitAsString(i);
+        astgen.scratch.appendAssumeCapacity(@intFromEnum(sym));
+    }
+
+    const syms = astgen.scratch.items[scratch_top..];
+    assert(syms.len == len);
+    const sym_list = try gz.addPlNode(.sym_list, node, Zir.Inst.StrList{
+        .len = @intCast(syms.len),
+    });
+    try astgen.extra.appendSlice(gpa, syms);
+    return sym_list;
 }
 
 fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
