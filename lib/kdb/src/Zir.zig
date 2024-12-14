@@ -154,15 +154,39 @@ pub const Inst = struct {
         /// `>=`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         greater_than_or_equal,
+        /// `$`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        cast,
         /// `,`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         join,
+        /// `#`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        take,
+        /// `_`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        drop,
         /// `~`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         match,
+        /// `!`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        dict,
+        /// `?`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        find,
         /// `@`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         apply_at,
+        /// `.`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        apply_dot,
+        /// `0:`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        file_text,
+        /// `1:`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        file_binary,
         /// `2:`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         dynamic_load,
@@ -246,9 +270,17 @@ pub const Inst = struct {
                 .not_equal,
                 .greater_than,
                 .greater_than_or_equal,
+                .cast,
                 .join,
+                .take,
+                .drop,
                 .match,
+                .dict,
+                .find,
                 .apply_at,
+                .apply_dot,
+                .file_text,
+                .file_binary,
                 .dynamic_load,
                 .lambda,
                 .param_node,
