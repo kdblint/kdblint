@@ -113,82 +113,82 @@ pub const Inst = struct {
         file,
 
         /// Variable assignment.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         assign,
         /// `+`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         add,
         /// `-`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         subtract,
         /// `*`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         multiply,
         /// `%`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         divide,
         /// `&`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         lesser,
         /// `|`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         greater,
         /// `^`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         fill,
         /// `=`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         equal,
         /// `<`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         less_than,
         /// `<=`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         less_than_or_equal,
         /// `<>`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         not_equal,
         /// `>`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         greater_than,
         /// `>=`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         greater_than_or_equal,
         /// `$`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         cast,
         /// `,`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         join,
         /// `#`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         take,
         /// `_`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         drop,
         /// `~`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         match,
         /// `!`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         dict,
         /// `?`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         find,
         /// `@`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         apply_at,
         /// `.`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         apply_dot,
         /// `0:`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         file_text,
         /// `1:`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         file_binary,
         /// `2:`.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `node` union field.
         dynamic_load,
 
         /// Lambda expression.
@@ -242,18 +242,6 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Apply`.
         apply,
 
-        /// Function call.
-        /// Uses the `pl_node` union field with payload `Call`.
-        /// AST node is the function call.
-        call,
-
-        /// Return a value from a block. This instruction is used as the terminator
-        /// of a `block_inline`. It allows using the return value from `Sema.analyzeBody`.
-        /// This instruction may also be used when it is known that there is only one
-        /// break instruction in a block, and the target block is the parent.
-        /// Uses the `break` union field.
-        break_inline,
-
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
         pub fn isNoReturn(tag: Tag) bool {
@@ -295,10 +283,8 @@ pub const Inst = struct {
                 .identifier,
                 .builtin,
                 .apply,
-                .call,
                 => false,
 
-                .break_inline,
                 .ret_node,
                 .ret_implicit,
                 .signal,
@@ -339,6 +325,33 @@ pub const Inst = struct {
         x,
         y,
         z,
+
+        assign,
+        add,
+        subtract,
+        multiply,
+        divide,
+        lesser,
+        greater,
+        fill,
+        equal,
+        less_than,
+        less_than_or_equal,
+        not_equal,
+        greater_than,
+        greater_than_or_equal,
+        cast,
+        join,
+        take,
+        drop,
+        match,
+        dict,
+        find,
+        apply_at,
+        apply_dot,
+        file_text,
+        file_binary,
+        dynamic_load,
 
         nyi,
 
@@ -410,6 +423,8 @@ pub const Inst = struct {
                 return code.nullTerminatedString(self.start);
             }
         },
+        /// Offset from Decl AST node index.
+        node: i32,
         long: i64,
         lambda: struct {
             /// This node provides a new absolute baseline node for all instructions within this struct.
@@ -433,26 +448,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const Break = struct {
-        pub const no_src_node = std.math.maxInt(i32);
-
-        operand_src_node: i32,
-        block_inst: Index,
-    };
-
+    /// Trailing:
+    /// 1. elem: Ref // for each len
     pub const Apply = struct {
         callee: Ref,
-        lhs: Ref,
-        rhs: Ref,
-    };
-
-    /// Stored inside extra, with trailing arguments according to `args_len`.
-    /// Implicit 0. arg_0_start: u32, // always same as `args_len`
-    /// 1. arg_end: u32, // for each `args_len`
-    /// arg_N_start is the same as arg_N-1_end
-    pub const Call = struct {
-        callee: Ref,
-        args_len: u32,
+        len: u32,
     };
 
     /// Trailing:
@@ -477,12 +477,6 @@ pub const Inst = struct {
     /// 1. elem: NullTerminatedString // for each len
     pub const StrList = struct {
         len: u32,
-    };
-
-    /// The meaning of these operands depends on the corresponding `Tag`.
-    pub const Bin = struct {
-        lhs: Ref,
-        rhs: Ref,
     };
 
     /// This data is stored inside extra, with trailing operands according to `body_len`.
