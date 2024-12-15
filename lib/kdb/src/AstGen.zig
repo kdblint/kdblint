@@ -264,6 +264,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
     const node = tree.unwrapGroupedExpr(src_node);
     switch (node_tags[node]) {
         .root => unreachable,
+        .empty => return .{ .null, scope },
 
         .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
@@ -273,6 +274,33 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         => return lambda(gz, scope, node),
 
         .expr_block => return exprBlock(gz, scope, node),
+
+        .colon, .colon_colon => return .{ .assign, scope },
+        .plus, .plus_colon => return .{ .add, scope },
+        .minus, .minus_colon => return .{ .subtract, scope },
+        .asterisk, .asterisk_colon => return .{ .multiply, scope },
+        .percent, .percent_colon => return .{ .divide, scope },
+        .ampersand, .ampersand_colon => return .{ .lesser, scope },
+        .pipe, .pipe_colon => return .{ .greater, scope },
+        .caret, .caret_colon => return .{ .fill, scope },
+        .equal, .equal_colon => return .{ .equal, scope },
+        .angle_bracket_left, .angle_bracket_left_colon => return .{ .less_than, scope },
+        .angle_bracket_left_equal => return .{ .less_than_or_equal, scope },
+        .angle_bracket_left_right => return .{ .not_equal, scope },
+        .angle_bracket_right, .angle_bracket_right_colon => return .{ .greater_than, scope },
+        .angle_bracket_right_equal => return .{ .greater_than_or_equal, scope },
+        .dollar, .dollar_colon => return .{ .cast, scope },
+        .comma, .comma_colon => return .{ .join, scope },
+        .hash, .hash_colon => return .{ .take, scope },
+        .underscore, .underscore_colon => return .{ .drop, scope },
+        .tilde, .tilde_colon => return .{ .match, scope },
+        .bang, .bang_colon => return .{ .dict, scope },
+        .question_mark, .question_mark_colon => return .{ .find, scope },
+        .at, .at_colon => return .{ .apply_at, scope },
+        .period, .period_colon => return .{ .apply_dot, scope },
+        .zero_colon, .zero_colon_colon => return .{ .file_text, scope },
+        .one_colon, .one_colon_colon => return .{ .file_binary, scope },
+        .two_colon => return .{ .dynamic_load, scope },
 
         .call => return call(gz, scope, node),
         .apply_unary => return applyUnary(gz, scope, node),
@@ -289,8 +317,6 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
 
         else => |t| return astgen.failNode(node, "expr NYI: {s}", .{@tagName(t)}),
     }
-
-    unreachable;
 }
 
 fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
@@ -713,6 +739,7 @@ fn assign(
     gz: *GenZir,
     parent_scope: *Scope,
     src_node: Ast.Node.Index,
+    op_node: Ast.Node.Index,
     ident_node: Ast.Node.Index,
     expr_node: Ast.Node.Index,
     is_global_assign: bool,
@@ -730,6 +757,7 @@ fn assign(
     assert(expr_node != 0);
 
     const rhs, scope = try expr(gz, scope, expr_node);
+    const op, scope = try expr(gz, scope, op_node);
 
     const ident_token = main_tokens[ident_node];
     const ident_bytes = tree.tokenSlice(ident_token);
@@ -750,23 +778,9 @@ fn assign(
             };
             scope = &sub_scope.base;
 
-            return .{
-                try gz.addPlNode(
-                    .assign,
-                    src_node,
-                    Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
-                ),
-                scope,
-            };
+            return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
         } else if (scope.findGlobal(ident_name)) |lhs| { // assign global
-            return .{
-                try gz.addPlNode(
-                    .assign,
-                    src_node,
-                    Zir.Inst.Bin{ .lhs = lhs.inst, .rhs = rhs },
-                ),
-                scope,
-            };
+            return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
         } else {
             return astgen.failNode(src_node, "undefined global variable", .{});
             // unreachable; // undefined global
@@ -788,10 +802,6 @@ fn assign(
             };
             assert(node_tags[local_ident] == .identifier);
 
-            // TODO: Continue
-
-            std.log.debug("global assign, local decl", .{});
-
             if (scope.findLocal(ident_name)) |local_val| { // local before global
                 std.log.debug("found local", .{});
                 try astgen.appendErrorNodeNotes(src_node, "misleading global-assign of {s} '{s}'", .{
@@ -807,14 +817,7 @@ fn assign(
 
                 if (local_val.used == 0) local_val.used = ident_token;
 
-                return .{
-                    try gz.addPlNode(
-                        .assign,
-                        src_node,
-                        Zir.Inst.Bin{ .lhs = local_val.inst, .rhs = rhs },
-                    ),
-                    scope,
-                };
+                return .{ try gz.addApply(src_node, op, &.{ local_val.inst, rhs }), scope };
             } else { // global before local
                 std.log.debug("not found local", .{});
                 return astgen.failNodeNotes(
@@ -845,23 +848,9 @@ fn assign(
                 };
                 scope = &sub_scope.base;
 
-                return .{
-                    try gz.addPlNode(
-                        .assign,
-                        src_node,
-                        Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
-                    ),
-                    scope,
-                };
+                return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
             } else if (scope.findGlobal(ident_name)) |lhs| { // assign global
-                return .{
-                    try gz.addPlNode(
-                        .assign,
-                        src_node,
-                        Zir.Inst.Bin{ .lhs = lhs.inst, .rhs = rhs },
-                    ),
-                    scope,
-                };
+                return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
             } else {
                 return astgen.failNode(src_node, "undefined global variable", .{});
                 // unreachable; // undefined global
@@ -884,24 +873,10 @@ fn assign(
             };
             scope = &sub_scope.base;
 
-            return .{
-                try gz.addPlNode(
-                    .assign,
-                    src_node,
-                    Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
-                ),
-                scope,
-            };
+            return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
         } else { // assign global
             if (scope.findGlobal(ident_name)) |lhs| {
-                return .{
-                    try gz.addPlNode(
-                        .assign,
-                        src_node,
-                        Zir.Inst.Bin{ .lhs = lhs.inst, .rhs = rhs },
-                    ),
-                    scope,
-                };
+                return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
             } else {
                 return astgen.failNode(src_node, "undefined global variable", .{});
                 // unreachable; // undefined global
@@ -922,24 +897,10 @@ fn assign(
             };
             scope = &sub_scope.base;
 
-            return .{
-                try gz.addPlNode(
-                    .assign,
-                    src_node,
-                    Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs },
-                ),
-                scope,
-            };
+            return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
         } else { // assign local
-            if (scope.findLocal(ident_name)) |local_val| {
-                return .{
-                    try gz.addPlNode(
-                        .assign,
-                        src_node,
-                        Zir.Inst.Bin{ .lhs = local_val.inst, .rhs = rhs },
-                    ),
-                    scope,
-                };
+            if (scope.findLocal(ident_name)) |lhs| {
+                return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
             } else {
                 return astgen.failNode(src_node, "undefined local variable", .{});
                 // unreachable; // undefined local
@@ -950,7 +911,6 @@ fn assign(
 
 fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
@@ -968,7 +928,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
                     try astgen.appendErrorNode(
                         src_node,
                         "expected 2 argument(s), found {d}",
-                        .{@as(u32, if (node_tags[full_call.args[0]] == .empty) 0 else 1)},
+                        .{if (node_tags[full_call.args[0]] == .empty) 0 else full_call.args.len},
                         .warn,
                     );
 
@@ -994,10 +954,23 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
                 gz,
                 scope,
                 src_node,
+                full_call.func,
                 tree.unwrapGroupedExpr(full_call.args[0]),
                 full_call.args[1],
                 t == .colon_colon,
             );
+        },
+
+        .at => switch (full_call.args.len) {
+            0 => unreachable,
+            2 => {},
+            3 => {},
+            4 => {},
+            else => return astgen.failNode(
+                src_node,
+                "expected 2, 3, or 4 argument(s), found {d}",
+                .{if (node_tags[full_call.args[0]] == .empty) 0 else full_call.args.len},
+            ),
         },
 
         .lambda,
@@ -1011,102 +984,60 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
         },
     }
 
-    const call_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
-    const call_inst = call_index.toRef();
-    try gz.astgen.instructions.append(gpa, undefined);
-    try gz.instructions.append(astgen.gpa, call_index);
+    var args_array: [8]Zir.Inst.Ref = undefined;
+    assert(full_call.args.len <= 8);
+    const args = args_array[0..full_call.args.len];
 
-    const scratch_top = astgen.scratch.items.len;
-    defer astgen.scratch.items.len = scratch_top;
-
-    var scratch_index = scratch_top;
-    try astgen.scratch.resize(astgen.gpa, scratch_top + full_call.args.len);
-
-    const args_len: u32 = if (full_call.args.len == 1 and node_tags[full_call.args[0]] == .empty) 0 else args_len: {
-        var it = std.mem.reverseIterator(full_call.args);
-        while (it.next()) |param_node| {
-            var arg_block = gz.makeSubBlock(scope);
-            defer arg_block.unstack();
-
-            const arg_ref, scope = try expr(&arg_block, scope, param_node);
-            _ = try arg_block.addBreakWithSrcNode(
-                .break_inline,
-                call_index,
-                arg_ref,
-                param_node,
-            );
-
-            const body = arg_block.instructionsSlice();
-            try astgen.scratch.ensureUnusedCapacity(
-                gpa,
-                astgen.countBodyLenAfterFixups(body),
-            );
-            astgen.appendBodyWithFixupsArrayList(&astgen.scratch, body);
-
-            astgen.scratch.items[scratch_index] = @intCast(astgen.scratch.items.len - scratch_top);
-            scratch_index += 1;
-        }
-        break :args_len @intCast(full_call.args.len);
-    };
+    var i: usize = 1;
+    var it = std.mem.reverseIterator(full_call.args);
+    while (it.next()) |param_node| : (i += 1) {
+        const ref, scope = try expr(gz, scope, param_node);
+        args[full_call.args.len - i] = ref;
+    }
 
     const callee, scope = try expr(gz, scope, full_call.func);
 
-    const payload_index = try astgen.addExtra(Zir.Inst.Call{
-        .callee = callee,
-        .args_len = args_len,
-    });
-    try astgen.extra.appendSlice(gpa, astgen.scratch.items[scratch_top..]);
-    astgen.instructions.set(@intFromEnum(call_index), .{
-        .tag = .call,
-        .data = .{ .pl_node = .{
-            .src_node = gz.nodeIndexToRelative(src_node),
-            .payload_index = payload_index,
-        } },
-    });
-
-    return .{ call_inst, scope };
+    const ref = try gz.addApply(src_node, callee, args);
+    return .{ ref, scope };
 }
 
-fn applyUnary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     var scope = parent_scope;
 
-    const data = node_datas[node];
-    const ref = switch (node_tags[data.lhs]) {
-        .colon => blk: {
+    const data = node_datas[src_node];
+    switch (node_tags[data.lhs]) {
+        .colon => {
             const rhs, scope = try expr(gz, scope, data.rhs);
-            break :blk try gz.addUnNode(.ret_node, rhs, node);
+            const ref = try gz.addUnNode(.ret_node, rhs, src_node);
+            return .{ ref, scope };
         },
 
-        .apostrophe => blk: {
+        .apostrophe => {
             const rhs, scope = try expr(gz, scope, data.rhs);
-            break :blk try gz.addUnNode(.signal, rhs, node);
+            const ref = try gz.addUnNode(.signal, rhs, src_node);
+            return .{ ref, scope };
         },
 
         .identifier,
         .builtin, // TODO: https://kdblint.atlassian.net/browse/KLS-311
-        => blk: {
-            const rhs, scope = try expr(gz, scope, data.rhs);
-            const lhs, scope = try expr(gz, scope, data.lhs);
-            break :blk try gz.addPlNode(.apply_at, node, Zir.Inst.Bin{
-                .lhs = lhs,
-                .rhs = rhs,
-            });
-        },
+        => {},
 
         else => |t| {
-            try astgen.appendErrorNode(node, "unary NYI: {s}", .{@tagName(t)}, .@"error");
+            try astgen.appendErrorNode(src_node, "unary NYI: {s}", .{@tagName(t)}, .@"error");
             return .{ .nyi, scope };
         },
-    };
+    }
 
-    return .{ ref, scope };
+    const rhs, scope = try expr(gz, scope, data.rhs);
+    const lhs, scope = try expr(gz, scope, data.lhs);
+    return .{ try gz.addApply(src_node, lhs, &.{rhs}), scope };
 }
 
-fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
@@ -1114,81 +1045,68 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerErr
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
     var scope = parent_scope;
 
-    const op_node: Ast.Node.Index = main_tokens[node];
-    const tag: Zir.Inst.Tag = switch (node_tags[op_node]) {
+    const op_node: Ast.Node.Index = main_tokens[src_node];
+    switch (node_tags[op_node]) {
         inline .colon, .colon_colon => |t| {
-            if (node_datas[node].rhs == 0) return astgen.failNode(node, "binary TODO", .{});
-            const ident_node = tree.unwrapGroupedExpr(node_datas[node].lhs);
-            if (node_tags[ident_node] != .identifier) return astgen.failNode(node, "{}", .{node_tags[ident_node]});
+            if (node_datas[src_node].rhs == 0) return astgen.failNode(src_node, "binary TODO", .{});
+            const ident_node = tree.unwrapGroupedExpr(node_datas[src_node].lhs);
+            if (node_tags[ident_node] != .identifier) return astgen.failNode(src_node, "{}", .{node_tags[ident_node]});
             return assign(
                 gz,
                 scope,
-                node,
+                src_node,
+                op_node,
                 ident_node,
-                node_datas[node].rhs,
+                node_datas[src_node].rhs,
                 t == .colon_colon,
             );
         },
 
-        .plus, .plus_colon => .add,
-        .minus, .minus_colon => .subtract,
-        .asterisk, .asterisk_colon => .multiply,
-        .percent, .percent_colon => .divide,
-        .ampersand, .ampersand_colon => .lesser,
-        .pipe, .pipe_colon => .greater,
-        .caret, .caret_colon => .fill,
-        .equal, .equal_colon => .equal,
-        .angle_bracket_left, .angle_bracket_left_colon => .less_than,
-        .angle_bracket_left_equal => .less_than_or_equal,
-        .angle_bracket_left_right => .not_equal,
-        .angle_bracket_right, .angle_bracket_right_colon => .greater_than,
-        .angle_bracket_right_equal => .greater_than_or_equal,
-        .dollar, .dollar_colon => .cast,
-        .comma, .comma_colon => .join,
-        .hash, .hash_colon => .take,
-        .underscore, .underscore_colon => .drop,
-        .tilde, .tilde_colon => .match,
-        .bang, .bang_colon => .dict,
-        .question_mark, .question_mark_colon => .find,
-        .at, .at_colon => .apply_at,
-        .period, .period_colon => .apply_dot,
-        .zero_colon, .zero_colon_colon => .file_text,
-        .one_colon, .one_colon_colon => .file_binary,
-        .two_colon => .dynamic_load,
+        .plus, .plus_colon => {},
+        .minus, .minus_colon => {},
+        .asterisk, .asterisk_colon => {},
+        .percent, .percent_colon => {},
+        .ampersand, .ampersand_colon => {},
+        .pipe, .pipe_colon => {},
+        .caret, .caret_colon => {},
+        .equal, .equal_colon => {},
+        .angle_bracket_left, .angle_bracket_left_colon => {},
+        .angle_bracket_left_equal => {},
+        .angle_bracket_left_right => {},
+        .angle_bracket_right, .angle_bracket_right_colon => {},
+        .angle_bracket_right_equal => {},
+        .dollar, .dollar_colon => {},
+        .comma, .comma_colon => {},
+        .hash, .hash_colon => {},
+        .underscore, .underscore_colon => {},
+        .tilde, .tilde_colon => {},
+        .bang, .bang_colon => {},
+        .question_mark, .question_mark_colon => {},
+        .at, .at_colon => {},
+        .period, .period_colon => {},
+        .zero_colon, .zero_colon_colon => {},
+        .one_colon, .one_colon_colon => {},
+        .two_colon => {},
 
-        .builtin => {
-            const data = node_datas[node];
-            const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
-                const rhs, scope = try expr(gz, scope, data.rhs);
-                break :rhs rhs;
-            } else .none;
-            const callee, scope = try expr(gz, scope, main_tokens[node]);
-            const lhs, scope = try expr(gz, scope, data.lhs);
-
-            const result = try gz.addPlNode(.apply, node, Zir.Inst.Apply{
-                .callee = callee,
-                .lhs = lhs,
-                .rhs = rhs,
-            });
-            return .{ result, scope };
-        },
+        .builtin => {},
 
         else => |t| {
-            try astgen.appendErrorNode(node, "binary NYI: {s}", .{@tagName(t)}, .@"error");
+            try astgen.appendErrorNode(src_node, "binary NYI: {s}", .{@tagName(t)}, .@"error");
             return .{ .nyi, scope };
         },
-    };
+    }
 
-    const data = node_datas[node];
+    const data = node_datas[src_node];
     const rhs: Zir.Inst.Ref = if (data.rhs != 0) rhs: {
         const rhs, scope = try expr(gz, scope, data.rhs);
         break :rhs rhs;
     } else .none;
+    const op, scope = try expr(gz, scope, op_node);
     const lhs, scope = try expr(gz, scope, data.lhs);
 
-    var ref = try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+    var ref = try gz.addApply(src_node, op, &.{ lhs, rhs });
     if (node_tags[op_node].isCompoundAssignment()) {
-        ref = try gz.addPlNode(.assign, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = ref });
+        ref = try gz.addApply(src_node, .assign, &.{ lhs, ref });
     }
     return .{ ref, scope };
 }
@@ -2191,69 +2109,29 @@ const GenZir = struct {
         });
     }
 
-    fn addBreakWithSrcNode(
-        gz: *GenZir,
-        tag: Zir.Inst.Tag,
-        block_inst: Zir.Inst.Index,
-        operand: Zir.Inst.Ref,
-        operand_src_node: Ast.Node.Index,
-    ) !Zir.Inst.Index {
-        const gpa = gz.astgen.gpa;
-        try gz.instructions.ensureUnusedCapacity(gpa, 1);
-
-        const new_index = try gz.makeBreakWithSrcNode(
-            tag,
-            block_inst,
-            operand,
-            operand_src_node,
-        );
-        gz.instructions.appendAssumeCapacity(new_index);
-        return new_index;
-    }
-
-    fn makeBreakWithSrcNode(
-        gz: *GenZir,
-        tag: Zir.Inst.Tag,
-        block_inst: Zir.Inst.Index,
-        operand: Zir.Inst.Ref,
-        operand_src_node: Ast.Node.Index,
-    ) !Zir.Inst.Index {
-        return gz.makeBreakCommon(tag, block_inst, operand, operand_src_node);
-    }
-
-    fn makeBreakCommon(
-        gz: *GenZir,
-        tag: Zir.Inst.Tag,
-        block_inst: Zir.Inst.Index,
-        operand: Zir.Inst.Ref,
-        operand_src_node: ?Ast.Node.Index,
-    ) !Zir.Inst.Index {
-        const gpa = gz.astgen.gpa;
-        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(
-            gpa,
-            @typeInfo(Zir.Inst.Break).@"struct".fields.len,
-        );
-
-        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
-        gz.astgen.instructions.appendAssumeCapacity(.{
-            .tag = tag,
-            .data = .{ .@"break" = .{
-                .operand = operand,
-                .payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Break{
-                    .operand_src_node = if (operand_src_node) |src_node|
-                        gz.nodeIndexToRelative(src_node)
-                    else
-                        Zir.Inst.Break.no_src_node,
-                    .block_inst = block_inst,
-                }),
-            } },
+    fn addApply(gz: *GenZir, src_node: Ast.Node.Index, callee: Zir.Inst.Ref, args: []const Zir.Inst.Ref) !Zir.Inst.Ref {
+        const result = try gz.addPlNode(.apply, src_node, Zir.Inst.Apply{
+            .callee = callee,
+            .len = @intCast(args.len),
         });
-        return new_index;
+        try gz.astgen.extra.appendSlice(gz.astgen.gpa, @ptrCast(args));
+        return result;
     }
 
     fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {
         return (try gz.addAsIndex(inst)).toRef();
+    }
+
+    fn addNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+    ) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .node = gz.nodeIndexToRelative(src_node) },
+        });
     }
 
     fn addAsIndex(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Index {
