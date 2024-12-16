@@ -302,6 +302,14 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .one_colon, .one_colon_colon => return .{ .file_binary, scope },
         .two_colon => return .{ .dynamic_load, scope },
 
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => return iterator(gz, scope, node),
+
         .call => return call(gz, scope, node),
         .apply_unary => return applyUnary(gz, scope, node),
         .apply_binary => return applyBinary(gz, scope, node),
@@ -909,10 +917,45 @@ fn assign(
     }
 }
 
+// TODO: a:+/[x]
+// TODO: a:/[+]x - error, cannot apply iterator to ':'
+// TODO: a:(/[+]x)
+// TODO: a:(/[+;x]) - error, rank
+fn iterator(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    var scope = parent_scope;
+
+    const tag: Zir.Inst.Ref = switch (node_tags[src_node]) {
+        .apostrophe => .each,
+        .apostrophe_colon => .each_prior,
+        .slash => .over,
+        .slash_colon => .each_right,
+        .backslash => .scan,
+        .backslash_colon => .each_left,
+        else => unreachable,
+    };
+
+    const data = node_datas[src_node];
+    if (data.lhs != 0) {
+        const lhs, scope = try expr(gz, scope, data.lhs);
+        if (lhs == .assign) {
+            return astgen.failNode(data.lhs, "cannot apply iterator to assignment", .{});
+        }
+
+        return .{ try gz.addApply(src_node, tag, &.{lhs}), scope };
+    } else {
+        return .{ tag, scope };
+    }
+}
+
 fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     var scope = parent_scope;
 
     assert(node_tags[src_node] == .call);
@@ -921,20 +964,13 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
     const func_node = tree.unwrapGroupedExpr(full_call.func);
     switch (node_tags[func_node]) {
+        .lambda,
+        .lambda_semicolon,
+        => {},
+
         inline .colon, .colon_colon => |t| {
             switch (full_call.args.len) {
                 0 => unreachable,
-                1 => {
-                    try astgen.appendErrorNode(
-                        src_node,
-                        "expected 2 argument(s), found {d}",
-                        .{if (node_tags[full_call.args[0]] == .empty) 0 else full_call.args.len},
-                        .warn,
-                    );
-
-                    // TODO: We should return some generic call/projection instruction here.
-                    return .{ .null, scope };
-                },
                 2 => {},
                 else => return astgen.failNode(
                     src_node,
@@ -963,17 +999,30 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
         .at => switch (full_call.args.len) {
             0 => unreachable,
-            2 => {},
-            3 => {},
-            4 => {},
+            2, 3, 4 => {},
             else => return astgen.failNode(
                 src_node,
                 "expected 2, 3, or 4 argument(s), found {d}",
-                .{if (node_tags[full_call.args[0]] == .empty) 0 else full_call.args.len},
+                .{full_call.args.len},
             ),
         },
 
-        .lambda,
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => if (node_datas[func_node].lhs == 0) switch (full_call.args.len) {
+            0 => unreachable,
+            1 => {},
+            else => return astgen.failNode(
+                func_node,
+                "expected 1 argument(s), found {d}",
+                .{full_call.args.len},
+            ),
+        },
+
         .identifier,
         .builtin,
         => {},
@@ -1010,6 +1059,8 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
 
     const data = node_datas[src_node];
     switch (node_tags[data.lhs]) {
+        .grouped_expression => {},
+
         .colon => {
             const rhs, scope = try expr(gz, scope, data.rhs);
             const ref = try gz.addUnNode(.ret_node, rhs, src_node);
@@ -1021,6 +1072,8 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
             const ref = try gz.addUnNode(.signal, rhs, src_node);
             return .{ ref, scope };
         },
+
+        .call => {},
 
         .identifier,
         .builtin, // TODO: https://kdblint.atlassian.net/browse/KLS-311
@@ -1087,6 +1140,14 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
         .zero_colon, .zero_colon_colon => {},
         .one_colon, .one_colon_colon => {},
         .two_colon => {},
+
+        .apostrophe,
+        .apostrophe_colon,
+        .slash,
+        .slash_colon,
+        .backslash,
+        .backslash_colon,
+        => {},
 
         .builtin => {},
 
