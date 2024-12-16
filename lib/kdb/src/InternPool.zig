@@ -49,4 +49,11 @@ pub const Index = enum(u32) {
     file_text,
     file_binary,
     dynamic_load,
+
+    each,
+    each_prior,
+    over,
+    each_right,
+    scan,
+    each_left,
 };

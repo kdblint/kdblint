@@ -2454,7 +2454,32 @@ test "apostrophe colon" {
 }
 
 test "slash" {
-    return error.SkipZigTest;
+    // TODO: a{[x]}/b
+    try testZir("a+/",
+        \\%0 = file({
+        \\  %1 = apply(@over, @add) node_offset:1:2 to :1:4
+        \\  %2 = identifier("a") token_offset:1:1 to :1:2
+        \\  %3 = apply(%1, %2, .none) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("a+/b",
+        \\%0 = file({
+        \\  %1 = identifier("b") token_offset:1:4 to :1:5
+        \\  %2 = apply(@over, @add) node_offset:1:2 to :1:4
+        \\  %3 = identifier("a") token_offset:1:1 to :1:2
+        \\  %4 = apply(%2, %3, %1) node_offset:1:1 to :1:5
+        \\})
+    );
+    // TODO: Need to think about this:
+    // q)a:10
+    // q)b:1 2 3
+    // q)a:/b
+    // 3
+    try failZir("a:/b",
+        \\test:1:2: error: cannot apply iterator to assignment
+        \\a:/b
+        \\ ^
+    );
 }
 
 test "slash colon" {
@@ -2470,17 +2495,15 @@ test "backslash colon" {
 }
 
 test "call" {
-    try warnZir(":[]",
-        \\test:1:2: warn: expected 2 argument(s), found 0
+    try failZir(":[]",
+        \\test:1:2: error: expected 2 argument(s), found 1
         \\:[]
         \\~^~
-        \\%0 = file({})
     );
-    try warnZir(":[x]",
-        \\test:1:2: warn: expected 2 argument(s), found 1
+    try failZir(":[x]",
+        \\test:1:2: error: expected 2 argument(s), found 1
         \\:[x]
         \\~^~~
-        \\%0 = file({})
     );
     try failZir(":[x;y;z]",
         \\test:1:2: error: expected 2 argument(s), found 3

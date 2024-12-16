@@ -353,6 +353,13 @@ pub const Inst = struct {
         file_binary,
         dynamic_load,
 
+        each,
+        each_prior,
+        over,
+        each_right,
+        scan,
+        each_left,
+
         nyi,
 
         /// This Ref does not correspond to any ZIR instruction or constant
