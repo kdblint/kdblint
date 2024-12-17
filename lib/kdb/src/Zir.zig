@@ -242,6 +242,10 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Apply`.
         apply,
 
+        /// List.
+        /// Uses the `pl_node` union field with payload `List`.
+        list,
+
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
         pub fn isNoReturn(tag: Tag) bool {
@@ -283,6 +287,7 @@ pub const Inst = struct {
                 .identifier,
                 .builtin,
                 .apply,
+                .list,
                 => false,
 
                 .ret_node,
@@ -453,6 +458,12 @@ pub const Inst = struct {
                 assert(@sizeOf(Data) == 8);
             }
         }
+    };
+
+    /// Trailing:
+    /// 1. elem: Ref // for each len
+    pub const List = struct {
+        len: u32,
     };
 
     /// Trailing:

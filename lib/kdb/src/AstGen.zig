@@ -268,6 +268,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
 
         .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
+        .list => return listExpr(gz, scope, node),
 
         .lambda,
         .lambda_semicolon,
@@ -327,13 +328,45 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
     }
 }
 
-fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-    _ = node_datas; // autofix
+    var scope = parent_scope;
+
+    assert(node_tags[src_node] == .list);
+
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
+
+    const data = node_datas[src_node];
+    const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
+    const list_nodes = tree.extra_data[sub_range.start..sub_range.end];
+    try astgen.scratch.ensureUnusedCapacity(gpa, list_nodes.len);
+    const list = astgen.scratch.unusedCapacitySlice();
+    astgen.scratch.expandToCapacity();
+
+    var i: usize = 1;
+    var it = std.mem.reverseIterator(list_nodes);
+    while (it.next()) |node| : (i += 1) {
+        const ref, scope = try expr(gz, scope, node);
+        list[list_nodes.len - i] = @intFromEnum(ref);
+    }
+
+    const result = try gz.addPlNode(.list, src_node, Zir.Inst.List{
+        .len = @intCast(list_nodes.len),
+    });
+    try gz.astgen.extra.appendSlice(gz.astgen.gpa, list);
+    return .{ result, scope };
+}
+
+fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     astgen.advanceSourceCursorToNode(node);
@@ -1040,8 +1073,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
     var i: usize = 1;
     var it = std.mem.reverseIterator(full_call.args);
     while (it.next()) |param_node| : (i += 1) {
-        const ref, scope = try expr(gz, scope, param_node);
-        args[full_call.args.len - i] = ref;
+        args[full_call.args.len - i], scope = try expr(gz, scope, param_node);
     }
 
     const callee, scope = try expr(gz, scope, full_call.func);
