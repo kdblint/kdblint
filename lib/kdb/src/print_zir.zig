@@ -141,6 +141,8 @@ const Writer = struct {
         switch (tag) {
             .file => try self.writePlNodeBlockWithoutSrc(stream, inst),
 
+            .list => try self.writePlNodeList(stream, inst),
+
             .ret_node,
             .signal,
             => try self.writeUnNode(stream, inst),
@@ -250,6 +252,20 @@ const Writer = struct {
         try stream.print("\"{}\") ", .{
             std.zig.fmtEscapes(self.code.nullTerminatedString(@enumFromInt(strs[strs.len - 1]))),
         });
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writePlNodeList(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.List, inst_data.payload_index);
+        const list = self.code.extra[extra.end..][0..extra.data.len];
+
+        for (list[0 .. list.len - 1]) |ref| {
+            try self.writeInstRef(stream, @enumFromInt(ref));
+            try stream.writeAll(", ");
+        }
+        try self.writeInstRef(stream, @enumFromInt(list[list.len - 1]));
+        try stream.writeAll(") ");
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
@@ -670,7 +686,15 @@ test "empty list" {
 }
 
 test "list" {
-    return error.SkipZigTest;
+    try testZir("(1;2;3;4;5)",
+        \\%0 = file({
+        \\  %1 = long(5)
+        \\  %2 = long(4)
+        \\  %3 = long(3)
+        \\  %4 = long(2)
+        \\  %5 = list(@one, %4, %3, %2, %1) node_offset:1:1 to :1:12
+        \\})
+    );
 }
 
 test "table literal" {
