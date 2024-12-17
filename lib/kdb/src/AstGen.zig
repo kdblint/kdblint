@@ -338,27 +338,23 @@ fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
 
     assert(node_tags[src_node] == .list);
 
-    const scratch_top = astgen.scratch.items.len;
-    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
-
     const data = node_datas[src_node];
     const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
     const list_nodes = tree.extra_data[sub_range.start..sub_range.end];
-    try astgen.scratch.ensureUnusedCapacity(gpa, list_nodes.len);
-    const list = astgen.scratch.unusedCapacitySlice();
-    astgen.scratch.expandToCapacity();
+
+    const list = try gpa.alloc(Zir.Inst.Ref, list_nodes.len);
+    defer gpa.free(list);
 
     var i: usize = 1;
     var it = std.mem.reverseIterator(list_nodes);
     while (it.next()) |node| : (i += 1) {
-        const ref, scope = try expr(gz, scope, node);
-        list[list_nodes.len - i] = @intFromEnum(ref);
+        list[list_nodes.len - i], scope = try expr(gz, scope, node);
     }
 
     const result = try gz.addPlNode(.list, src_node, Zir.Inst.List{
         .len = @intCast(list_nodes.len),
     });
-    try gz.astgen.extra.appendSlice(gz.astgen.gpa, list);
+    try gz.astgen.extra.appendSlice(gpa, @ptrCast(list));
     return .{ result, scope };
 }
 
