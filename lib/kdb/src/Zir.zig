@@ -220,6 +220,10 @@ pub const Inst = struct {
         /// Integer literal that fits in an i64.
         /// Uses the `long` union field.
         long,
+        /// Integer list literal that fits in an i64.
+        /// Uses the `pl_node` union field with payload `List`.
+        long_list,
+
         /// String literal
         /// Uses the `str_tok` union field. Token is the string literal. String is the string content.
         str,
@@ -281,6 +285,7 @@ pub const Inst = struct {
                 .param_node,
                 .param_implicit,
                 .long,
+                .long_list,
                 .str,
                 .sym,
                 .sym_list,
