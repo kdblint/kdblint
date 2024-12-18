@@ -181,6 +181,8 @@ const Writer = struct {
 
             .long => try self.writeLong(stream, inst),
 
+            .long_list => try self.writePlNodeList(stream, inst),
+
             .str,
             .sym,
             => try self.writeStrTok(stream, inst),

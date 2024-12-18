@@ -316,6 +316,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .apply_binary => return applyBinary(gz, scope, node),
 
         .number_literal => return .{ try numberLiteral(gz, node), scope },
+        .number_list_literal => return .{ try numberListLiteral(gz, node), scope },
         .string_literal => return .{ try stringLiteral(gz, node), scope },
         .symbol_literal => return .{ try symbolLiteral(gz, node), scope },
         .symbol_list_literal => return .{ try symbolListLiteral(gz, node), scope },
@@ -1089,6 +1090,10 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
     switch (node_tags[data.lhs]) {
         .grouped_expression => {},
 
+        .lambda,
+        .lambda_semicolon,
+        => {},
+
         .colon => {
             const rhs, scope = try expr(gz, scope, data.rhs);
             const ref = try gz.addUnNode(.ret_node, rhs, src_node);
@@ -1203,29 +1208,37 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const main_tokens = tree.nodes.items(.main_token);
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
     const num_token = main_tokens[node];
-    const bytes = tree.tokenSlice(num_token);
 
-    const result: Zir.Inst.Ref = switch (bytes[0]) {
+    assert(node_tags[node] == .number_literal);
+
+    return parseNumberLiteral(gz, num_token);
+}
+
+fn parseNumberLiteral(gz: *GenZir, token: Ast.Token.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const bytes = tree.tokenSlice(token);
+
+    return switch (bytes[0]) {
         '-' => switch (kdb.parseNumberLiteral(bytes[1..])) {
             .long => |num| switch (num) {
                 1 => .negative_one,
-                else => try gz.addLong(-num),
+                else => gz.addLong(-num),
             },
-            .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
+            .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
         else => switch (kdb.parseNumberLiteral(bytes)) {
             .long => |num| switch (num) {
                 0 => .zero,
                 1 => .one,
-                else => try gz.addLong(num),
+                else => gz.addLong(num),
             },
-            .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
+            .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
     };
-
-    return result;
 }
 
 fn failWithNumberError(
@@ -1239,10 +1252,46 @@ fn failWithNumberError(
     }
 }
 
+fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    assert(node_tags[node] == .number_list_literal);
+
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
+
+    const first_token = main_tokens[node];
+    const last_token = node_datas[node].lhs;
+    const len = last_token - first_token + 1;
+    try astgen.scratch.ensureUnusedCapacity(gpa, len);
+
+    var i: u32 = first_token;
+    while (i <= last_token) : (i += 1) {
+        const ref = try parseNumberLiteral(gz, i);
+        astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+    }
+
+    const list = astgen.scratch.items[scratch_top..];
+    assert(list.len == len);
+    const sym_list = try gz.addPlNode(.long_list, node, Zir.Inst.List{
+        .len = @intCast(list.len),
+    });
+    try astgen.extra.appendSlice(gpa, list);
+    return sym_list;
+}
+
 fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    assert(node_tags[node] == .string_literal);
 
     const str_token = main_tokens[node];
     const str = try astgen.strLitAsString(str_token);
@@ -1252,7 +1301,10 @@ fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    assert(node_tags[node] == .symbol_literal);
 
     const sym_token = main_tokens[node];
     const sym = try astgen.symLitAsString(sym_token);
@@ -1263,8 +1315,11 @@ fn symbolListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    assert(node_tags[node] == .symbol_list_literal);
 
     const scratch_top = astgen.scratch.items.len;
     defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
