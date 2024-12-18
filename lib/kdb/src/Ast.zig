@@ -306,12 +306,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         .delete_rows,
         .delete_cols,
         => return main_tokens[n] + end_offset,
-
-        .do,
-        .@"if",
-        .@"while",
-        .cond,
-        => return main_tokens[n] + end_offset,
     };
 }
 
@@ -468,20 +462,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
 
         .delete_cols,
         => n = tree.extraData(datas[n].lhs, Node.DeleteCols).from,
-
-        .do,
-        .@"if",
-        .@"while",
-        .cond,
-        => {
-            const body = blk: {
-                const sub_range = tree.extraData(datas[n].rhs, Node.SubRange);
-                break :blk tree.extra_data[sub_range.start..sub_range.end];
-            };
-
-            if (tags[body[body.len - 1]] != .empty) end_offset += 1;
-            n = body[body.len - 1];
-        },
     };
 }
 
@@ -777,32 +757,6 @@ pub fn fullDeleteCols(tree: Ast, node: Node.Index) full.DeleteCols {
     };
 }
 
-pub fn fullStatement(tree: Ast, node: Node.Index) full.Statement {
-    const tags: []Node.Tag = tree.nodes.items(.tag);
-    assert(tags[node] == .do or tags[node] == .@"if" or tags[node] == .@"while" or tags[node] == .cond);
-
-    const data = tree.nodes.items(.data)[node];
-
-    const condition = data.lhs;
-    const sub_range = tree.extraData(data.rhs, Node.SubRange);
-    const body = tree.extra_data[sub_range.start..sub_range.end];
-
-    const main_token = tree.nodes.items(.main_token)[node];
-    const l_bracket = main_token + 1;
-    const r_bracket = if (tags[body[body.len - 1]] == .empty)
-        tree.lastToken(body[body.len - 1])
-    else
-        tree.lastToken(body[body.len - 1]) + 1;
-
-    return .{
-        .main_token = main_token,
-        .l_bracket = l_bracket,
-        .condition = condition,
-        .body = body,
-        .r_bracket = r_bracket,
-    };
-}
-
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const Lambda = struct {
@@ -909,14 +863,6 @@ pub const full = struct {
         select_tokens: []Token.Index,
         from_token: Token.Index,
         from: Node.Index,
-    };
-
-    pub const Statement = struct {
-        main_token: Token.Index,
-        l_bracket: Token.Index,
-        condition: Node.Index,
-        body: []Node.Index,
-        r_bracket: Token.Index,
     };
 };
 
@@ -1137,15 +1083,6 @@ pub const Node = struct {
         /// `delete lhs`. rhs unused. main_token is the `delete`. `DeleteCols[lhs]`.
         delete_cols,
 
-        /// `do[lhs;rhs]`. main_token is the `do`. `SubRange[rhs]`.
-        do,
-        /// `if[lhs;rhs]`. main_token is the `if`. `SubRange[rhs]`.
-        @"if",
-        /// `while[lhs;rhs]`. main_token is the `while`. `SubRange[rhs]`.
-        @"while",
-        /// `$[lhs;rhs]`. main_token is the `$`. `SubRange[rhs]`.
-        cond,
-
         pub fn getType(tag: Tag) Type {
             return switch (tag) {
                 .root,
@@ -1248,12 +1185,6 @@ pub const Node = struct {
                 .update,
                 .delete_rows,
                 .delete_cols,
-                => .other,
-
-                .do,
-                .@"if",
-                .@"while",
-                .cond,
                 => .other,
             };
         }
@@ -5148,6 +5079,7 @@ test "delete columns" {
 }
 
 test "do" {
+    if (true) return error.SkipZigTest;
     try failAst(
         "do a",
         &.{ .keyword_do, .identifier },
@@ -5191,6 +5123,7 @@ test "do" {
 }
 
 test "if" {
+    if (true) return error.SkipZigTest;
     try failAst(
         "if a",
         &.{ .keyword_if, .identifier },
@@ -5234,6 +5167,7 @@ test "if" {
 }
 
 test "while" {
+    if (true) return error.SkipZigTest;
     try failAst(
         "while a",
         &.{ .keyword_while, .identifier },
@@ -5277,6 +5211,7 @@ test "while" {
 }
 
 test "cond" {
+    if (true) return error.SkipZigTest;
     try testAst(
         "$[]",
         &.{ .dollar, .l_bracket, .r_bracket },

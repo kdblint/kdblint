@@ -5,9 +5,9 @@
       "name": "(Windows) Launch",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceRoot}/lib/kdb/zig-out/bin/fmt.exe",
-      "args": ["test.q"],
-      "cwd": "${workspaceRoot}/lib/kdb"
+      "program": "${workspaceRoot}/zig-out/bin/kdblint.Debug.exe",
+      "args": ["ast-check", "-t", "temp.q"],
+      "cwd": "${workspaceRoot}"
     },
     {
       "name": "(lldb) Attach",
