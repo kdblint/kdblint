@@ -241,6 +241,8 @@ fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
 
         // TODO: Namespace block.
         // TODO: Something should wrap expr to return an index to show or discard value.
+
+        astgen.advanceSourceCursorToNode(node);
         const expr_ref, scope = expr(gz, scope, node) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => continue,
@@ -323,8 +325,6 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .identifier => return identifier(gz, scope, node),
         .builtin => return .{ try builtin(gz, node), scope },
 
-        .cond => return cond(gz, scope, node),
-
         else => |t| return astgen.failNode(node, "expr NYI: {s}", .{@tagName(t)}),
     }
 }
@@ -365,6 +365,15 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
+    const prev_offset = astgen.source_offset;
+    const prev_line = astgen.source_line;
+    const prev_column = astgen.source_column;
+    defer {
+        astgen.source_offset = prev_offset;
+        astgen.source_line = prev_line;
+        astgen.source_column = prev_column;
+    }
 
     astgen.advanceSourceCursorToNode(node);
     const lbrace_line = astgen.source_line - gz.decl_line;
@@ -773,6 +782,37 @@ fn signal(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Re
     return .{ try gz.addUnNode(.signal, rhs, node), scope };
 }
 
+fn findOrCreateGlobal(
+    gz: *GenZir,
+    parent_scope: *Scope,
+    src_node: Ast.Node.Index,
+    op: Zir.Inst.Ref,
+    rhs: Zir.Inst.Ref,
+    ident_name: Zir.NullTerminatedString,
+    ident_token: Ast.Token.Index,
+) InnerError!Result {
+    const astgen = gz.astgen;
+    var scope = parent_scope;
+
+    if (scope.findGlobal(ident_name)) |lhs| {
+        return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
+    }
+
+    const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+
+    const sub_scope = try astgen.arena.create(Scope.LocalVal);
+    sub_scope.* = .{
+        .parent = scope,
+        .inst = lhs,
+        .token_src = ident_token,
+        .name = ident_name,
+        .id_cat = .@"global variable",
+    };
+    scope = &sub_scope.base;
+
+    return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
+}
+
 fn assign(
     gz: *GenZir,
     parent_scope: *Scope,
@@ -802,33 +842,19 @@ fn assign(
     const ident_name = try astgen.bytesAsString(ident_bytes);
 
     if (parent_scope.isGlobal()) {
-        const node = parent_scope.top().global_decls.get(ident_name).?;
-        if (src_node == node) { // declare global
-            const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
-
-            const sub_scope = try astgen.arena.create(Scope.LocalVal);
-            sub_scope.* = .{
-                .parent = scope,
-                .inst = lhs,
-                .token_src = ident_token,
-                .name = ident_name,
-                .id_cat = .@"global variable",
-            };
-            scope = &sub_scope.base;
-
-            return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
-        } else if (scope.findGlobal(ident_name)) |lhs| { // assign global
-            return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
-        } else {
-            return astgen.failNode(src_node, "undefined global variable", .{});
-            // unreachable; // undefined global
-        }
+        return findOrCreateGlobal(
+            gz,
+            scope,
+            src_node,
+            op,
+            rhs,
+            ident_name,
+            ident_token,
+        );
     }
 
-    const lambda_scope = parent_scope.lambda().?;
-
     if (is_global_assign) {
-        if (lambda_scope.local_decls.get(ident_name)) |local_decl| {
+        if (parent_scope.lambda().?.local_decls.get(ident_name)) |local_decl| {
             const local_ident = switch (node_tags[local_decl]) {
                 .identifier => local_decl,
                 .apply_binary => tree.unwrapGroupedExpr(node_datas[local_decl].lhs),
@@ -841,7 +867,6 @@ fn assign(
             assert(node_tags[local_ident] == .identifier);
 
             if (scope.findLocal(ident_name)) |local_val| { // local before global
-                std.log.debug("found local", .{});
                 try astgen.appendErrorNodeNotes(src_node, "misleading global-assign of {s} '{s}'", .{
                     @tagName(local_val.id_cat),
                     ident_bytes,
@@ -857,7 +882,6 @@ fn assign(
 
                 return .{ try gz.addApply(src_node, op, &.{ local_val.inst, rhs }), scope };
             } else { // global before local
-                std.log.debug("not found local", .{});
                 return astgen.failNodeNotes(
                     local_ident,
                     "global variable '{s}' used as local",
@@ -872,78 +896,46 @@ fn assign(
                 );
             }
         } else {
-            const node = lambda_scope.global_decls.get(ident_name).?;
-            if (src_node == node) { // declare global
-                const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
-
-                const sub_scope = try astgen.arena.create(Scope.LocalVal);
-                sub_scope.* = .{
-                    .parent = scope,
-                    .inst = lhs,
-                    .token_src = ident_token,
-                    .name = ident_name,
-                    .id_cat = .@"global variable",
-                };
-                scope = &sub_scope.base;
-
-                return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
-            } else if (scope.findGlobal(ident_name)) |lhs| { // assign global
-                return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
-            } else {
-                return astgen.failNode(src_node, "undefined global variable", .{});
-                // unreachable; // undefined global
-            }
+            return findOrCreateGlobal(
+                gz,
+                scope,
+                src_node,
+                op,
+                rhs,
+                ident_name,
+                ident_token,
+            );
         }
     }
 
     if (std.mem.indexOfScalar(u8, ident_bytes, '.')) |_| {
-        const node = lambda_scope.global_decls.get(ident_name).?;
-        if (src_node == node) { // declare global
-            const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+        return findOrCreateGlobal(
+            gz,
+            scope,
+            src_node,
+            op,
+            rhs,
+            ident_name,
+            ident_token,
+        );
+    }
 
-            const sub_scope = try astgen.arena.create(Scope.LocalVal);
-            sub_scope.* = .{
-                .parent = scope,
-                .inst = lhs,
-                .token_src = ident_token,
-                .name = ident_name,
-                .id_cat = .@"global variable",
-            };
-            scope = &sub_scope.base;
-
-            return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
-        } else { // assign global
-            if (scope.findGlobal(ident_name)) |lhs| {
-                return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
-            } else {
-                return astgen.failNode(src_node, "undefined global variable", .{});
-                // unreachable; // undefined global
-            }
-        }
+    if (scope.findLocal(ident_name)) |lhs| {
+        return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
     } else {
-        const node = scope.lambda().?.local_decls.get(ident_name).?;
-        if (src_node == node) { // declare local
-            const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+        const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
 
-            const sub_scope = try astgen.arena.create(Scope.LocalVal);
-            sub_scope.* = .{
-                .parent = scope,
-                .inst = lhs,
-                .token_src = ident_token,
-                .name = ident_name,
-                .id_cat = .@"local variable",
-            };
-            scope = &sub_scope.base;
+        const sub_scope = try astgen.arena.create(Scope.LocalVal);
+        sub_scope.* = .{
+            .parent = scope,
+            .inst = lhs,
+            .token_src = ident_token,
+            .name = ident_name,
+            .id_cat = .@"local variable",
+        };
+        scope = &sub_scope.base;
 
-            return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
-        } else { // assign local
-            if (scope.findLocal(ident_name)) |lhs| {
-                return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
-            } else {
-                return astgen.failNode(src_node, "undefined local variable", .{});
-                // unreachable; // undefined local
-            }
-        }
+        return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
     }
 }
 
@@ -986,6 +978,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
     const tree = astgen.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
     var scope = parent_scope;
 
     assert(node_tags[src_node] == .call);
@@ -1027,7 +1020,30 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
             );
         },
 
-        .at => switch (full_call.args.len) {
+        .dollar => switch (full_call.args.len) {
+            0 => unreachable,
+            1 => return astgen.failNode(
+                src_node,
+                "expected 2 or more argument(s), found {d}",
+                .{full_call.args.len},
+            ),
+            2 => {},
+            else => return cond(gz, scope, full_call),
+        },
+
+        .question_mark => switch (full_call.args.len) {
+            0 => unreachable,
+            2, 3, 4, 5, 6 => {},
+            else => return astgen.failNode(
+                src_node,
+                "expected 2, 3, 4, 5, or 6 argument(s), found {d}",
+                .{full_call.args.len},
+            ),
+        },
+
+        .at,
+        .period,
+        => switch (full_call.args.len) {
             0 => unreachable,
             2, 3, 4 => {},
             else => return astgen.failNode(
@@ -1054,6 +1070,20 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
         },
 
         .identifier,
+        => {
+            const slice = tree.tokenSlice(main_tokens[func_node]);
+            if (std.mem.eql(u8, slice, "do")) {
+                try astgen.appendErrorNode(src_node, "call NYI: {s}", .{slice}, .@"error");
+                return .{ .nyi, scope };
+            } else if (std.mem.eql(u8, slice, "if")) {
+                try astgen.appendErrorNode(src_node, "call NYI: {s}", .{slice}, .@"error");
+                return .{ .nyi, scope };
+            } else if (std.mem.eql(u8, slice, "while")) {
+                try astgen.appendErrorNode(src_node, "call NYI: {s}", .{slice}, .@"error");
+                return .{ .nyi, scope };
+            }
+        },
+
         .builtin,
         => {},
 
@@ -1108,6 +1138,7 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
 
         .call => {},
 
+        .symbol_list_literal,
         .identifier,
         .builtin, // TODO: https://kdblint.atlassian.net/browse/KLS-311
         => {},
@@ -1404,18 +1435,13 @@ fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     return gz.addStrTok(.builtin, builtin_name, builtin_token);
 }
 
-fn cond(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
+fn cond(gz: *GenZir, parent_scope: *Scope, full_call: Ast.full.Call) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     var scope = parent_scope;
 
-    assert(node_tags[src_node] == .cond);
+    assert(full_call.args.len > 2);
 
-    const data = node_datas[src_node];
-
-    const cond_expr, scope = try expr(gz, scope, data.lhs);
+    const cond_expr, scope = try expr(gz, scope, full_call.args[0]);
     _ = cond_expr; // autofix
 
     // q)$[a;a:1b;a]
@@ -1448,18 +1474,16 @@ fn cond(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
     const prev_scope = scope;
 
-    const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
-    const extra_data = tree.extra_data[sub_range.start..sub_range.end];
-    assert(extra_data.len > 0);
-    const inst: Zir.Inst.Ref = for (extra_data, 0..) |node, i| {
-        const inst, scope = try expr(gz, scope, node);
-        if (i == extra_data.len - 1) break inst;
-    } else unreachable;
+    const args = full_call.args[1..];
+    for (args[0 .. args.len - 1]) |arg| {
+        _, scope = try expr(gz, scope, arg);
+    }
+    const inst, scope = try expr(gz, scope, args[args.len - 1]);
 
     var temp_scope = scope;
     while (temp_scope != prev_scope) switch (temp_scope.tag) {
         .local_val => {
-            const local_val = scope.cast(Scope.LocalVal).?;
+            const local_val = temp_scope.cast(Scope.LocalVal).?;
             if (local_val.id_cat == .@"local variable") {
                 try astgen.appendErrorTokNotes(
                     local_val.token_src,
@@ -1682,19 +1706,6 @@ fn scanNode(
                 else => comptime unreachable,
             });
             try astgen.scanNode(sql.from, args);
-        },
-
-        .do,
-        .@"if",
-        .@"while",
-        .cond,
-        => {
-            const data = node_datas[node];
-            const sub_range = tree.extraData(data.rhs, Ast.Node.SubRange);
-            const slice = tree.extra_data[sub_range.start..sub_range.end];
-            var it = std.mem.reverseIterator(slice);
-            while (it.next()) |n| try astgen.scanNode(n, args);
-            try astgen.scanNode(data.lhs, args);
         },
 
         .identifier => if (args.identifiers) |identifiers| {
