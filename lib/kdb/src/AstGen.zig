@@ -1031,6 +1031,16 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
             else => return cond(gz, scope, full_call),
         },
 
+        .bang => switch (full_call.args.len) {
+            0 => unreachable,
+            2, 4 => {},
+            else => return astgen.failNode(
+                src_node,
+                "expected 2 or 4 argument(s), found {d}",
+                .{full_call.args.len},
+            ),
+        },
+
         .question_mark => switch (full_call.args.len) {
             0 => unreachable,
             2, 3, 4, 5, 6 => {},
@@ -1068,6 +1078,8 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
                 .{full_call.args.len},
             ),
         },
+
+        .call => {},
 
         .identifier,
         => {
@@ -1320,6 +1332,9 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
     const data = node_datas[src_node];
     switch (node_tags[data.lhs]) {
         .grouped_expression => {},
+        .empty_list => {},
+        .list => {},
+        .table_literal => {},
 
         .lambda,
         .lambda_semicolon,
