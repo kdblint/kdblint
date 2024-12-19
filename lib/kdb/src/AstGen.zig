@@ -1073,14 +1073,11 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
         => {
             const slice = tree.tokenSlice(main_tokens[func_node]);
             if (std.mem.eql(u8, slice, "do")) {
-                try astgen.appendErrorNode(src_node, "call NYI: {s}", .{slice}, .@"error");
-                return .{ .nyi, scope };
+                return doStatement(gz, scope, src_node, full_call);
             } else if (std.mem.eql(u8, slice, "if")) {
-                try astgen.appendErrorNode(src_node, "call NYI: {s}", .{slice}, .@"error");
-                return .{ .nyi, scope };
+                return ifStatement(gz, scope, src_node, full_call);
             } else if (std.mem.eql(u8, slice, "while")) {
-                try astgen.appendErrorNode(src_node, "call NYI: {s}", .{slice}, .@"error");
-                return .{ .nyi, scope };
+                return whileStatement(gz, scope, src_node, full_call);
             }
         },
 
@@ -1107,6 +1104,210 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
     const ref = try gz.addApply(src_node, callee, args);
     return .{ ref, scope };
+}
+
+fn doStatement(
+    gz: *GenZir,
+    parent_scope: *Scope,
+    src_node: Ast.Node.Index,
+    full_call: Ast.full.Call,
+) InnerError!Result {
+    const astgen = gz.astgen;
+    var scope = parent_scope;
+
+    assert(full_call.args.len > 1);
+
+    const prev_offset = astgen.source_offset;
+    const prev_line = astgen.source_line;
+    const prev_column = astgen.source_column;
+    defer {
+        astgen.source_offset = prev_offset;
+        astgen.source_line = prev_line;
+        astgen.source_column = prev_column;
+    }
+
+    astgen.advanceSourceCursorToNode(src_node);
+    const inst = try gz.makePlNode(.do, src_node);
+
+    const condition, scope = try expr(gz, scope, full_call.args[0]);
+
+    const prev_scope = scope;
+
+    var body_gz = gz.makeSubBlock(scope);
+    defer body_gz.unstack();
+
+    const args = full_call.args[1..];
+    for (args, 0..) |body_node, i| {
+        if (body_gz.endsWithNoReturn()) {
+            assert(i > 0);
+            try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
+                try gz.astgen.errNoteNode(args[i - 1], "control flow is diverted here", .{}),
+            }, .warn);
+        }
+
+        _, scope = try expr(&body_gz, scope, body_node);
+    }
+
+    var temp_scope = scope;
+    while (temp_scope != prev_scope) switch (temp_scope.tag) {
+        .local_val => {
+            const local_val = temp_scope.cast(Scope.LocalVal).?;
+            if (local_val.id_cat == .@"local variable") {
+                try astgen.appendErrorTokNotes(
+                    local_val.token_src,
+                    "conditionally declared {s}",
+                    .{@tagName(local_val.id_cat)},
+                    &.{},
+                    .warn,
+                );
+            }
+            temp_scope = local_val.parent;
+        },
+        else => temp_scope = temp_scope.parent().?,
+    };
+
+    try gz.setDo(inst, .{
+        .condition = condition,
+        .body_gz = &body_gz,
+    });
+
+    return .{ inst.toRef(), scope };
+}
+
+fn ifStatement(
+    gz: *GenZir,
+    parent_scope: *Scope,
+    src_node: Ast.Node.Index,
+    full_call: Ast.full.Call,
+) InnerError!Result {
+    const astgen = gz.astgen;
+    var scope = parent_scope;
+
+    assert(full_call.args.len > 1);
+
+    const prev_offset = astgen.source_offset;
+    const prev_line = astgen.source_line;
+    const prev_column = astgen.source_column;
+    defer {
+        astgen.source_offset = prev_offset;
+        astgen.source_line = prev_line;
+        astgen.source_column = prev_column;
+    }
+
+    astgen.advanceSourceCursorToNode(src_node);
+    const inst = try gz.makePlNode(.@"if", src_node);
+
+    const condition, scope = try expr(gz, scope, full_call.args[0]);
+
+    const prev_scope = scope;
+
+    var body_gz = gz.makeSubBlock(scope);
+    defer body_gz.unstack();
+
+    const args = full_call.args[1..];
+    for (args, 0..) |body_node, i| {
+        if (body_gz.endsWithNoReturn()) {
+            assert(i > 0);
+            try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
+                try gz.astgen.errNoteNode(args[i - 1], "control flow is diverted here", .{}),
+            }, .warn);
+        }
+
+        _, scope = try expr(&body_gz, scope, body_node);
+    }
+
+    var temp_scope = scope;
+    while (temp_scope != prev_scope) switch (temp_scope.tag) {
+        .local_val => {
+            const local_val = temp_scope.cast(Scope.LocalVal).?;
+            if (local_val.id_cat == .@"local variable") {
+                try astgen.appendErrorTokNotes(
+                    local_val.token_src,
+                    "conditionally declared {s}",
+                    .{@tagName(local_val.id_cat)},
+                    &.{},
+                    .warn,
+                );
+            }
+            temp_scope = local_val.parent;
+        },
+        else => temp_scope = temp_scope.parent().?,
+    };
+
+    try gz.setIf(inst, .{
+        .condition = condition,
+        .body_gz = &body_gz,
+    });
+
+    return .{ inst.toRef(), scope };
+}
+
+fn whileStatement(
+    gz: *GenZir,
+    parent_scope: *Scope,
+    src_node: Ast.Node.Index,
+    full_call: Ast.full.Call,
+) InnerError!Result {
+    const astgen = gz.astgen;
+    var scope = parent_scope;
+
+    assert(full_call.args.len > 1);
+
+    const prev_offset = astgen.source_offset;
+    const prev_line = astgen.source_line;
+    const prev_column = astgen.source_column;
+    defer {
+        astgen.source_offset = prev_offset;
+        astgen.source_line = prev_line;
+        astgen.source_column = prev_column;
+    }
+
+    astgen.advanceSourceCursorToNode(src_node);
+    const inst = try gz.makePlNode(.@"while", src_node);
+
+    const condition, scope = try expr(gz, scope, full_call.args[0]);
+
+    const prev_scope = scope;
+
+    var body_gz = gz.makeSubBlock(scope);
+    defer body_gz.unstack();
+
+    const args = full_call.args[1..];
+    for (args, 0..) |body_node, i| {
+        if (body_gz.endsWithNoReturn()) {
+            assert(i > 0);
+            try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
+                try gz.astgen.errNoteNode(args[i - 1], "control flow is diverted here", .{}),
+            }, .warn);
+        }
+
+        _, scope = try expr(&body_gz, scope, body_node);
+    }
+
+    var temp_scope = scope;
+    while (temp_scope != prev_scope) switch (temp_scope.tag) {
+        .local_val => {
+            const local_val = temp_scope.cast(Scope.LocalVal).?;
+            if (local_val.id_cat == .@"local variable") {
+                try astgen.appendErrorTokNotes(
+                    local_val.token_src,
+                    "conditionally declared {s}",
+                    .{@tagName(local_val.id_cat)},
+                    &.{},
+                    .warn,
+                );
+            }
+            temp_scope = local_val.parent;
+        },
+        else => temp_scope = temp_scope.parent().?,
+    };
+
+    try gz.setWhile(inst, .{
+        .condition = condition,
+        .body_gz = &body_gz,
+    });
+
+    return .{ inst.toRef(), scope };
 }
 
 fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
@@ -1441,8 +1642,8 @@ fn cond(gz: *GenZir, parent_scope: *Scope, full_call: Ast.full.Call) InnerError!
 
     assert(full_call.args.len > 2);
 
-    const cond_expr, scope = try expr(gz, scope, full_call.args[0]);
-    _ = cond_expr; // autofix
+    const condition, scope = try expr(gz, scope, full_call.args[0]);
+    _ = condition; // autofix
 
     // q)$[a;a:1b;a]
     // 'a
@@ -2145,6 +2346,64 @@ const GenZir = struct {
         // astgen.appendBodyWithFixups(params);
         astgen.appendBodyWithFixups(body);
         _ = astgen.addExtraAssumeCapacity(src_locs);
+
+        try gz.instructions.ensureUnusedCapacity(gpa, 1);
+        gz.instructions.appendAssumeCapacity(inst);
+    }
+
+    /// Must be called with the following stack set up:
+    ///  * gz (bottom)
+    ///  * body_gz (top)
+    /// Unstacks all of those except for `gz`.
+    fn setDo(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
+        condition: Zir.Inst.Ref,
+        body_gz: *GenZir,
+    }) !void {
+        try gz.setStmt(inst, args, Zir.Inst.Do);
+    }
+
+    /// Must be called with the following stack set up:
+    ///  * gz (bottom)
+    ///  * body_gz (top)
+    /// Unstacks all of those except for `gz`.
+    fn setIf(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
+        condition: Zir.Inst.Ref,
+        body_gz: *GenZir,
+    }) !void {
+        try gz.setStmt(inst, args, Zir.Inst.If);
+    }
+
+    /// Must be called with the following stack set up:
+    ///  * gz (bottom)
+    ///  * body_gz (top)
+    /// Unstacks all of those except for `gz`.
+    fn setWhile(gz: *GenZir, inst: Zir.Inst.Index, args: struct { condition: Zir.Inst.Ref, body_gz: *GenZir }) !void {
+        try gz.setStmt(inst, args, Zir.Inst.While);
+    }
+
+    /// Must be called with the following stack set up:
+    ///  * gz (bottom)
+    ///  * body_gz (top)
+    /// Unstacks all of those except for `gz`.
+    fn setStmt(gz: *GenZir, inst: Zir.Inst.Index, args: anytype, comptime T: type) !void {
+        const astgen = gz.astgen;
+        const gpa = astgen.gpa;
+        const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
+
+        const body = args.body_gz.instructionsSlice();
+        const body_len = astgen.countBodyLenAfterFixups(body);
+        args.body_gz.unstack();
+
+        try astgen.extra.ensureUnusedCapacity(
+            gpa,
+            @typeInfo(T).@"struct".fields.len + body_len,
+        );
+
+        zir_datas[@intFromEnum(inst)].pl_node.payload_index = astgen.addExtraAssumeCapacity(T{
+            .condition = args.condition,
+            .body_len = body_len,
+        });
+        astgen.appendBodyWithFixups(body);
 
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
         gz.instructions.appendAssumeCapacity(inst);

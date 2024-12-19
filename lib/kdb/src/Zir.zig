@@ -213,6 +213,16 @@ pub const Inst = struct {
         /// Uses the `un_tok` union field.
         ret_implicit,
 
+        /// Do statement.
+        /// Uses the `pl_node` union field with payload `Do`.
+        do,
+        /// If statement.
+        /// Uses the `pl_node` union field with payload `If`.
+        @"if",
+        /// While statement.
+        /// Uses the `pl_node` union field with payload `While`.
+        @"while",
+
         /// Signals an error.
         /// Uses the `un_node` union field.
         signal,
@@ -293,6 +303,9 @@ pub const Inst = struct {
                 .builtin,
                 .apply,
                 .list,
+                .do,
+                .@"if",
+                .@"while",
                 => false,
 
                 .ret_node,
@@ -494,6 +507,27 @@ pub const Inst = struct {
             /// rbrace_column is most significant bits u16
             columns: u32,
         };
+    };
+
+    /// Trailing:
+    /// 1. body: Ref // for each body_len
+    pub const Do = struct {
+        condition: Ref,
+        body_len: u32,
+    };
+
+    /// Trailing:
+    /// 1. body: Ref // for each body_len
+    pub const If = struct {
+        condition: Ref,
+        body_len: u32,
+    };
+
+    /// Trailing:
+    /// 1. body: Ref // for each body_len
+    pub const While = struct {
+        condition: Ref,
+        body_len: u32,
     };
 
     /// Trailing:
