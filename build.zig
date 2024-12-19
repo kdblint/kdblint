@@ -31,9 +31,6 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addImport("known_folders", known_folders_module);
     exe.root_module.addOptions("build_options", options);
 
-    const check_step = b.step("check", "Compile project without build artifacts");
-    check_step.dependOn(&exe.step);
-
     const install_exe = b.addInstallArtifact(exe, .{
         .dest_dir = .{
             .override = .{
