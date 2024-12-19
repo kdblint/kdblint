@@ -179,6 +179,10 @@ const Writer = struct {
 
             .lambda => try self.writeLambda(stream, inst),
 
+            .do => try self.writePlNodeDo(stream, inst),
+            .@"if" => try self.writePlNodeIf(stream, inst),
+            .@"while" => try self.writePlNodeWhile(stream, inst),
+
             .long => try self.writeLong(stream, inst),
 
             .long_list => try self.writePlNodeList(stream, inst),
@@ -338,6 +342,35 @@ const Writer = struct {
             });
         }
         try self.writeSrcNode(stream, 0);
+    }
+
+    fn writePlNodeDo(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        try self.writePlNodeStmt(stream, inst, Zir.Inst.Do);
+    }
+
+    fn writePlNodeIf(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        try self.writePlNodeStmt(stream, inst, Zir.Inst.If);
+    }
+
+    fn writePlNodeWhile(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        try self.writePlNodeStmt(stream, inst, Zir.Inst.While);
+    }
+
+    // TODO: Needs formatting.
+    fn writePlNodeStmt(self: *Writer, stream: anytype, inst: Zir.Inst.Index, comptime T: type) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(T, inst_data.payload_index);
+        const args = self.code.extra[extra.end..][0..extra.data.body_len];
+
+        try self.writeInstRef(stream, extra.data.condition);
+        try stream.writeAll(", ");
+        for (args[0 .. args.len - 1]) |arg| {
+            try self.writeInstRef(stream, @enumFromInt(arg));
+            try stream.writeAll(", ");
+        }
+        try self.writeInstRef(stream, @enumFromInt(args[args.len - 1]));
+        try stream.writeAll(") ");
+        try self.writeSrcNode(stream, inst_data.src_node);
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {
