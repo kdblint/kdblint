@@ -707,9 +707,9 @@ fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     if (select.limit) |limit| {
         try renderToken(r, limit.l_bracket, .none); // [
         if (limit.expr) |expr| try renderExpression(r, expr, .semicolon);
-        if (limit.order_token) |tok| {
-            try renderToken(r, tok - 1, .none); // < / >
-            try renderToken(r, tok, .none);
+        if (limit.order_column) |order_column| {
+            try renderToken(r, order_column - 1, .none); // < / >
+            try renderToken(r, order_column, .none);
         }
         try renderTokenSpace(r, limit.r_bracket); // ]
     }

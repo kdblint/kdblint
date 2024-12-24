@@ -567,7 +567,7 @@ pub fn fullCall(tree: Ast, node: Node.Index) full.Call {
     const data: Node.Data = tree.nodes.items(.data)[node];
     const sub_range = tree.extraData(data.rhs, Node.SubRange);
 
-    const func = data.lhs;
+    const func = tree.unwrapGroupedExpr(data.lhs);
     const args = tree.extra_data[sub_range.start..sub_range.end];
     assert(args.len > 0);
 
@@ -597,15 +597,15 @@ pub fn fullSelect(tree: Ast, node: Node.Index) full.Select {
 
     const select_token = tree.nodes.items(.main_token)[node];
     const limit_expr: ?Node.Index = if (select.limit > 0) select.limit else null;
-    const order_token: ?Token.Index = if (select.order > 0) select.order else null;
+    const order_column: ?Token.Index = if (select.order > 0) select.order else null;
     const distinct_token: ?Token.Index = if (select.data.distinct) select_token + 1 else null;
     const from_token = tree.firstToken(select.from) - 1;
 
     const limit: ?full.Select.Limit = if (select.limit > 0 or select.order > 0) .{
         .l_bracket = select_token + 1,
         .expr = limit_expr,
-        .order_token = order_token,
-        .r_bracket = if (order_token) |tok|
+        .order_column = order_column,
+        .r_bracket = if (order_column) |tok|
             tok + 1
         else if (limit_expr) |expr|
             tree.lastToken(expr) + 1
@@ -793,7 +793,7 @@ pub const full = struct {
         pub const Limit = struct {
             l_bracket: Token.Index,
             expr: ?Node.Index,
-            order_token: ?Token.Index,
+            order_column: ?Token.Index,
             r_bracket: Token.Index,
         };
 
@@ -3487,6 +3487,12 @@ test "call" {
         "{x}[a;]",
         &.{ .l_brace, .identifier, .r_brace, .l_bracket, .identifier, .semicolon, .r_bracket },
         &.{ .lambda, .identifier, .call, .identifier, .empty },
+    );
+
+    try testAst(
+        "if[a;b]",
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier },
     );
 }
 

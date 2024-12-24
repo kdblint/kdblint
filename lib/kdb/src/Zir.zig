@@ -260,6 +260,10 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `List`.
         list,
 
+        /// Table.
+        /// Uses the `pl_node` union field with payload `Table`.
+        table,
+
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
         pub fn isNoReturn(tag: Tag) bool {
@@ -294,6 +298,9 @@ pub const Inst = struct {
                 .lambda,
                 .param_node,
                 .param_implicit,
+                .do,
+                .@"if",
+                .@"while",
                 .long,
                 .long_list,
                 .str,
@@ -303,9 +310,7 @@ pub const Inst = struct {
                 .builtin,
                 .apply,
                 .list,
-                .do,
-                .@"if",
-                .@"while",
+                .table,
                 => false,
 
                 .ret_node,
@@ -506,6 +511,19 @@ pub const Inst = struct {
             /// lbrace_column is least significant bits u16
             /// rbrace_column is most significant bits u16
             columns: u32,
+        };
+    };
+
+    /// Trailing:
+    /// 1. keys: Item // for each keys_len
+    /// 2. columns: Item // for each columns_len
+    pub const Table = struct {
+        keys_len: u32,
+        columns_len: u32,
+
+        pub const Item = struct {
+            name: NullTerminatedString,
+            ref: Ref,
         };
     };
 

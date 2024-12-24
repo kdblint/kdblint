@@ -655,19 +655,17 @@ fn parseTable(p: *Parse, l_paren: Token.Index) !Node.Index {
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
     const keys_top = p.scratch.items.len;
-    {
-        try p.ends_expr.append(p.gpa, .r_bracket);
+    try p.ends_expr.append(p.gpa, .r_bracket);
 
-        if (p.peekTag() != .r_bracket) {
-            while (true) {
-                const expr = try p.expectExpr(null);
-                try p.scratch.append(p.gpa, expr);
-                _ = p.eatToken(.semicolon) orelse break;
-            }
+    if (p.peekTag() != .r_bracket) {
+        while (true) {
+            const expr = try p.expectExpr(null);
+            try p.scratch.append(p.gpa, expr);
+            _ = p.eatToken(.semicolon) orelse break;
         }
-        _ = try p.expectToken(.r_bracket);
-        assert(p.ends_expr.pop() == .r_bracket);
     }
+    _ = try p.expectToken(.r_bracket);
+    assert(p.ends_expr.pop() == .r_bracket);
 
     const columns_top = p.scratch.items.len;
 

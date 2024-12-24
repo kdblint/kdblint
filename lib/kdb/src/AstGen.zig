@@ -271,6 +271,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
         .list => return listExpr(gz, scope, node),
+        .table_literal => return tableLiteral(gz, scope, node),
 
         .lambda,
         .lambda_semicolon,
@@ -357,6 +358,87 @@ fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
     });
     try gz.astgen.extra.appendSlice(gpa, @ptrCast(list));
     return .{ result, scope };
+}
+
+fn tableLiteral(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+    var scope = parent_scope;
+
+    assert(node_tags[node] == .table_literal);
+
+    const data = node_datas[node];
+    const table = tree.extraData(data.lhs, Ast.Node.Table);
+    const keys: []Ast.Node.Index = tree.extra_data[table.keys_start..table.keys_end];
+    const columns: []Ast.Node.Index = tree.extra_data[table.columns_start..table.columns_end];
+    assert(columns.len > 0);
+
+    var column_items: std.ArrayListUnmanaged(Zir.Inst.Table.Item) = try .initCapacity(gpa, columns.len);
+    defer column_items.deinit(gpa);
+
+    var columns_it = std.mem.reverseIterator(columns);
+    while (columns_it.next()) |column_node| {
+        const column_data = node_datas[column_node];
+        if (node_tags[column_node] == .apply_binary and
+            node_tags[main_tokens[column_node]] == .colon and
+            node_tags[column_data.lhs] == .identifier and
+            column_data.rhs != 0)
+        {
+            const ident_token = main_tokens[column_data.lhs];
+            const ident_bytes = tree.tokenSlice(ident_token);
+            const ident_name = try astgen.bytesAsString(ident_bytes);
+
+            const ref, scope = try expr(gz, scope, column_data.rhs);
+            column_items.appendAssumeCapacity(.{
+                .name = ident_name,
+                .ref = ref,
+            });
+        } else {
+            const ref, scope = try expr(gz, scope, column_node);
+            column_items.appendAssumeCapacity(.{
+                .name = .empty,
+                .ref = ref,
+            });
+        }
+    }
+
+    var key_items: std.ArrayListUnmanaged(Zir.Inst.Table.Item) = try .initCapacity(gpa, keys.len);
+    defer key_items.deinit(gpa);
+
+    var keys_it = std.mem.reverseIterator(keys);
+    while (keys_it.next()) |key_node| {
+        const key_data = node_datas[key_node];
+        if (node_tags[key_node] == .apply_binary and
+            node_tags[main_tokens[key_node]] == .colon and
+            node_tags[key_data.lhs] == .identifier and
+            key_data.rhs != 0)
+        {
+            const ident_token = main_tokens[key_data.lhs];
+            const ident_bytes = tree.tokenSlice(ident_token);
+            const ident_name = try astgen.bytesAsString(ident_bytes);
+
+            const ref, scope = try expr(gz, scope, key_data.rhs);
+            key_items.appendAssumeCapacity(.{
+                .name = ident_name,
+                .ref = ref,
+            });
+        } else {
+            const ref, scope = try expr(gz, scope, key_node);
+            key_items.appendAssumeCapacity(.{
+                .name = .empty,
+                .ref = ref,
+            });
+        }
+    }
+
+    return .{
+        try gz.addTable(node, .{ .keys = key_items.items, .columns = column_items.items }),
+        scope,
+    };
 }
 
 fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
@@ -984,9 +1066,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
     assert(node_tags[src_node] == .call);
 
     const full_call = tree.fullCall(src_node);
-
-    const func_node = tree.unwrapGroupedExpr(full_call.func);
-    switch (node_tags[func_node]) {
+    switch (node_tags[full_call.func]) {
         .lambda,
         .lambda_semicolon,
         => {},
@@ -1069,11 +1149,11 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
         .slash_colon,
         .backslash,
         .backslash_colon,
-        => if (node_datas[func_node].lhs == 0) switch (full_call.args.len) {
+        => if (node_datas[full_call.func].lhs == 0) switch (full_call.args.len) {
             0 => unreachable,
             1 => {},
             else => return astgen.failNode(
-                func_node,
+                full_call.func,
                 "expected 1 argument(s), found {d}",
                 .{full_call.args.len},
             ),
@@ -1083,7 +1163,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
         .identifier,
         => {
-            const slice = tree.tokenSlice(main_tokens[func_node]);
+            const slice = tree.tokenSlice(main_tokens[full_call.func]);
             if (std.mem.eql(u8, slice, "do")) {
                 return doStatement(gz, scope, src_node, full_call);
             } else if (std.mem.eql(u8, slice, "if")) {
@@ -2370,22 +2450,16 @@ const GenZir = struct {
     ///  * gz (bottom)
     ///  * body_gz (top)
     /// Unstacks all of those except for `gz`.
-    fn setDo(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
-        condition: Zir.Inst.Ref,
-        body_gz: *GenZir,
-    }) !void {
-        try gz.setStmt(inst, args, Zir.Inst.Do);
+    fn setDo(gz: *GenZir, inst: Zir.Inst.Index, args: struct { condition: Zir.Inst.Ref, body_gz: *GenZir }) !void {
+        try gz.setStatement(inst, args, Zir.Inst.Do);
     }
 
     /// Must be called with the following stack set up:
     ///  * gz (bottom)
     ///  * body_gz (top)
     /// Unstacks all of those except for `gz`.
-    fn setIf(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
-        condition: Zir.Inst.Ref,
-        body_gz: *GenZir,
-    }) !void {
-        try gz.setStmt(inst, args, Zir.Inst.If);
+    fn setIf(gz: *GenZir, inst: Zir.Inst.Index, args: struct { condition: Zir.Inst.Ref, body_gz: *GenZir }) !void {
+        try gz.setStatement(inst, args, Zir.Inst.If);
     }
 
     /// Must be called with the following stack set up:
@@ -2393,14 +2467,14 @@ const GenZir = struct {
     ///  * body_gz (top)
     /// Unstacks all of those except for `gz`.
     fn setWhile(gz: *GenZir, inst: Zir.Inst.Index, args: struct { condition: Zir.Inst.Ref, body_gz: *GenZir }) !void {
-        try gz.setStmt(inst, args, Zir.Inst.While);
+        try gz.setStatement(inst, args, Zir.Inst.While);
     }
 
     /// Must be called with the following stack set up:
     ///  * gz (bottom)
     ///  * body_gz (top)
     /// Unstacks all of those except for `gz`.
-    fn setStmt(gz: *GenZir, inst: Zir.Inst.Index, args: anytype, comptime T: type) !void {
+    fn setStatement(gz: *GenZir, inst: Zir.Inst.Index, args: anytype, comptime T: type) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
         const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
@@ -2422,6 +2496,42 @@ const GenZir = struct {
 
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
         gz.instructions.appendAssumeCapacity(inst);
+    }
+
+    fn addTable(gz: *GenZir, node: Ast.Node.Index, args: struct {
+        keys: []Zir.Inst.Table.Item,
+        columns: []Zir.Inst.Table.Item,
+    }) !Zir.Inst.Ref {
+        const astgen = gz.astgen;
+        const gpa = astgen.gpa;
+
+        const ref = try gz.addPlNode(.table, node, Zir.Inst.Table{
+            .keys_len = @intCast(args.keys.len),
+            .columns_len = @intCast(args.columns.len),
+        });
+
+        try astgen.extra.ensureUnusedCapacity(
+            gpa,
+            @typeInfo(Zir.Inst.Table.Item).@"struct".fields.len * args.keys.len +
+                @typeInfo(Zir.Inst.Table.Item).@"struct".fields.len * args.columns.len,
+        );
+
+        var keys_it = std.mem.reverseIterator(args.keys);
+        while (keys_it.next()) |item| {
+            _ = astgen.addExtraAssumeCapacity(Zir.Inst.Table.Item{
+                .name = item.name,
+                .ref = item.ref,
+            });
+        }
+        var columns_it = std.mem.reverseIterator(args.columns);
+        while (columns_it.next()) |item| {
+            _ = astgen.addExtraAssumeCapacity(Zir.Inst.Table.Item{
+                .name = item.name,
+                .ref = item.ref,
+            });
+        }
+
+        return ref;
     }
 
     fn addStrNode(
