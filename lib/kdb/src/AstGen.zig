@@ -360,7 +360,7 @@ fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
     return .{ result, scope };
 }
 
-fn tableLiteral(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+fn tableLiteral(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
@@ -369,9 +369,9 @@ fn tableLiteral(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
     var scope = parent_scope;
 
-    assert(node_tags[node] == .table_literal);
+    assert(node_tags[src_node] == .table_literal);
 
-    const data = node_datas[node];
+    const data = node_datas[src_node];
     const table = tree.extraData(data.lhs, Ast.Node.Table);
     const keys: []Ast.Node.Index = tree.extra_data[table.keys_start..table.keys_end];
     const columns: []Ast.Node.Index = tree.extra_data[table.columns_start..table.columns_end];
@@ -382,28 +382,50 @@ fn tableLiteral(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
 
     var columns_it = std.mem.reverseIterator(columns);
     while (columns_it.next()) |column_node| {
-        const column_data = node_datas[column_node];
-        if (node_tags[column_node] == .apply_binary and
-            node_tags[main_tokens[column_node]] == .colon and
-            node_tags[column_data.lhs] == .identifier and
-            column_data.rhs != 0)
-        {
-            const ident_token = main_tokens[column_data.lhs];
-            const ident_bytes = tree.tokenSlice(ident_token);
-            const ident_name = try astgen.bytesAsString(ident_bytes);
+        const ident_name: Zir.NullTerminatedString, const node = switch (node_tags[column_node]) {
+            .apply_binary => blk: {
+                const column_data = node_datas[column_node];
+                const lhs = tree.unwrapGroupedExpr(column_data.lhs);
+                const op: Ast.Node.Index = main_tokens[column_node];
+                const rhs = column_data.rhs;
 
-            const ref, scope = try expr(gz, scope, column_data.rhs);
-            column_items.appendAssumeCapacity(.{
-                .name = ident_name,
-                .ref = ref,
-            });
-        } else {
-            const ref, scope = try expr(gz, scope, column_node);
-            column_items.appendAssumeCapacity(.{
-                .name = .empty,
-                .ref = ref,
-            });
-        }
+                if (node_tags[op] == .colon and node_tags[lhs] == .identifier and rhs != 0) {
+                    const ident_token = main_tokens[lhs];
+                    const ident_bytes = tree.tokenSlice(ident_token);
+                    const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                    break :blk .{ ident_name, rhs };
+                }
+
+                break :blk .{ .empty, column_node };
+            },
+            .call => blk: {
+                const column_data = node_datas[column_node];
+                const sub_range = tree.extraData(column_data.rhs, Ast.Node.SubRange);
+                const args = tree.extra_data[sub_range.start..sub_range.end];
+                if (args.len == 2) {
+                    const lhs = tree.unwrapGroupedExpr(args[0]);
+                    const op = tree.unwrapGroupedExpr(column_data.lhs);
+                    const rhs = args[1];
+                    if (node_tags[op] == .colon and node_tags[lhs] == .identifier and rhs != 0) {
+                        const ident_token = main_tokens[lhs];
+                        const ident_bytes = tree.tokenSlice(ident_token);
+                        const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                        break :blk .{ ident_name, rhs };
+                    }
+                }
+
+                break :blk .{ .empty, column_node };
+            },
+            else => .{ .empty, column_node },
+        };
+
+        const ref, scope = try expr(gz, scope, node);
+        column_items.appendAssumeCapacity(.{
+            .name = ident_name,
+            .ref = ref,
+        });
     }
 
     var key_items: std.ArrayListUnmanaged(Zir.Inst.Table.Item) = try .initCapacity(gpa, keys.len);
@@ -411,32 +433,57 @@ fn tableLiteral(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerEr
 
     var keys_it = std.mem.reverseIterator(keys);
     while (keys_it.next()) |key_node| {
-        const key_data = node_datas[key_node];
-        if (node_tags[key_node] == .apply_binary and
-            node_tags[main_tokens[key_node]] == .colon and
-            node_tags[key_data.lhs] == .identifier and
-            key_data.rhs != 0)
-        {
-            const ident_token = main_tokens[key_data.lhs];
-            const ident_bytes = tree.tokenSlice(ident_token);
-            const ident_name = try astgen.bytesAsString(ident_bytes);
+        const ident_name: Zir.NullTerminatedString, const node = switch (node_tags[key_node]) {
+            .apply_binary => blk: {
+                const key_data = node_datas[key_node];
+                const lhs = tree.unwrapGroupedExpr(key_data.lhs);
+                const op: Ast.Node.Index = main_tokens[key_node];
+                const rhs = key_data.rhs;
 
-            const ref, scope = try expr(gz, scope, key_data.rhs);
-            key_items.appendAssumeCapacity(.{
-                .name = ident_name,
-                .ref = ref,
-            });
-        } else {
-            const ref, scope = try expr(gz, scope, key_node);
-            key_items.appendAssumeCapacity(.{
-                .name = .empty,
-                .ref = ref,
-            });
-        }
+                if (node_tags[op] == .colon and node_tags[lhs] == .identifier and rhs != 0) {
+                    const ident_token = main_tokens[lhs];
+                    const ident_bytes = tree.tokenSlice(ident_token);
+                    const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                    break :blk .{ ident_name, rhs };
+                }
+
+                break :blk .{ .empty, key_node };
+            },
+            .call => blk: {
+                const key_data = node_datas[key_node];
+                const sub_range = tree.extraData(key_data.rhs, Ast.Node.SubRange);
+                const args = tree.extra_data[sub_range.start..sub_range.end];
+                if (args.len == 2) {
+                    const lhs = tree.unwrapGroupedExpr(args[0]);
+                    const op = tree.unwrapGroupedExpr(key_data.lhs);
+                    const rhs = args[1];
+                    if (node_tags[op] == .colon and node_tags[lhs] == .identifier and rhs != 0) {
+                        const ident_token = main_tokens[lhs];
+                        const ident_bytes = tree.tokenSlice(ident_token);
+                        const ident_name = try astgen.bytesAsString(ident_bytes);
+
+                        break :blk .{ ident_name, rhs };
+                    }
+                }
+
+                break :blk .{ .empty, key_node };
+            },
+            else => .{ .empty, key_node },
+        };
+
+        const ref, scope = try expr(gz, scope, node);
+        key_items.appendAssumeCapacity(.{
+            .name = ident_name,
+            .ref = ref,
+        });
     }
 
     return .{
-        try gz.addTable(node, .{ .keys = key_items.items, .columns = column_items.items }),
+        try gz.addTable(src_node, .{
+            .keys = key_items.items,
+            .columns = column_items.items,
+        }),
         scope,
     };
 }

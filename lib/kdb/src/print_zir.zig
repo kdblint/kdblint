@@ -776,11 +776,76 @@ test "table literal" {
         \\  %2 = table("a" = %1) node_offset:1:1 to :1:12
         \\})
     );
+    try testZir("([](a):1 1 1)",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
+        \\  %2 = table("a" = %1) node_offset:1:1 to :1:14
+        \\})
+    );
+    try testZir("([]:[a;1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
+        \\  %2 = table("a" = %1) node_offset:1:1 to :1:15
+        \\})
+    );
+    try testZir("([]:[(a);1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
+        \\  %2 = table("a" = %1) node_offset:1:1 to :1:17
+        \\})
+    );
+    try testZir("([](:)[a;1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
+        \\  %2 = table("a" = %1) node_offset:1:1 to :1:17
+        \\})
+    );
+    try testZir("([](:)[(a);1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:12 to :1:17
+        \\  %2 = table("a" = %1) node_offset:1:1 to :1:19
+        \\})
+    );
     try testZir("([]a:1 1 1;b:1 1 1)",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:14 to :1:19
         \\  %2 = long_list(@one, @one, @one) node_offset:1:6 to :1:11
         \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:20
+        \\})
+    );
+    try testZir("([](a):1 1 1;(b):1 1 1)",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
+        \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:24
+        \\})
+    );
+    try testZir("([]:[a;1 1 1];:[b;1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:19 to :1:24
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
+        \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:26
+        \\})
+    );
+    try testZir("([]:[(a);1 1 1];:[(b);1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:23 to :1:28
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
+        \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:30
+        \\})
+    );
+    try testZir("([](:)[a;1 1 1];(:)[b;1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:23 to :1:28
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
+        \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:30
+        \\})
+    );
+    try testZir("([](:)[(a);1 1 1];(:)[(b);1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:27 to :1:32
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:12 to :1:17
+        \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:34
         \\})
     );
     try testZir("{[]([]a:b;b:b:1 1 1)}",
@@ -794,6 +859,61 @@ test "table literal" {
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
         \\})
     );
+    try testZir("{[]([](a):b;(b):b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:19 to :1:24
+        \\    %3 = identifier("b") token_offset:1:17 to :1:18
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:17 to :1:24
+        \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:25
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
+        \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\})
+    );
+    try testZir("{[]([]:[a;b];:[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:20 to :1:25
+        \\    %3 = identifier("b") token_offset:1:18 to :1:19
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:18 to :1:25
+        \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:27
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:27
+        \\  }) (lbrace=1:1,rbrace=1:27) node_offset:1:1 to :1:28
+        \\})
+    );
+    try testZir("{[]([]:[(a);b];:[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:24 to :1:29
+        \\    %3 = identifier("b") token_offset:1:22 to :1:23
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:22 to :1:29
+        \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:31
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:31
+        \\  }) (lbrace=1:1,rbrace=1:31) node_offset:1:1 to :1:32
+        \\})
+    );
+    try testZir("{[]([](:)[a;b];(:)[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:24 to :1:29
+        \\    %3 = identifier("b") token_offset:1:22 to :1:23
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:22 to :1:29
+        \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:31
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:31
+        \\  }) (lbrace=1:1,rbrace=1:31) node_offset:1:1 to :1:32
+        \\})
+    );
+    try testZir("{[]([](:)[(a);b];(:)[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:28 to :1:33
+        \\    %3 = identifier("b") token_offset:1:26 to :1:27
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:26 to :1:33
+        \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:35
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:35
+        \\  }) (lbrace=1:1,rbrace=1:35) node_offset:1:1 to :1:36
+        \\})
+    );
     try testZir("{[]([]b;b:b:1 1 1)}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -803,6 +923,61 @@ test "table literal" {
         \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:19
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\})
+    );
+    try testZir("{[]([]b;(b):b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:15 to :1:20
+        \\    %3 = identifier("b") token_offset:1:13 to :1:14
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:13 to :1:20
+        \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:21
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:21
+        \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\})
+    );
+    try testZir("{[]([]b;:[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:15 to :1:20
+        \\    %3 = identifier("b") token_offset:1:13 to :1:14
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:13 to :1:20
+        \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:22
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:22
+        \\  }) (lbrace=1:1,rbrace=1:22) node_offset:1:1 to :1:23
+        \\})
+    );
+    try testZir("{[]([]b;:[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:17 to :1:22
+        \\    %3 = identifier("b") token_offset:1:15 to :1:16
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:15 to :1:22
+        \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:24
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:24
+        \\  }) (lbrace=1:1,rbrace=1:24) node_offset:1:1 to :1:25
+        \\})
+    );
+    try testZir("{[]([]b;(:)[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:17 to :1:22
+        \\    %3 = identifier("b") token_offset:1:15 to :1:16
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:15 to :1:22
+        \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:24
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:24
+        \\  }) (lbrace=1:1,rbrace=1:24) node_offset:1:1 to :1:25
+        \\})
+    );
+    try testZir("{[]([]b;(:)[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:19 to :1:24
+        \\    %3 = identifier("b") token_offset:1:17 to :1:18
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:17 to :1:24
+        \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:26
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:26
+        \\  }) (lbrace=1:1,rbrace=1:26) node_offset:1:1 to :1:27
         \\})
     );
     try testZir("{[]([]a:b;b:1 1 1)}",
@@ -815,17 +990,155 @@ test "table literal" {
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
         \\})
     );
-
-    try failZir("([a:1 1 1])",
-        \\test:1:11: error: expected expression, found ')'
-        \\([a:1 1 1])
+    try testZir("{[]([](a):b;(b):1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:17 to :1:22
+        \\    %3 = identifier("b") token_offset:1:11 to :1:12
+        \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:23
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:23
+        \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\})
+    );
+    try testZir("{[]([]:[a;b];:[b;1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
+        \\    %3 = identifier("b") token_offset:1:11 to :1:12
+        \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:25
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:25
+        \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\})
+    );
+    try testZir("{[]([]:[(a);b];:[(b);1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:22 to :1:27
+        \\    %3 = identifier("b") token_offset:1:13 to :1:14
+        \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:29
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:29
+        \\  }) (lbrace=1:1,rbrace=1:29) node_offset:1:1 to :1:30
+        \\})
+    );
+    try testZir("{[]([](:)[a;b];(:)[b;1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:22 to :1:27
+        \\    %3 = identifier("b") token_offset:1:13 to :1:14
+        \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:29
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:29
+        \\  }) (lbrace=1:1,rbrace=1:29) node_offset:1:1 to :1:30
+        \\})
+    );
+    try testZir("{[]([](:)[(a);b];(:)[(b);1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:26 to :1:31
+        \\    %3 = identifier("b") token_offset:1:15 to :1:16
+        \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:33
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:33
+        \\  }) (lbrace=1:1,rbrace=1:33) node_offset:1:1 to :1:34
+        \\})
+    );
+    try failZir("{[]([]a:a:1 1 1;a)}",
+        \\test:1:17: error: use of undeclared identifier 'a'
+        \\{[]([]a:a:1 1 1;a)}
+        \\                ^
+        \\test:1:9: note: identifier declared here
+        \\{[]([]a:a:1 1 1;a)}
+        \\        ^
+    );
+    try failZir("{[]([](a):a:1 1 1;a)}",
+        \\test:1:19: error: use of undeclared identifier 'a'
+        \\{[]([](a):a:1 1 1;a)}
+        \\                  ^
+        \\test:1:11: note: identifier declared here
+        \\{[]([](a):a:1 1 1;a)}
         \\          ^
+    );
+    try failZir("{[]([]:[a;a:1 1 1];a)}",
+        \\test:1:20: error: use of undeclared identifier 'a'
+        \\{[]([]:[a;a:1 1 1];a)}
+        \\                   ^
+        \\test:1:11: note: identifier declared here
+        \\{[]([]:[a;a:1 1 1];a)}
+        \\          ^
+    );
+    try failZir("{[]([]:[(a);a:1 1 1];a)}",
+        \\test:1:22: error: use of undeclared identifier 'a'
+        \\{[]([]:[(a);a:1 1 1];a)}
+        \\                     ^
+        \\test:1:13: note: identifier declared here
+        \\{[]([]:[(a);a:1 1 1];a)}
+        \\            ^
+    );
+    try failZir("{[]([](:)[a;a:1 1 1];a)}",
+        \\test:1:22: error: use of undeclared identifier 'a'
+        \\{[]([](:)[a;a:1 1 1];a)}
+        \\                     ^
+        \\test:1:13: note: identifier declared here
+        \\{[]([](:)[a;a:1 1 1];a)}
+        \\            ^
+    );
+    try failZir("{[]([](:)[(a);a:1 1 1];a)}",
+        \\test:1:24: error: use of undeclared identifier 'a'
+        \\{[]([](:)[(a);a:1 1 1];a)}
+        \\                       ^
+        \\test:1:15: note: identifier declared here
+        \\{[]([](:)[(a);a:1 1 1];a)}
+        \\              ^
+    );
+
+    try failZir("([()])",
+        \\test:1:6: error: expected expression, found ')'
+        \\([()])
+        \\     ^
+    );
+    try testZir("([()]())",
+        \\%0 = file({
+        \\  %1 = table(keys={"" = @empty_list}, "" = @empty_list) node_offset:1:1 to :1:9
+        \\})
     );
     try testZir("([a:1 1 1]b:1 1 1)",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:13 to :1:18
         \\  %2 = long_list(@one, @one, @one) node_offset:1:5 to :1:10
         \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:19
+        \\})
+    );
+    try testZir("([(a):1 1 1](b):1 1 1)",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:17 to :1:22
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:7 to :1:12
+        \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:23
+        \\})
+    );
+    try testZir("([:[a;1 1 1]]:[b;1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:7 to :1:12
+        \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:25
+        \\})
+    );
+    try testZir("([:[(a);1 1 1]]:[(b);1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:22 to :1:27
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:9 to :1:14
+        \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:29
+        \\})
+    );
+    try testZir("([(:)[a;1 1 1]](:)[b;1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:22 to :1:27
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:9 to :1:14
+        \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:29
+        \\})
+    );
+    try testZir("([(:)[(a);1 1 1]](:)[(b);1 1 1])",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:26 to :1:31
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:11 to :1:16
+        \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:33
         \\})
     );
     try testZir("{[]([b]b:b:1 1 1)}",
@@ -839,6 +1152,61 @@ test "table literal" {
         \\  }) (lbrace=1:1,rbrace=1:18) node_offset:1:1 to :1:19
         \\})
     );
+    try testZir("{[]([b](b):b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:14 to :1:19
+        \\    %3 = identifier("b") token_offset:1:12 to :1:13
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:12 to :1:19
+        \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:20
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:20
+        \\  }) (lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
+        \\})
+    );
+    try testZir("{[]([b]:[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:14 to :1:19
+        \\    %3 = identifier("b") token_offset:1:12 to :1:13
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:12 to :1:19
+        \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:21
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:21
+        \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\})
+    );
+    try testZir("{[]([b]:[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:16 to :1:21
+        \\    %3 = identifier("b") token_offset:1:14 to :1:15
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:14 to :1:21
+        \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:23
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:23
+        \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\})
+    );
+    try testZir("{[]([b](:)[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:16 to :1:21
+        \\    %3 = identifier("b") token_offset:1:14 to :1:15
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:14 to :1:21
+        \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:23
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:23
+        \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\})
+    );
+    try testZir("{[]([b](:)[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
+        \\    %3 = identifier("b") token_offset:1:16 to :1:17
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:16 to :1:23
+        \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:25
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
+        \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\})
+    );
     try testZir("{[]([b;b]b:b:1 1 1)}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -850,6 +1218,61 @@ test "table literal" {
         \\  }) (lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
         \\})
     );
+    try testZir("{[]([b;b](b):b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:16 to :1:21
+        \\    %3 = identifier("b") token_offset:1:14 to :1:15
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:14 to :1:21
+        \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:22
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:22
+        \\  }) (lbrace=1:1,rbrace=1:22) node_offset:1:1 to :1:23
+        \\})
+    );
+    try testZir("{[]([b;b]:[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:16 to :1:21
+        \\    %3 = identifier("b") token_offset:1:14 to :1:15
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:14 to :1:21
+        \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:23
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:23
+        \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\})
+    );
+    try testZir("{[]([b;b]:[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
+        \\    %3 = identifier("b") token_offset:1:16 to :1:17
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:16 to :1:23
+        \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:25
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
+        \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\})
+    );
+    try testZir("{[]([b;b](:)[b;b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
+        \\    %3 = identifier("b") token_offset:1:16 to :1:17
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:16 to :1:23
+        \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:25
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
+        \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\})
+    );
+    try testZir("{[]([b;b](:)[(b);b:1 1 1])}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:20 to :1:25
+        \\    %3 = identifier("b") token_offset:1:18 to :1:19
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:18 to :1:25
+        \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:27
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:27
+        \\  }) (lbrace=1:1,rbrace=1:27) node_offset:1:1 to :1:28
+        \\})
+    );
     try failZir("{[]([a:a:1 1 1]a)}",
         \\test:1:16: error: use of undeclared identifier 'a'
         \\{[]([a:a:1 1 1]a)}
@@ -857,6 +1280,46 @@ test "table literal" {
         \\test:1:8: note: identifier declared here
         \\{[]([a:a:1 1 1]a)}
         \\       ^
+    );
+    try failZir("{[]([(a):a:1 1 1]a)}",
+        \\test:1:18: error: use of undeclared identifier 'a'
+        \\{[]([(a):a:1 1 1]a)}
+        \\                 ^
+        \\test:1:10: note: identifier declared here
+        \\{[]([(a):a:1 1 1]a)}
+        \\         ^
+    );
+    try failZir("{[]([:[a;a:1 1 1]]a)}",
+        \\test:1:19: error: use of undeclared identifier 'a'
+        \\{[]([:[a;a:1 1 1]]a)}
+        \\                  ^
+        \\test:1:10: note: identifier declared here
+        \\{[]([:[a;a:1 1 1]]a)}
+        \\         ^
+    );
+    try failZir("{[]([:[(a);a:1 1 1]]a)}",
+        \\test:1:21: error: use of undeclared identifier 'a'
+        \\{[]([:[(a);a:1 1 1]]a)}
+        \\                    ^
+        \\test:1:12: note: identifier declared here
+        \\{[]([:[(a);a:1 1 1]]a)}
+        \\           ^
+    );
+    try failZir("{[]([(:)[a;a:1 1 1]]a)}",
+        \\test:1:21: error: use of undeclared identifier 'a'
+        \\{[]([(:)[a;a:1 1 1]]a)}
+        \\                    ^
+        \\test:1:12: note: identifier declared here
+        \\{[]([(:)[a;a:1 1 1]]a)}
+        \\           ^
+    );
+    try failZir("{[]([(:)[(a);a:1 1 1]]a)}",
+        \\test:1:23: error: use of undeclared identifier 'a'
+        \\{[]([(:)[(a);a:1 1 1]]a)}
+        \\                      ^
+        \\test:1:14: note: identifier declared here
+        \\{[]([(:)[(a);a:1 1 1]]a)}
+        \\             ^
     );
 }
 
