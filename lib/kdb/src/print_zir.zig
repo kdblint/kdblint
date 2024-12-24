@@ -142,6 +142,7 @@ const Writer = struct {
             .file => try self.writePlNodeBlockWithoutSrc(stream, inst),
 
             .list => try self.writePlNodeList(stream, inst),
+            .table => try self.writePlNodeTable(stream, inst),
 
             .ret_node,
             .signal,
@@ -271,6 +272,37 @@ const Writer = struct {
             try stream.writeAll(", ");
         }
         try self.writeInstRef(stream, @enumFromInt(list[list.len - 1]));
+        try stream.writeAll(") ");
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writePlNodeTable(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.Table, inst_data.payload_index);
+        assert(extra.data.columns_len > 0);
+
+        var extra_index = extra.end;
+        if (extra.data.keys_len > 0) {
+            try stream.writeAll("keys={");
+            for (0..extra.data.keys_len) |i| {
+                const item = self.code.extraData(Zir.Inst.Table.Item, extra_index);
+                extra_index = item.end;
+                try stream.print("\"{}\" = ", .{std.zig.fmtEscapes(self.code.nullTerminatedString(item.data.name))});
+                try self.writeInstRef(stream, item.data.ref);
+                if (i != extra.data.keys_len - 1) try stream.writeAll(", ");
+            }
+
+            try stream.writeAll("}, ");
+        }
+
+        for (0..extra.data.columns_len) |i| {
+            const item = self.code.extraData(Zir.Inst.Table.Item, extra_index);
+            extra_index = item.end;
+            try stream.print("\"{}\" = ", .{std.zig.fmtEscapes(self.code.nullTerminatedString(item.data.name))});
+            try self.writeInstRef(stream, item.data.ref);
+            if (i != extra.data.columns_len - 1) try stream.writeAll(", ");
+        }
+
         try stream.writeAll(") ");
         try self.writeSrcNode(stream, inst_data.src_node);
     }
@@ -471,10 +503,10 @@ const Writer = struct {
 };
 
 fn testZir(source: [:0]const u8, expected: []const u8) !void {
-    try noFailZir(source);
     inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
         try testZirMode(@enumFromInt(field.value), source, expected);
     }
+    try noFailZir(source);
 }
 
 fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
@@ -514,10 +546,10 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
 }
 
 fn warnZir(source: [:0]const u8, expected: []const u8) !void {
-    try noFailZir(source);
     inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
         try warnZirMode(@enumFromInt(field.value), source, expected);
     }
+    try noFailZir(source);
 }
 
 fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
@@ -570,10 +602,10 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
 }
 
 fn failZir(source: [:0]const u8, expected: []const u8) !void {
-    try noFailZir(source);
     inline for (@typeInfo(Ast.Mode).@"enum".fields) |field| {
         try failZirMode(@enumFromInt(field.value), source, expected);
     }
+    try noFailZir(source);
 }
 
 fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
@@ -733,7 +765,105 @@ test "list" {
 }
 
 test "table literal" {
-    return error.SkipZigTest;
+    try testZir("([]())",
+        \\%0 = file({
+        \\  %1 = table("" = @empty_list) node_offset:1:1 to :1:7
+        \\})
+    );
+    try testZir("([]a:1 1 1)",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:6 to :1:11
+        \\  %2 = table("a" = %1) node_offset:1:1 to :1:12
+        \\})
+    );
+    try testZir("([]a:1 1 1;b:1 1 1)",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:14 to :1:19
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:6 to :1:11
+        \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:20
+        \\})
+    );
+    try testZir("{[]([]a:b;b:b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:15 to :1:20
+        \\    %3 = identifier("b") token_offset:1:13 to :1:14
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:13 to :1:20
+        \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:21
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:21
+        \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\})
+    );
+    try testZir("{[]([]b;b:b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:13 to :1:18
+        \\    %3 = identifier("b") token_offset:1:11 to :1:12
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:11 to :1:18
+        \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:19
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:19
+        \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\})
+    );
+    try testZir("{[]([]a:b;b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:13 to :1:18
+        \\    %3 = identifier("b") token_offset:1:9 to :1:10
+        \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:19
+        \\    %5 = ret_node(%4) node_offset:1:4 to :1:19
+        \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\})
+    );
+
+    try failZir("([a:1 1 1])",
+        \\test:1:11: error: expected expression, found ')'
+        \\([a:1 1 1])
+        \\          ^
+    );
+    try testZir("([a:1 1 1]b:1 1 1)",
+        \\%0 = file({
+        \\  %1 = long_list(@one, @one, @one) node_offset:1:13 to :1:18
+        \\  %2 = long_list(@one, @one, @one) node_offset:1:5 to :1:10
+        \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:19
+        \\})
+    );
+    try testZir("{[]([b]b:b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:12 to :1:17
+        \\    %3 = identifier("b") token_offset:1:10 to :1:11
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:10 to :1:17
+        \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:18
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:18
+        \\  }) (lbrace=1:1,rbrace=1:18) node_offset:1:1 to :1:19
+        \\})
+    );
+    try testZir("{[]([b;b]b:b:1 1 1)}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long_list(@one, @one, @one) node_offset:1:14 to :1:19
+        \\    %3 = identifier("b") token_offset:1:12 to :1:13
+        \\    %4 = apply(@assign, %3, %2) node_offset:1:12 to :1:19
+        \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:20
+        \\    %6 = ret_node(%5) node_offset:1:4 to :1:20
+        \\  }) (lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
+        \\})
+    );
+    try failZir("{[]([a:a:1 1 1]a)}",
+        \\test:1:16: error: use of undeclared identifier 'a'
+        \\{[]([a:a:1 1 1]a)}
+        \\               ^
+        \\test:1:8: note: identifier declared here
+        \\{[]([a:a:1 1 1]a)}
+        \\       ^
+    );
+}
+
+// TODO: https://kdblint.atlassian.net/browse/KLS-313
+test "table literal - length check" {
+    if (true) return error.SkipZigTest;
+    try failZir("([a:1 1 1]())", "");
 }
 
 test "lambda" {
