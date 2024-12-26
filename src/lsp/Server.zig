@@ -1,29 +1,35 @@
-const Server = @This();
-
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const zig_builtin = @import("builtin");
+
+const zls = @import("zls");
+const tracy = @import("tracy");
+const known_folders = @import("known_folders");
+const lsp = zls.lsp;
+const types = zls.types;
+const diff = zls.diff;
+
 const build_options = @import("build_options");
+
 const Config = @import("Config.zig");
 const configuration = @import("configuration.zig");
 const DocumentStore = @import("DocumentStore.zig");
-const zls = @import("zls");
-const lsp = zls.lsp;
-const types = zls.types;
 const Analyser = @import("analysis.zig");
 const offsets = @import("offsets.zig");
-const tracy = @import("tracy");
-const diff = zls.diff;
-const known_folders = @import("known_folders");
+const InternPool = @import("analyser/analyser.zig").InternPool;
 
-const semantic_tokens = @import("features/semantic_tokens.zig");
 const diagnostics_gen = @import("features/diagnostics.zig");
+const references = @import("features/references.zig");
+const semantic_tokens = @import("features/semantic_tokens.zig");
+
+const Server = @This();
 
 const log = std.log.scoped(.kdblint_server);
 const message_logger = std.log.scoped(.message);
 
 // public fields
-allocator: std.mem.Allocator,
+allocator: Allocator,
 // use updateConfiguration or updateConfiguration2 for setting config options
 config: Config = .{},
 /// will default to lookup in the system and user configuration folder provided by known-folders.
@@ -39,7 +45,7 @@ thread_pool: if (zig_builtin.single_threaded) void else std.Thread.Pool,
 wait_group: if (zig_builtin.single_threaded) void else std.Thread.WaitGroup,
 job_queue: std.fifo.LinearFifo(Job, .Dynamic),
 job_queue_lock: std.Thread.Mutex = .{},
-// ip: InternPool = .{},
+ip: InternPool = .{},
 // ensure that build on save is only executed once at a time
 running_build_on_save_processes: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 /// avoid Zig deadlocking when spawning multiple `zig ast-check` processes at the same time.
@@ -75,7 +81,7 @@ const ClientCapabilities = struct {
     max_detail_length: u32 = 1024 * 1024,
     workspace_folders: []types.URI = &.{},
 
-    fn deinit(self: *ClientCapabilities, allocator: std.mem.Allocator) void {
+    fn deinit(self: *ClientCapabilities, allocator: Allocator) void {
         for (self.workspace_folders) |uri| allocator.free(uri);
         allocator.free(self.workspace_folders);
         self.* = undefined;
@@ -138,7 +144,7 @@ const Job = union(enum) {
     incoming_message: std.json.Parsed(Message),
     generate_diagnostics: DocumentStore.Uri,
 
-    fn deinit(self: Job, allocator: std.mem.Allocator) void {
+    fn deinit(self: Job, allocator: Allocator) void {
         switch (self) {
             .incoming_message => |parsed_message| parsed_message.deinit(),
             .generate_diagnostics => |uri| allocator.free(uri),
@@ -304,13 +310,12 @@ fn initAnalyser(server: *Server, handle: ?*DocumentStore.Handle) Analyser {
     return Analyser.init(
         server.allocator,
         &server.document_store,
-        &server.ip,
+        undefined, // TODO
         handle,
-        server.config.dangerous_comptime_experiments_do_not_enable,
     );
 }
 
-fn initializeHandler(server: *Server, arena: std.mem.Allocator, request: types.InitializeParams) Error!types.InitializeResult {
+fn initializeHandler(server: *Server, arena: Allocator, request: types.InitializeParams) Error!types.InitializeResult {
     var skip_set_fixall = false;
 
     if (request.clientInfo) |clientInfo| {
@@ -565,7 +570,7 @@ fn initializeHandler(server: *Server, arena: std.mem.Allocator, request: types.I
     };
 }
 
-fn initializedHandler(server: *Server, _: std.mem.Allocator, notification: types.InitializedParams) Error!void {
+fn initializedHandler(server: *Server, _: Allocator, notification: types.InitializedParams) Error!void {
     _ = notification;
 
     if (server.status != .initializing) {
@@ -586,12 +591,12 @@ fn initializedHandler(server: *Server, _: std.mem.Allocator, notification: types
     }
 }
 
-fn shutdownHandler(server: *Server, _: std.mem.Allocator, _: void) Error!?void {
+fn shutdownHandler(server: *Server, _: Allocator, _: void) Error!?void {
     defer server.status = .shutdown;
     if (server.status != .initialized) return error.InvalidRequest; // received a shutdown request but the server is not initialized!
 }
 
-fn exitHandler(server: *Server, _: std.mem.Allocator, _: void) Error!void {
+fn exitHandler(server: *Server, _: Allocator, _: void) Error!void {
     server.status = switch (server.status) {
         .initialized => .exiting_failure,
         .shutdown => .exiting_success,
@@ -599,13 +604,13 @@ fn exitHandler(server: *Server, _: std.mem.Allocator, _: void) Error!void {
     };
 }
 
-fn cancelRequestHandler(server: *Server, _: std.mem.Allocator, request: types.CancelParams) Error!void {
+fn cancelRequestHandler(server: *Server, _: Allocator, request: types.CancelParams) Error!void {
     _ = server;
     _ = request;
     // TODO implement $/cancelRequest
 }
 
-fn setTraceHandler(server: *Server, _: std.mem.Allocator, request: types.SetTraceParams) Error!void {
+fn setTraceHandler(server: *Server, _: Allocator, request: types.SetTraceParams) Error!void {
     server.message_tracing = request.value != .off;
 }
 
@@ -687,7 +692,7 @@ fn handleConfiguration(server: *Server, json: std.json.Value) error{OutOfMemory}
     };
 }
 
-fn didChangeWorkspaceFoldersHandler(server: *Server, arena: std.mem.Allocator, notification: types.DidChangeWorkspaceFoldersParams) Error!void {
+fn didChangeWorkspaceFoldersHandler(server: *Server, arena: Allocator, notification: types.DidChangeWorkspaceFoldersParams) Error!void {
     _ = arena;
 
     var folders = std.ArrayListUnmanaged(types.URI).fromOwnedSlice(server.client_capabilities.workspace_folders);
@@ -714,7 +719,7 @@ fn didChangeWorkspaceFoldersHandler(server: *Server, arena: std.mem.Allocator, n
     server.client_capabilities.workspace_folders = try folders.toOwnedSlice(server.allocator);
 }
 
-fn didChangeConfigurationHandler(server: *Server, arena: std.mem.Allocator, notification: types.DidChangeConfigurationParams) Error!void {
+fn didChangeConfigurationHandler(server: *Server, arena: Allocator, notification: types.DidChangeConfigurationParams) Error!void {
     const settings = switch (notification.settings) {
         .null => {
             if (server.client_capabilities.supports_configuration) {
@@ -791,11 +796,11 @@ pub fn updateConfiguration(server: *Server, new_config: configuration.Configurat
                 else => {
                     if (old_config_value != new_config_value) {
                         switch (@typeInfo(@TypeOf(new_config_value))) {
-                            .Bool,
-                            .Int,
-                            .Float,
+                            .bool,
+                            .int,
+                            .float,
                             => log.info("Set config option '{s}' to '{}'", .{ field.name, new_config_value }),
-                            .Enum => log.info("Set config option '{s}' to '{s}'", .{ field.name, @tagName(new_config_value) }),
+                            .@"enum" => log.info("Set config option '{s}' to '{s}'", .{ field.name, @tagName(new_config_value) }),
                             else => @compileError("unexpected config type ++ (" ++ @typeName(@TypeOf(new_config_value)) ++ ")"),
                         }
                         @field(server.config, field.name) = new_config_value;
@@ -925,7 +930,7 @@ fn validateConfiguration(server: *Server, config: *configuration.Configuration) 
     }
 }
 
-fn openDocumentHandler(server: *Server, _: std.mem.Allocator, notification: types.DidOpenTextDocumentParams) Error!void {
+fn openDocumentHandler(server: *Server, _: Allocator, notification: types.DidOpenTextDocumentParams) Error!void {
     if (notification.textDocument.text.len > DocumentStore.max_document_size) {
         log.err("open document `{s}` failed: text size ({d}) is above maximum length ({d})", .{
             notification.textDocument.uri,
@@ -944,7 +949,7 @@ fn openDocumentHandler(server: *Server, _: std.mem.Allocator, notification: type
     }
 }
 
-fn changeDocumentHandler(server: *Server, _: std.mem.Allocator, notification: types.DidChangeTextDocumentParams) Error!void {
+fn changeDocumentHandler(server: *Server, _: Allocator, notification: types.DidChangeTextDocumentParams) Error!void {
     const handle = server.document_store.getHandle(notification.textDocument.uri) orelse return;
 
     const new_text = try diff.applyContentChanges(server.allocator, handle.tree.source, notification.contentChanges, server.offset_encoding);
@@ -967,13 +972,13 @@ fn changeDocumentHandler(server: *Server, _: std.mem.Allocator, notification: ty
     }
 }
 
-fn saveDocumentHandler(server: *Server, arena: std.mem.Allocator, notification: types.DidSaveTextDocumentParams) Error!void {
+fn saveDocumentHandler(server: *Server, arena: Allocator, notification: types.DidSaveTextDocumentParams) Error!void {
     _ = server; // autofix
     _ = arena; // autofix
     _ = notification; // autofix
 }
 
-fn closeDocumentHandler(server: *Server, _: std.mem.Allocator, notification: types.DidCloseTextDocumentParams) error{}!void {
+fn closeDocumentHandler(server: *Server, _: Allocator, notification: types.DidCloseTextDocumentParams) error{}!void {
     server.document_store.closeDocument(notification.textDocument.uri);
 
     if (server.client_capabilities.supports_publish_diagnostics) {
@@ -986,35 +991,70 @@ fn closeDocumentHandler(server: *Server, _: std.mem.Allocator, notification: typ
     }
 }
 
-fn willSaveWaitUntilHandler(server: *Server, arena: std.mem.Allocator, request: types.WillSaveTextDocumentParams) Error!?[]types.TextEdit {
+fn willSaveWaitUntilHandler(server: *Server, arena: Allocator, request: types.WillSaveTextDocumentParams) Error!?[]types.TextEdit {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn semanticTokensFullHandler(server: *Server, arena: std.mem.Allocator, request: types.SemanticTokensParams) Error!?types.SemanticTokens {
+fn semanticTokensFullHandler(
+    server: *Server,
+    arena: Allocator,
+    request: types.SemanticTokensParams,
+) Error!?types.SemanticTokens {
+    if (server.config.semantic_tokens == .none) return null;
+
+    const handle = server.document_store.getHandle(request.textDocument.uri) orelse return null;
+
+    var analyser = server.initAnalyser(handle);
+    defer analyser.deinit();
+
+    return try semantic_tokens.writeSemanticTokens(
+        arena,
+        &analyser,
+        handle,
+        null,
+        server.offset_encoding,
+        server.config.semantic_tokens == .partial,
+    );
+}
+
+fn semanticTokensRangeHandler(
+    server: *Server,
+    arena: Allocator,
+    request: types.SemanticTokensRangeParams,
+) Error!?types.SemanticTokens {
+    if (server.config.semantic_tokens == .none) return null;
+
+    const handle = server.document_store.getHandle(request.textDocument.uri) orelse return null;
+    const loc = offsets.rangeToLoc(
+        handle.tree.source,
+        request.range,
+        server.offset_encoding,
+    );
+
+    var analyser = server.initAnalyser(handle);
+    defer analyser.deinit();
+
+    return try semantic_tokens.writeSemanticTokens(
+        arena,
+        &analyser,
+        handle,
+        loc,
+        server.offset_encoding,
+        server.config.semantic_tokens == .partial,
+    );
+}
+
+fn completionHandler(server: *Server, arena: Allocator, request: types.CompletionParams) Error!lsp.ResultType("textDocument/completion") {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn semanticTokensRangeHandler(server: *Server, arena: std.mem.Allocator, request: types.SemanticTokensRangeParams) Error!?types.SemanticTokens {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = request; // autofix
-    return null;
-}
-
-fn completionHandler(server: *Server, arena: std.mem.Allocator, request: types.CompletionParams) Error!lsp.ResultType("textDocument/completion") {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = request; // autofix
-    return null;
-}
-
-fn signatureHelpHandler(server: *Server, arena: std.mem.Allocator, request: types.SignatureHelpParams) Error!?types.SignatureHelp {
+fn signatureHelpHandler(server: *Server, arena: Allocator, request: types.SignatureHelpParams) Error!?types.SignatureHelp {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
@@ -1023,7 +1063,7 @@ fn signatureHelpHandler(server: *Server, arena: std.mem.Allocator, request: type
 
 fn gotoDefinitionHandler(
     server: *Server,
-    arena: std.mem.Allocator,
+    arena: Allocator,
     request: types.DefinitionParams,
 ) Error!lsp.ResultType("textDocument/definition") {
     _ = server; // autofix
@@ -1032,42 +1072,46 @@ fn gotoDefinitionHandler(
     return null;
 }
 
-fn gotoTypeDefinitionHandler(server: *Server, arena: std.mem.Allocator, request: types.TypeDefinitionParams) Error!lsp.ResultType("textDocument/typeDefinition") {
+fn gotoTypeDefinitionHandler(server: *Server, arena: Allocator, request: types.TypeDefinitionParams) Error!lsp.ResultType("textDocument/typeDefinition") {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn gotoImplementationHandler(server: *Server, arena: std.mem.Allocator, request: types.ImplementationParams) Error!lsp.ResultType("textDocument/implementation") {
+fn gotoImplementationHandler(server: *Server, arena: Allocator, request: types.ImplementationParams) Error!lsp.ResultType("textDocument/implementation") {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn gotoDeclarationHandler(server: *Server, arena: std.mem.Allocator, request: types.DeclarationParams) Error!lsp.ResultType("textDocument/declaration") {
+fn gotoDeclarationHandler(server: *Server, arena: Allocator, request: types.DeclarationParams) Error!lsp.ResultType("textDocument/declaration") {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn hoverHandler(server: *Server, arena: std.mem.Allocator, request: types.HoverParams) Error!?types.Hover {
+fn hoverHandler(server: *Server, arena: Allocator, request: types.HoverParams) Error!?types.Hover {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn documentSymbolsHandler(server: *Server, arena: std.mem.Allocator, request: types.DocumentSymbolParams) Error!lsp.ResultType("textDocument/documentSymbol") {
+fn documentSymbolsHandler(server: *Server, arena: Allocator, request: types.DocumentSymbolParams) Error!lsp.ResultType("textDocument/documentSymbol") {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn formattingHandler(server: *Server, arena: std.mem.Allocator, request: types.DocumentFormattingParams) Error!?[]types.TextEdit {
+fn formattingHandler(
+    server: *Server,
+    arena: Allocator,
+    request: types.DocumentFormattingParams,
+) Error!?[]types.TextEdit {
     const handle = server.document_store.getHandle(request.textDocument.uri) orelse return null;
 
     if (handle.tree.errors.len != 0) return null;
@@ -1077,53 +1121,68 @@ fn formattingHandler(server: *Server, arena: std.mem.Allocator, request: types.D
 
     if (std.mem.eql(u8, handle.tree.source, formatted)) return null;
 
-    const text_edits = try diff.edits(arena, handle.tree.source, formatted, server.offset_encoding);
+    const text_edits = try diff.edits(
+        arena,
+        handle.tree.source,
+        formatted,
+        server.offset_encoding,
+    );
     return text_edits.items;
 }
 
-fn renameHandler(server: *Server, arena: std.mem.Allocator, request: types.RenameParams) Error!?types.WorkspaceEdit {
+fn renameHandler(server: *Server, arena: Allocator, request: types.RenameParams) Error!?types.WorkspaceEdit {
+    const response = try references.referencesHandler(
+        server,
+        arena,
+        .{ .rename = request },
+    );
+    return if (response) |rep| rep.rename else null;
+}
+
+fn referencesHandler(server: *Server, arena: Allocator, request: types.ReferenceParams) Error!?[]types.Location {
+    const response = try references.referencesHandler(
+        server,
+        arena,
+        .{ .references = request },
+    );
+    return if (response) |rep| rep.references else null;
+}
+
+fn documentHighlightHandler(
+    server: *Server,
+    arena: Allocator,
+    request: types.DocumentHighlightParams,
+) Error!?[]types.DocumentHighlight {
+    const response = try references.referencesHandler(
+        server,
+        arena,
+        .{ .highlight = request },
+    );
+    return if (response) |rep| rep.highlight else null;
+}
+
+fn inlayHintHandler(server: *Server, arena: Allocator, request: types.InlayHintParams) Error!?[]types.InlayHint {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn referencesHandler(server: *Server, arena: std.mem.Allocator, request: types.ReferenceParams) Error!?[]types.Location {
+fn codeActionHandler(server: *Server, arena: Allocator, request: types.CodeActionParams) Error!lsp.ResultType("textDocument/codeAction") {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn documentHighlightHandler(server: *Server, arena: std.mem.Allocator, request: types.DocumentHighlightParams) Error!?[]types.DocumentHighlight {
+fn foldingRangeHandler(server: *Server, arena: Allocator, request: types.FoldingRangeParams) Error!?[]types.FoldingRange {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
     return null;
 }
 
-fn inlayHintHandler(server: *Server, arena: std.mem.Allocator, request: types.InlayHintParams) Error!?[]types.InlayHint {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = request; // autofix
-    return null;
-}
-
-fn codeActionHandler(server: *Server, arena: std.mem.Allocator, request: types.CodeActionParams) Error!lsp.ResultType("textDocument/codeAction") {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = request; // autofix
-    return null;
-}
-
-fn foldingRangeHandler(server: *Server, arena: std.mem.Allocator, request: types.FoldingRangeParams) Error!?[]types.FoldingRange {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = request; // autofix
-    return null;
-}
-
-fn selectionRangeHandler(server: *Server, arena: std.mem.Allocator, request: types.SelectionRangeParams) Error!?[]types.SelectionRange {
+fn selectionRangeHandler(server: *Server, arena: Allocator, request: types.SelectionRangeParams) Error!?[]types.SelectionRange {
     _ = server; // autofix
     _ = arena; // autofix
     _ = request; // autofix
@@ -1221,7 +1280,7 @@ fn isBlockingMessage(msg: Message) bool {
 }
 
 /// make sure to also set the `transport` field
-pub fn create(allocator: std.mem.Allocator) !*Server {
+pub fn create(allocator: Allocator) !*Server {
     const server = try allocator.create(Server);
     errdefer server.destroy();
     server.* = Server{
@@ -1336,7 +1395,7 @@ pub fn sendJsonMessageSync(server: *Server, json_message: []const u8) Error!?[]u
     return try server.processMessage(parsed_message.value);
 }
 
-pub fn sendRequestSync(server: *Server, arena: std.mem.Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!lsp.ResultType(method) {
+pub fn sendRequestSync(server: *Server, arena: Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!lsp.ResultType(method) {
     comptime assert(lsp.isRequestMethod(method));
     const tracy_zone = tracy.trace(@src());
     defer tracy_zone.end();
@@ -1368,7 +1427,7 @@ pub fn sendRequestSync(server: *Server, arena: std.mem.Allocator, comptime metho
     };
 }
 
-pub fn sendNotificationSync(server: *Server, arena: std.mem.Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!void {
+pub fn sendNotificationSync(server: *Server, arena: Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!void {
     comptime assert(lsp.isNotificationMethod(method));
     const tracy_zone = tracy.trace(@src());
     defer tracy_zone.end();
@@ -1389,7 +1448,7 @@ pub fn sendNotificationSync(server: *Server, arena: std.mem.Allocator, comptime 
     };
 }
 
-pub fn sendMessageSync(server: *Server, arena: std.mem.Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!lsp.ResultType(method) {
+pub fn sendMessageSync(server: *Server, arena: Allocator, comptime method: []const u8, params: lsp.ParamsType(method)) Error!lsp.ResultType(method) {
     comptime assert(lsp.isRequestMethod(method) or lsp.isNotificationMethod(method));
 
     if (comptime lsp.isRequestMethod(method)) {

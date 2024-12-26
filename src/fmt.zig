@@ -8,6 +8,7 @@ const Color = std.zig.Color;
 
 const kdb = @import("kdb");
 const Ast = kdb.Ast;
+const DocumentScope = kdb.DocumentScope;
 
 const fatal = @import("main.zig").fatal;
 
@@ -120,7 +121,15 @@ pub fn run(
         defer tree.deinit(gpa);
 
         if (check_ast_flag) {
-            var zir = try kdb.AstGen.generate(gpa, tree);
+            var document_scope: DocumentScope = .{};
+            defer document_scope.deinit(gpa);
+            var context: DocumentScope.ScopeContext = .{
+                .gpa = gpa,
+                .tree = tree,
+                .doc_scope = &document_scope,
+            };
+            defer context.deinit();
+            var zir = try kdb.AstGen.generate(gpa, &context);
             defer zir.deinit(gpa);
 
             if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {
@@ -334,7 +343,15 @@ fn fmtPathFile(
         if (stat.size > std.zig.max_src_size)
             return error.FileTooBig;
 
-        var zir = try kdb.AstGen.generate(gpa, tree);
+        var document_scope: DocumentScope = .{};
+        defer document_scope.deinit(gpa);
+        var context: DocumentScope.ScopeContext = .{
+            .gpa = gpa,
+            .tree = tree,
+            .doc_scope = &document_scope,
+        };
+        defer context.deinit();
+        var zir = try kdb.AstGen.generate(gpa, &context);
         defer zir.deinit(gpa);
 
         if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {

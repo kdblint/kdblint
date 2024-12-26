@@ -8,12 +8,14 @@ const Timer = std.time.Timer;
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
 const Zir = kdb.Zir;
+const DocumentScope = kdb.DocumentScope;
 
 const AstGen = @This();
 
 gpa: Allocator,
 arena: Allocator,
-tree: *const Ast,
+context: *DocumentScope.ScopeContext,
+scope: DocumentScope.ScopeContext.PushedScope,
 instructions: std.MultiArrayList(Zir.Inst) = .empty,
 extra: std.ArrayListUnmanaged(u32) = .empty,
 string_bytes: std.ArrayListUnmanaged(u8) = .empty,
@@ -92,14 +94,20 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
     }
 }
 
-pub fn generate(gpa: Allocator, tree: Ast) !Zir {
+pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) !Zir {
+    const tree = context.tree;
+
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
     var astgen: AstGen = .{
         .gpa = gpa,
         .arena = arena.allocator(),
-        .tree = &tree,
+        .context = context,
+        .scope = try context.startScope(.container, 0, .{
+            .start = 0,
+            .end = @intCast(tree.source.len),
+        }),
     };
     defer astgen.deinit(gpa);
 
@@ -143,6 +151,9 @@ pub fn generate(gpa: Allocator, tree: Ast) !Zir {
         } else {
             try astgen.lowerAstErrors();
         }
+
+        try astgen.scope.finalize();
+
         break :compile if (timer) |*t| t.read() else 0;
     };
 
@@ -220,7 +231,7 @@ fn deinit(astgen: *AstGen, gpa: Allocator) void {
 
 fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     var scope = parent_scope;
 
     assert(parent_scope.isGlobal());
@@ -258,7 +269,7 @@ const Result = struct { Zir.Inst.Ref, *Scope };
 
 fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
 
     assert(src_node != 0);
@@ -333,7 +344,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
 fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     var scope = parent_scope;
@@ -345,7 +356,7 @@ fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
     const list_nodes = tree.extra_data[sub_range.start..sub_range.end];
 
     const list = try gpa.alloc(Zir.Inst.Ref, list_nodes.len);
-    defer gpa.free(list);
+    gpa.free(list);
 
     var i: usize = 1;
     var it = std.mem.reverseIterator(list_nodes);
@@ -363,7 +374,7 @@ fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
 fn tableLiteral(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -491,17 +502,20 @@ fn tableLiteral(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inn
 fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+    const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
 
     const prev_offset = astgen.source_offset;
     const prev_line = astgen.source_line;
     const prev_column = astgen.source_column;
+    const prev_scope = astgen.scope;
     defer {
         astgen.source_offset = prev_offset;
         astgen.source_line = prev_line;
         astgen.source_column = prev_column;
+        astgen.scope = prev_scope;
     }
 
     astgen.advanceSourceCursorToNode(node);
@@ -511,6 +525,14 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const lambda_inst = try gz.makeLambda(node);
 
     const full_lambda = tree.fullLambda(node);
+
+    astgen.scope = try astgen.context.startScope(.function, node, .{
+        .start = @intCast(token_locs[full_lambda.l_brace].start),
+        .end = @intCast(token_locs[full_lambda.r_brace].end),
+    });
+    errdefer astgen.scope.finalize() catch |err| switch (err) {
+        error.OutOfMemory => @panic("OOM"),
+    };
 
     var lambda_scope: Scope.Lambda = .{
         .parent = scope,
@@ -542,7 +564,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const params_len: u32 = if (full_lambda.params) |p| params_len: {
         if (p.params.len > 8) return astgen.failNode(p.params[8], "too many parameters (8 max)", .{});
 
-        for (p.params) |param_node| {
+        for (p.params, 0..) |param_node, i| {
             if (node_tags[param_node] == .identifier) {
                 const param_token = main_tokens[param_node];
                 const param_bytes = tree.tokenSlice(main_tokens[param_node]);
@@ -576,6 +598,9 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                         .id_cat = .@"function parameter",
                     };
                     params_scope = &sub_scope.base;
+                    try astgen.scope.pushDeclaration(param_token, .{
+                        .function_parameter = .{ .param_index = @intCast(i), .func = node },
+                    });
                 }
             } else {
                 assert(node_tags[param_node] == .empty);
@@ -612,6 +637,9 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
+            try astgen.scope.pushDeclaration(ident_token, .{
+                .function_parameter = .{ .param_index = 0, .func = node },
+            });
         } else if (ident_y != null or ident_z != null) {
             const param_inst = try fn_gz.addUnTok(
                 .param_implicit,
@@ -627,6 +655,9 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
+            try astgen.scope.pushDeclaration(full_lambda.l_brace, .{
+                .function_parameter = .{ .param_index = 0, .func = node },
+            });
         }
 
         if (ident_y) |ident_node| {
@@ -646,6 +677,9 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
+            try astgen.scope.pushDeclaration(ident_token, .{
+                .function_parameter = .{ .param_index = 1, .func = node },
+            });
         } else if (ident_z != null) {
             const param_inst = try fn_gz.addUnTok(
                 .param_implicit,
@@ -661,6 +695,9 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
+            try astgen.scope.pushDeclaration(full_lambda.l_brace, .{
+                .function_parameter = .{ .param_index = 1, .func = node },
+            });
         }
 
         if (identifiers.get("z")) |ident_node| {
@@ -680,6 +717,9 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
+            try astgen.scope.pushDeclaration(ident_token, .{
+                .function_parameter = .{ .param_index = 2, .func = node },
+            });
         }
 
         break :params_len if (found_z) 3 else if (found_y) 2 else 1;
@@ -709,6 +749,8 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         }
     }
 
+    try astgen.scope.finalize();
+
     try checkUsed(
         gz,
         &fn_gz.base,
@@ -729,7 +771,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
 fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope, implicit_params: bool) InnerError!void {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const token_tags: []Ast.Token.Tag = tree.tokens.items(.tag);
 
     var buf: [2]*Scope.LocalVal = undefined;
@@ -878,7 +920,7 @@ pub fn nullTerminatedString(astgen: *AstGen, index: Zir.NullTerminatedString) [:
 
 fn exprBlock(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
 
     const data = node_datas[node];
@@ -901,7 +943,7 @@ fn exprBlock(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError
 
 fn signal(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
 
     const data = node_datas[node];
@@ -938,6 +980,7 @@ fn findOrCreateGlobal(
         .id_cat = .@"global variable",
     };
     scope = &sub_scope.base;
+    // try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = src_node });
 
     return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
 }
@@ -952,7 +995,7 @@ fn assign(
     is_global_assign: bool,
 ) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -1063,6 +1106,7 @@ fn assign(
             .id_cat = .@"local variable",
         };
         scope = &sub_scope.base;
+        try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = src_node });
 
         return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
     }
@@ -1074,7 +1118,7 @@ fn assign(
 // TODO: a:(/[+;x]) - error, rank
 fn iterator(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     var scope = parent_scope;
@@ -1104,7 +1148,7 @@ fn iterator(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
 
 fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -1451,7 +1495,7 @@ fn whileStatement(
 
 fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     var scope = parent_scope;
@@ -1499,7 +1543,7 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
 
 fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -1581,7 +1625,7 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
     const num_token = main_tokens[node];
@@ -1593,7 +1637,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
 fn parseNumberLiteral(gz: *GenZir, token: Ast.Token.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const bytes = tree.tokenSlice(token);
 
     return switch (bytes[0]) {
@@ -1629,7 +1673,7 @@ fn failWithNumberError(
 fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -1661,7 +1705,7 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
 
 fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
@@ -1674,7 +1718,7 @@ fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
 fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
@@ -1688,7 +1732,7 @@ fn symbolLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 fn symbolListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -1720,7 +1764,7 @@ fn symbolListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
 
 fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -1766,7 +1810,7 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Resul
 
 fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
@@ -1867,7 +1911,7 @@ fn scanNode(
     if (node == 0) return;
 
     const gpa = astgen.gpa;
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -2073,10 +2117,20 @@ fn testScanExprs(source: [:0]const u8, expected: []const []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
+    var doc_scope: DocumentScope = .{};
+    defer doc_scope.deinit(gpa);
+    var context: DocumentScope.ScopeContext = .{
+        .gpa = gpa,
+        .tree = tree,
+        .doc_scope = &doc_scope,
+    };
+    defer context.deinit();
+
     var astgen: AstGen = .{
         .gpa = gpa,
         .arena = arena.allocator(),
-        .tree = &tree,
+        .context = &context,
+        .scope = undefined,
     };
     defer astgen.deinit(gpa);
 
@@ -2159,7 +2213,7 @@ test "scan decls" {
 }
 
 fn lowerAstErrors(astgen: *AstGen) !void {
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     assert(tree.errors.len > 0);
 
     const gpa = astgen.gpa;
@@ -2292,7 +2346,7 @@ const Scope = struct {
     const LocalVal = struct {
         const base_tag: Tag = .local_val;
         base: Scope = .{ .tag = base_tag },
-        /// Parents can be: `LocalVal`, `GenZir`, `Namespace`.
+        /// Parents can be: `LocalVal`, `GenZir`, `Lambda`.
         parent: *Scope,
         inst: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
@@ -2311,7 +2365,7 @@ const Scope = struct {
         const base_tag: Tag = .lambda;
         base: Scope = .{ .tag = base_tag },
 
-        /// Parents can be: `LocalVal`, `GenZir`, `Namespace`, `Top`.
+        /// Parents can be: `LocalVal`, `GenZir`, `Lambda`, `Top`.
         parent: *Scope,
         local_decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
         global_decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
@@ -2404,7 +2458,7 @@ const GenZir = struct {
     }
 
     fn srcToken(gz: GenZir) Ast.Token.Index {
-        return gz.astgen.tree.firstToken(gz.decl_node_index);
+        return gz.astgen.context.tree.firstToken(gz.decl_node_index);
     }
 
     fn makeFile(gz: *GenZir) !Zir.Inst.Index {
@@ -2454,7 +2508,7 @@ const GenZir = struct {
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
-        const tree = astgen.tree;
+        const tree = astgen.context.tree;
         const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
         const zir_datas: []Zir.Inst.Data = astgen.instructions.items(.data);
 
@@ -2736,7 +2790,7 @@ const GenZir = struct {
 
 /// Advances the source cursor to the beginning of `node`.
 fn advanceSourceCursorToNode(astgen: *AstGen, node: Ast.Node.Index) void {
-    const tree = astgen.tree;
+    const tree = astgen.context.tree;
     const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
     const node_start = token_locs[tree.firstToken(node)].start;
     astgen.advanceSourceCursor(node_start);
@@ -2744,7 +2798,7 @@ fn advanceSourceCursorToNode(astgen: *AstGen, node: Ast.Node.Index) void {
 
 /// Advances the source cursor to an absolute byte offset `end` in the file.
 fn advanceSourceCursor(astgen: *AstGen, end: usize) void {
-    const source = astgen.tree.source;
+    const source = astgen.context.tree.source;
     var i = astgen.source_offset;
     var line = astgen.source_line;
     var column = astgen.source_column;
@@ -3036,17 +3090,17 @@ fn errNoteNode(
 }
 
 fn tokenAsString(astgen: *AstGen, token: Ast.Token.Index) !Zir.NullTerminatedString {
-    const token_bytes = astgen.tree.tokenSlice(token);
+    const token_bytes = astgen.context.tree.tokenSlice(token);
     return astgen.bytesAsString(token_bytes);
 }
 
 fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.Token.Index) !Zir.NullTerminatedString {
-    const token_bytes = astgen.tree.tokenSlice(str_lit_token);
+    const token_bytes = astgen.context.tree.tokenSlice(str_lit_token);
     return astgen.bytesAsString(token_bytes[1 .. token_bytes.len - 1]);
 }
 
 fn symLitAsString(astgen: *AstGen, sym_lit_token: Ast.Token.Index) !Zir.NullTerminatedString {
-    const token_bytes = astgen.tree.tokenSlice(sym_lit_token);
+    const token_bytes = astgen.context.tree.tokenSlice(sym_lit_token);
     return astgen.bytesAsString(token_bytes[1..]);
 }
 

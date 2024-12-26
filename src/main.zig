@@ -9,6 +9,7 @@ const zls = @import("zls");
 const Color = std.zig.Color;
 
 const kdb = @import("kdb");
+const DocumentScope = kdb.DocumentScope;
 const build_options = @import("build_options");
 
 const Server = @import("lsp/Server.zig");
@@ -182,7 +183,14 @@ fn cmdAstCheck(
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    file.zir = try kdb.AstGen.generate(gpa, file.tree);
+    var document_scope: DocumentScope = .{};
+    defer document_scope.deinit(gpa);
+    var context: DocumentScope.ScopeContext = .{
+        .gpa = gpa,
+        .tree = file.tree,
+        .doc_scope = &document_scope,
+    };
+    file.zir = try kdb.AstGen.generate(gpa, &context);
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 

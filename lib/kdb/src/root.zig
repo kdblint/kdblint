@@ -14,6 +14,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 pub const Zir = @import("Zir.zig");
 pub const number_literal = @import("number_literal.zig");
 pub const print_zir = @import("print_zir.zig");
+pub const DocumentScope = @import("DocumentScope.zig");
 
 // Character literal parsing
 pub const parseNumberLiteral = number_literal.parseNumberLiteral;
@@ -46,7 +47,15 @@ pub fn putAstErrorsIntoBundle(
     path: []const u8,
     wip_errors: *ErrorBundle.Wip,
 ) Allocator.Error!void {
-    var zir = try AstGen.generate(gpa, tree);
+    var document_scope: DocumentScope = .{};
+    defer document_scope.deinit(gpa);
+    var context: DocumentScope.ScopeContext = .{
+        .gpa = gpa,
+        .tree = tree,
+        .doc_scope = &document_scope,
+    };
+    defer context.deinit();
+    var zir = try AstGen.generate(gpa, &context);
     defer zir.deinit(gpa);
 
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);

@@ -178,15 +178,15 @@ pub fn getBlocks(tree: Ast) []const Node.Index {
 }
 
 pub fn endsBlock(tree: Ast, token_index: Token.Index) bool {
-    const tags: []Token.Tag = tree.tokens.items(.tag);
-    const locs: []Token.Loc = tree.tokens.items(.loc);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
-    const tag = tags[token_index];
+    const tag = token_tags[token_index];
     switch (tag) {
         .eof => return true,
         else => {
-            if (tags[token_index + 1] == .eof) return true;
-            const next_token_start = locs[token_index + 1].start;
+            if (token_tags[token_index + 1] == .eof) return true;
+            const next_token_start = token_locs[token_index + 1].start;
             return next_token_start == tree.source.len or tree.source[next_token_start - 1] == '\n';
         },
     }
