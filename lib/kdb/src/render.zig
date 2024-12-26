@@ -839,14 +839,6 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
     }
 }
 
-// fn isEob(r: *Render, token_index: Token.Index) bool {
-//     const tree = r.tree;
-//     const locs: []Token.Loc = tree.tokens.items(.loc);
-
-//     const next_token_start = locs[token_index + 1].start;
-//     return next_token_start == tree.source.len or tree.source[next_token_start - 1] == '\n';
-// }
-
 fn renderOnlySpace(r: *Render, space: Space) Error!void {
     const ais = r.ais;
     switch (space) {

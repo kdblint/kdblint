@@ -419,23 +419,9 @@ pub const Wip = struct {
                 extra_index = item.end;
                 const err_span = blk: {
                     if (item.data.node != 0) {
-                        if (item.data.node == 754) {
-                            std.log.debug("{d}", .{item.data.node});
-                            switch (tree.nodes.items(.tag)[item.data.node]) {
-                                .apply_binary => {
-                                    const data = tree.nodes.items(.data)[item.data.node];
-                                    if (data.rhs != 0) std.log.debug("{} {} {}", .{
-                                        tree.nodes.items(.tag)[data.lhs],
-                                        tree.nodes.items(.tag)[tree.nodes.items(.main_token)[item.data.node]],
-                                        tree.nodes.items(.tag)[data.rhs],
-                                    });
-                                },
-                                else => {},
-                            }
-                        }
                         break :blk tree.nodeToSpan(item.data.node);
                     }
-                    const token_locs = tree.tokens.items(.loc);
+                    const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
                     const start = token_locs[item.data.token].start + item.data.byte_offset;
                     const end = start + @as(u32, @intCast(tree.tokenLen(item.data.token))) - item.data.byte_offset;
                     break :blk Ast.Span{

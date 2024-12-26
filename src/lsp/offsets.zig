@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+
 const zls = @import("zls");
 const types = zls.types;
 
@@ -43,6 +44,13 @@ pub fn tokenToIndex(tree: Ast, token_index: Ast.Token.Index) usize {
     return tree.tokens.items(.loc)[token_index].start;
 }
 
+pub fn tokensToLoc(tree: Ast, first_token: Ast.Token.Index, last_token: Ast.Token.Index) Loc {
+    return .{
+        .start = tokenToIndex(tree, first_token),
+        .end = tokenToLoc(tree, last_token).end,
+    };
+}
+
 pub fn tokenToLoc(tree: Ast, token_index: Ast.Token.Index) Loc {
     return tree.tokens.items(.loc)[token_index];
 }
@@ -63,12 +71,38 @@ pub fn tokenToRange(tree: Ast, token_index: Ast.Token.Index, encoding: Encoding)
     };
 }
 
+pub fn locToSlice(text: []const u8, loc: Loc) []const u8 {
+    return text[loc.start..loc.end];
+}
+
 pub fn locToRange(text: []const u8, loc: Loc, encoding: Encoding) types.Range {
     assert(loc.start <= loc.end and loc.end <= text.len);
     const start = indexToPosition(text, loc.start, encoding);
     return .{
         .start = start,
         .end = advancePosition(text, start, loc.start, loc.end, encoding),
+    };
+}
+
+pub fn rangeToLoc(text: []const u8, range: types.Range, encoding: Encoding) Loc {
+    assert(orderPosition(range.start, range.end) != .gt);
+    return .{
+        .start = positionToIndex(text, range.start, encoding),
+        .end = positionToIndex(text, range.end, encoding),
+    };
+}
+
+pub fn nodeToLoc(tree: Ast, node: Ast.Node.Index) Loc {
+    return tokensToLoc(tree, tree.firstToken(node), tree.lastToken(node));
+}
+
+pub fn lineLocAtIndex(text: []const u8, index: usize) Loc {
+    return .{
+        .start = if (std.mem.lastIndexOfScalar(u8, text[0..index], '\n')) |idx|
+            idx + 1
+        else
+            0,
+        .end = std.mem.indexOfScalarPos(u8, text, index, '\n') orelse text.len,
     };
 }
 
@@ -178,6 +212,21 @@ pub fn convertRangeEncoding(
     };
 }
 
+/// returns true if a is inside b
+pub fn locInside(inner: Loc, outer: Loc) bool {
+    assert(inner.start <= inner.end and outer.start <= outer.end);
+    return outer.start <= inner.start and inner.end <= outer.end;
+}
+
+/// returns the union of a and b
+pub fn locMerge(a: Loc, b: Loc) Loc {
+    std.debug.assert(a.start <= a.end and b.start <= b.end);
+    return .{
+        .start = @min(a.start, b.start),
+        .end = @max(a.end, b.end),
+    };
+}
+
 pub fn orderPosition(a: types.Position, b: types.Position) std.math.Order {
     const line_order = std.math.order(a.line, b.line);
     if (line_order != .eq) return line_order;
@@ -219,6 +268,43 @@ pub fn positionToIndex(text: []const u8, position: types.Position, encoding: Enc
     const line_byte_length = getNCodeUnitByteCount(line_text, position.character, encoding);
 
     return line_start_index + line_byte_length;
+}
+
+pub fn sourceIndexToTokenIndex(tree: Ast, source_index: usize) Ast.Token.Index {
+    assert(source_index <= tree.source.len);
+
+    const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
+
+    // at which point to stop dividing and just iterate
+    // good results w/ 256 as well, anything lower/higher and the cost of
+    // dividing overruns the cost of iterating and vice versa
+    const threshold = 336;
+
+    var upper_index: Ast.Token.Index = @intCast(token_locs.len - 1); // The Ast always has a .eof token
+    var lower_index: Ast.Token.Index = 0;
+    while (upper_index - lower_index > threshold) {
+        const mid = lower_index + (upper_index - lower_index) / 2;
+        if (token_locs[mid].start < source_index) {
+            lower_index = mid;
+        } else {
+            upper_index = mid;
+        }
+    }
+
+    while (upper_index > 0) : (upper_index -= 1) {
+        const token_start = token_locs[upper_index].start;
+        if (token_start > source_index) continue; // checking for equality here is suboptimal
+        // Handle source_index being > than the last possible token_start (max_token_start < source_index < tree.source.len)
+        if (upper_index == token_locs.len - 1) break;
+        // Check if source_index is within current token
+        // (`token_start - 1` to include it's loc.start source_index and avoid the equality part of the check)
+        const is_within_current_token = (source_index > (token_start - 1)) and (source_index < token_locs[upper_index + 1].start);
+        if (!is_within_current_token) upper_index += 1; // gone 1 past
+        break;
+    }
+
+    assert(upper_index < tree.tokens.len);
+    return upper_index;
 }
 
 test {

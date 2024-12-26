@@ -12,7 +12,7 @@ const Zir = kdb.Zir;
 const offsets = @import("offsets.zig");
 const Config = @import("Config.zig");
 const analysis = @import("analysis.zig");
-const DocumentScope = @import("DocumentScope.zig");
+const DocumentScope = kdb.DocumentScope;
 
 const log = std.log.scoped(.kdblint_store);
 
@@ -51,12 +51,12 @@ pub const Handle = struct {
         /// @bitCast from/to `Status`
         status: std.atomic.Value(u32) = .init(@bitCast(Status{})),
         /// TODO can we avoid storing one allocator per Handle?
-        allocator: Allocator,
+        gpa: Allocator,
 
         lock: std.Thread.Mutex = .{},
         condition: std.Thread.Condition = .{},
 
-        document_scope: DocumentScope = undefined,
+        document_scope: DocumentScope = .{},
         zir: Zir = undefined,
     },
 
@@ -65,18 +65,13 @@ pub const Handle = struct {
         /// `false` indicates the document only exists because it is a dependency of another document
         /// or has been closed with `textDocument/didClose` and is awaiting cleanup through `garbageCollection`
         open: bool = false,
-        /// true if a thread has acquired the permission to compute the `DocumentScope`
-        /// all other threads will wait until the given thread has computed the `DocumentScope` before reading it.
-        has_document_scope_lock: bool = false,
-        /// true if `handle.impl.document_scope` has been set
-        has_document_scope: bool = false,
         /// true if a thread has acquired the permission to compute the `ZIR`
         has_zir_lock: bool = false,
         /// all other threads will wait until the given thread has computed the `ZIR` before reading it.
         /// true if `handle.impl.zir` has been set
         has_zir: bool = false,
         zir_outdated: bool = undefined,
-        _: u26 = undefined,
+        _: u28 = undefined,
     };
 
     pub const ZirStatus = enum {
@@ -86,32 +81,30 @@ pub const Handle = struct {
     };
 
     /// takes ownership of `text`
-    pub fn init(allocator: Allocator, uri: Uri, text: [:0]const u8, settings: Ast.ParseSettings) error{OutOfMemory}!Handle {
-        const duped_uri = try allocator.dupe(u8, uri);
-        errdefer allocator.free(duped_uri);
+    pub fn init(gpa: Allocator, uri: Uri, text: [:0]const u8, settings: Ast.ParseSettings) error{OutOfMemory}!Handle {
+        const duped_uri = try gpa.dupe(u8, uri);
+        errdefer gpa.free(duped_uri);
 
-        const tree = try parseTree(allocator, text, settings);
-        errdefer tree.deinit(allocator);
+        const tree = try parseTree(gpa, text, settings);
+        errdefer tree.deinit(gpa);
 
         return .{
             .uri = duped_uri,
             .tree = tree,
             .impl = .{
-                .allocator = allocator,
+                .gpa = gpa,
             },
         };
     }
 
     pub fn getDocumentScope(self: *Handle) error{OutOfMemory}!DocumentScope {
-        if (self.getStatus().has_document_scope) return self.impl.document_scope;
-        return try self.getDocumentScopeCold();
+        if (!self.getStatus().has_zir) _ = try self.getZir();
+        return self.impl.document_scope;
     }
 
     /// Asserts that `getDocumentScope` has been previously called on `handle`.
     pub fn getDocumentScopeCached(self: *Handle) DocumentScope {
-        if (builtin.mode == .Debug) {
-            std.debug.assert(self.getStatus().has_document_scope);
-        }
+        assert(self.getStatus().has_zir);
         return self.impl.document_scope;
     }
 
@@ -124,42 +117,6 @@ pub const Handle = struct {
         const status = self.getStatus();
         if (!status.has_zir) return .none;
         return if (status.zir_outdated) .outdated else .done;
-    }
-
-    fn getDocumentScopeCold(self: *Handle) error{OutOfMemory}!DocumentScope {
-        @branchHint(.cold);
-        const tracy_zone = tracy.trace(@src());
-        defer tracy_zone.end();
-
-        self.impl.lock.lock();
-        defer self.impl.lock.unlock();
-        while (true) {
-            const status = self.getStatus();
-            if (status.has_document_scope) break;
-            if (status.has_document_scope_lock or
-                self.impl.status.bitSet(@bitOffsetOf(Status, "has_document_scope_lock"), .release) != 0)
-            {
-                // another thread is currently computing the document scope
-                self.impl.condition.wait(&self.impl.lock);
-                continue;
-            }
-            defer self.impl.condition.broadcast();
-
-            self.impl.document_scope = blk: {
-                var document_scope = try DocumentScope.init(self.impl.allocator, self.tree);
-                errdefer document_scope.deinit(self.impl.allocator);
-
-                // remove unused capacity
-                document_scope.extra.shrinkAndFree(self.impl.allocator, document_scope.extra.items.len);
-                try document_scope.declarations.setCapacity(self.impl.allocator, document_scope.declarations.len);
-                try document_scope.scopes.setCapacity(self.impl.allocator, document_scope.scopes.len);
-
-                break :blk document_scope;
-            };
-            const old_has_document_scope = self.impl.status.bitSet(@bitOffsetOf(Status, "has_document_scope"), .release); // atomically set has_document_scope
-            std.debug.assert(old_has_document_scope == 0); // race condition: another thread set `has_document_scope` even though we hold the lock
-        }
-        return self.impl.document_scope;
     }
 
     fn getZirCold(self: *Handle) error{OutOfMemory}!Zir {
@@ -185,19 +142,25 @@ pub const Handle = struct {
                 const tracy_zone_inner = tracy.traceNamed(@src(), "AstGen.generate");
                 defer tracy_zone_inner.end();
 
-                var zir = try AstGen.generate(self.impl.allocator, self.tree);
-                errdefer zir.deinit(self.impl.allocator);
+                var context: DocumentScope.ScopeContext = .{
+                    .gpa = self.impl.gpa,
+                    .tree = self.tree,
+                    .doc_scope = &self.impl.document_scope,
+                };
+                defer context.deinit();
+                var zir = try AstGen.generate(self.impl.gpa, &context);
+                errdefer zir.deinit(self.impl.gpa);
 
                 // remove unused capacity
                 var instructions = zir.instructions.toMultiArrayList();
-                try instructions.setCapacity(self.impl.allocator, instructions.len);
+                try instructions.setCapacity(self.impl.gpa, instructions.len);
                 zir.instructions = instructions.slice();
 
                 break :blk zir;
             };
             _ = self.impl.status.bitReset(@bitOffsetOf(Status, "zir_outdated"), .release); // atomically set zir_outdated
             const old_has_zir = self.impl.status.bitSet(@bitOffsetOf(Status, "has_zir"), .release); // atomically set has_zir
-            std.debug.assert(old_has_zir == 0); // race condition: another thread set `has_zir` even though we hold the lock
+            assert(old_has_zir == 0); // race condition: another thread set `has_zir` even though we hold the lock
         }
         return self.impl.zir;
     }
@@ -247,10 +210,10 @@ pub const Handle = struct {
             .open = self.getStatus().open,
         };
 
-        const new_tree = try parseTree(self.impl.allocator, new_text, settings);
+        const new_tree = try parseTree(self.impl.gpa, new_text, settings);
 
         self.impl.lock.lock();
-        errdefer @compileError("");
+        errdefer comptime unreachable;
 
         const old_status: Handle.Status = @bitCast(
             self.impl.status.swap(@bitCast(new_status), .acq_rel),
@@ -258,24 +221,24 @@ pub const Handle = struct {
 
         var old_tree = self.tree;
         var old_import_uris = self.import_uris;
-        var old_document_scope: ?DocumentScope = if (old_status.has_document_scope) self.impl.document_scope else null;
-        var old_zir: ?Zir = if (old_status.has_zir) self.impl.zir else null;
+        var old_document_scope = if (old_status.has_zir) self.impl.document_scope else null;
+        var old_zir = if (old_status.has_zir) self.impl.zir else null;
 
         self.tree = new_tree;
         self.import_uris = .{};
-        self.impl.document_scope = undefined;
+        self.impl.document_scope = .{};
         self.impl.zir = undefined;
 
         self.impl.lock.unlock();
 
-        self.impl.allocator.free(old_tree.source);
-        old_tree.deinit(self.impl.allocator);
+        self.impl.gpa.free(old_tree.source);
+        old_tree.deinit(self.impl.gpa);
 
-        for (old_import_uris.items) |uri| self.impl.allocator.free(uri);
-        old_import_uris.deinit(self.impl.allocator);
+        for (old_import_uris.items) |uri| self.impl.gpa.free(uri);
+        old_import_uris.deinit(self.impl.gpa);
 
-        if (old_document_scope) |*document_scope| document_scope.deinit(self.impl.allocator);
-        if (old_zir) |*zir| zir.deinit(self.impl.allocator);
+        if (old_document_scope) |*document_scope| document_scope.deinit(self.impl.gpa);
+        if (old_zir) |*zir| zir.deinit(self.impl.gpa);
     }
 
     fn deinit(self: *Handle) void {
@@ -284,10 +247,10 @@ pub const Handle = struct {
 
         const status = self.getStatus();
 
-        const allocator = self.impl.allocator;
+        const allocator = self.impl.gpa;
 
         if (status.has_zir) self.impl.zir.deinit(allocator);
-        if (status.has_document_scope) self.impl.document_scope.deinit(allocator);
+        if (status.has_zir) self.impl.document_scope.deinit(allocator);
         allocator.free(self.tree.source);
         self.tree.deinit(allocator);
         allocator.free(self.uri);

@@ -1480,16 +1480,16 @@ fn skipBlock(p: *Parse) void {
 }
 
 fn isEob(p: *Parse, token_index: Token.Index) bool {
-    const tags: []Token.Tag = p.tokens.items(.tag);
-    const locs: []Token.Loc = p.tokens.items(.loc);
+    const token_tags: []Token.Tag = p.tokens.items(.tag);
+    const token_locs: []Token.Loc = p.tokens.items(.loc);
 
-    const tag = tags[token_index];
+    const tag = token_tags[token_index];
     switch (tag) {
         .semicolon => return p.ends_expr.items.len == 0,
         .eof => return true,
         else => {
-            if (tags[token_index + 1] == .eof) return true;
-            const next_token_start = locs[token_index + 1].start;
+            if (token_tags[token_index + 1] == .eof) return true;
+            const next_token_start = token_locs[token_index + 1].start;
             return next_token_start == p.source.len or p.source[next_token_start - 1] == '\n';
         },
     }
