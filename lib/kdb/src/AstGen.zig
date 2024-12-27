@@ -337,7 +337,11 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .identifier => return identifier(gz, scope, node),
         .builtin => return .{ try builtin(gz, node), scope },
 
-        else => |t| return astgen.failNode(node, "expr NYI: {s}", .{@tagName(t)}),
+        .select => return select(gz, scope, node),
+        .exec => return exec(gz, scope, node),
+        .update => return update(gz, scope, node),
+        .delete_rows => return deleteRows(gz, scope, node),
+        .delete_cols => return deleteCols(gz, scope, node),
     }
 }
 
@@ -1289,6 +1293,72 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
     return .{ ref, scope };
 }
 
+fn cond(gz: *GenZir, parent_scope: *Scope, full_call: Ast.full.Call) InnerError!Result {
+    const astgen = gz.astgen;
+    var scope = parent_scope;
+
+    assert(full_call.args.len > 2);
+
+    const condition, scope = try expr(gz, scope, full_call.args[0]);
+    _ = condition; // autofix
+
+    // q)$[a;a:1b;a]
+    // 'a
+    //   [0]  $[a;a:1b;a]
+    //          ^
+
+    // q)$[a;a;a:1b]
+    // 'a
+    //   [0]  $[a;a;a:1b]
+    //          ^
+
+    // q)$[1b;a:1b;a]
+    // 1b
+
+    // q)$[1b;a;a:1b]
+    // 'a
+    //   [0]  $[1b;a;a:1b]
+    //             ^
+
+    // q)$[0b;a:1b;a]
+    // 'a
+    //   [0]  $[0b;a:1b;a]
+    //                  ^
+
+    // q)$[0b;a;a:1b]
+    // 1b
+
+    // TODO: https://kdblint.atlassian.net/browse/KLS-310
+
+    const prev_scope = scope;
+
+    const args = full_call.args[1..];
+    for (args[0 .. args.len - 1]) |arg| {
+        _, scope = try expr(gz, scope, arg);
+    }
+    const inst, scope = try expr(gz, scope, args[args.len - 1]);
+
+    var temp_scope = scope;
+    while (temp_scope != prev_scope) switch (temp_scope.tag) {
+        .local_val => {
+            const local_val = temp_scope.cast(Scope.LocalVal).?;
+            if (local_val.id_cat == .@"local variable") {
+                try astgen.appendErrorTokNotes(
+                    local_val.token_src,
+                    "conditionally declared {s}",
+                    .{@tagName(local_val.id_cat)},
+                    &.{},
+                    .warn,
+                );
+            }
+            temp_scope = local_val.parent;
+        },
+        else => temp_scope = temp_scope.parent().?,
+    };
+
+    return .{ inst, scope };
+}
+
 fn doStatement(
     gz: *GenZir,
     parent_scope: *Scope,
@@ -1296,6 +1366,8 @@ fn doStatement(
     full_call: Ast.full.Call,
 ) InnerError!Result {
     const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
 
     assert(full_call.args.len > 1);
@@ -1321,7 +1393,7 @@ fn doStatement(
 
     const args = full_call.args[1..];
     for (args, 0..) |body_node, i| {
-        if (body_gz.endsWithNoReturn()) {
+        if (body_gz.endsWithNoReturn() and node_tags[body_node] != .empty) {
             assert(i > 0);
             try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
                 try gz.astgen.errNoteNode(args[i - 1], "control flow is diverted here", .{}),
@@ -1364,6 +1436,8 @@ fn ifStatement(
     full_call: Ast.full.Call,
 ) InnerError!Result {
     const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
 
     assert(full_call.args.len > 1);
@@ -1389,7 +1463,7 @@ fn ifStatement(
 
     const args = full_call.args[1..];
     for (args, 0..) |body_node, i| {
-        if (body_gz.endsWithNoReturn()) {
+        if (body_gz.endsWithNoReturn() and node_tags[body_node] != .empty) {
             assert(i > 0);
             try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
                 try gz.astgen.errNoteNode(args[i - 1], "control flow is diverted here", .{}),
@@ -1432,6 +1506,8 @@ fn whileStatement(
     full_call: Ast.full.Call,
 ) InnerError!Result {
     const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
 
     assert(full_call.args.len > 1);
@@ -1457,7 +1533,7 @@ fn whileStatement(
 
     const args = full_call.args[1..];
     for (args, 0..) |body_node, i| {
-        if (body_gz.endsWithNoReturn()) {
+        if (body_gz.endsWithNoReturn() and node_tags[body_node] != .empty) {
             assert(i > 0);
             try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
                 try gz.astgen.errNoteNode(args[i - 1], "control flow is diverted here", .{}),
@@ -1554,16 +1630,34 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
         inline .colon, .colon_colon => |t| {
             if (node_datas[src_node].rhs == 0) return astgen.failNode(src_node, "binary TODO", .{});
             const ident_node = tree.unwrapGroupedExpr(node_datas[src_node].lhs);
-            if (node_tags[ident_node] != .identifier) return astgen.failNode(src_node, "{}", .{node_tags[ident_node]});
-            return assign(
-                gz,
-                scope,
-                src_node,
-                op_node,
-                ident_node,
-                node_datas[src_node].rhs,
-                t == .colon_colon,
-            );
+            switch (node_tags[ident_node]) {
+                .identifier => return assign(
+                    gz,
+                    scope,
+                    src_node,
+                    op_node,
+                    ident_node,
+                    node_datas[src_node].rhs,
+                    t == .colon_colon,
+                ),
+                // TODO: Needs more work - result location?
+                .call => {
+                    const full_call = tree.fullCall(ident_node);
+                    switch (node_tags[full_call.func]) {
+                        .identifier => return assign(
+                            gz,
+                            scope,
+                            src_node,
+                            op_node,
+                            full_call.func,
+                            node_datas[src_node].rhs,
+                            t == .colon_colon,
+                        ),
+                        else => return astgen.failNode(src_node, "{}", .{node_tags[full_call.func]}),
+                    }
+                },
+                else => return astgen.failNode(src_node, "{}", .{node_tags[ident_node]}),
+            }
         },
 
         .plus, .plus_colon => {},
@@ -1822,70 +1916,34 @@ fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     return gz.addStrTok(.builtin, builtin_name, builtin_token);
 }
 
-fn cond(gz: *GenZir, parent_scope: *Scope, full_call: Ast.full.Call) InnerError!Result {
-    const astgen = gz.astgen;
-    var scope = parent_scope;
+fn select(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    _ = node; // autofix
+    _ = gz; // autofix
+    return .{ .nyi, scope };
+}
 
-    assert(full_call.args.len > 2);
+fn exec(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    _ = node; // autofix
+    _ = gz; // autofix
+    return .{ .nyi, scope };
+}
 
-    const condition, scope = try expr(gz, scope, full_call.args[0]);
-    _ = condition; // autofix
+fn update(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    _ = node; // autofix
+    _ = gz; // autofix
+    return .{ .nyi, scope };
+}
 
-    // q)$[a;a:1b;a]
-    // 'a
-    //   [0]  $[a;a:1b;a]
-    //          ^
+fn deleteRows(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    _ = node; // autofix
+    _ = gz; // autofix
+    return .{ .nyi, scope };
+}
 
-    // q)$[a;a;a:1b]
-    // 'a
-    //   [0]  $[a;a;a:1b]
-    //          ^
-
-    // q)$[1b;a:1b;a]
-    // 1b
-
-    // q)$[1b;a;a:1b]
-    // 'a
-    //   [0]  $[1b;a;a:1b]
-    //             ^
-
-    // q)$[0b;a:1b;a]
-    // 'a
-    //   [0]  $[0b;a:1b;a]
-    //                  ^
-
-    // q)$[0b;a;a:1b]
-    // 1b
-
-    // TODO: https://kdblint.atlassian.net/browse/KLS-310
-
-    const prev_scope = scope;
-
-    const args = full_call.args[1..];
-    for (args[0 .. args.len - 1]) |arg| {
-        _, scope = try expr(gz, scope, arg);
-    }
-    const inst, scope = try expr(gz, scope, args[args.len - 1]);
-
-    var temp_scope = scope;
-    while (temp_scope != prev_scope) switch (temp_scope.tag) {
-        .local_val => {
-            const local_val = temp_scope.cast(Scope.LocalVal).?;
-            if (local_val.id_cat == .@"local variable") {
-                try astgen.appendErrorTokNotes(
-                    local_val.token_src,
-                    "conditionally declared {s}",
-                    .{@tagName(local_val.id_cat)},
-                    &.{},
-                    .warn,
-                );
-            }
-            temp_scope = local_val.parent;
-        },
-        else => temp_scope = temp_scope.parent().?,
-    };
-
-    return .{ inst, scope };
+fn deleteCols(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    _ = node; // autofix
+    _ = gz; // autofix
+    return .{ .nyi, scope };
 }
 
 const ScanArgs = struct {
