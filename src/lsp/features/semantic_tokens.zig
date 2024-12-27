@@ -314,7 +314,10 @@ const Builder = struct {
             .slash_colon,
             .backslash,
             .backslash_colon,
-            => try builder.writeToken(main_token, .operator),
+            => {
+                try builder.writeNodeTokens(node_datas[node].lhs);
+                try builder.writeToken(main_token, .operator);
+            },
 
             .call => {
                 const call = tree.fullCall(node);
