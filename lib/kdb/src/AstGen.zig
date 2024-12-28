@@ -9,6 +9,7 @@ const kdb = @import("root.zig");
 const Ast = kdb.Ast;
 const Zir = kdb.Zir;
 const DocumentScope = kdb.DocumentScope;
+const NumberLiteral = kdb.NumberLiteral;
 
 const AstGen = @This();
 
@@ -1726,28 +1727,52 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
     assert(node_tags[node] == .number_literal);
 
-    return parseNumberLiteral(gz, num_token);
+    const type_hint = NumberLiteral.TypeHint.get(tree.tokenSlice(num_token)) catch return astgen.failNode(
+        node,
+        "Invalid number suffix",
+        .{},
+    );
+    return parseNumberLiteral(gz, num_token, type_hint);
 }
 
-fn parseNumberLiteral(gz: *GenZir, token: Ast.Token.Index) InnerError!Zir.Inst.Ref {
+fn parseNumberLiteral(
+    gz: *GenZir,
+    token: Ast.Token.Index,
+    type_hint: NumberLiteral.TypeHint,
+) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.context.tree;
     const bytes = tree.tokenSlice(token);
+    const slice = if (false) bytes[0 .. bytes.len - 1] else bytes;
 
     return switch (bytes[0]) {
-        '-' => switch (kdb.parseNumberLiteral(bytes[1..])) {
+        '-' => switch (NumberLiteral.parse(slice[1..], type_hint)) {
+            .bool => unreachable,
+            .byte => unreachable,
+            .short => unreachable,
+            .int => unreachable,
             .long => |num| switch (num) {
                 1 => .negative_one,
                 else => gz.addLong(-num),
             },
+            .real => unreachable,
+            .float => unreachable,
+            .char => unreachable,
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
-        else => switch (kdb.parseNumberLiteral(bytes)) {
+        else => switch (NumberLiteral.parse(slice, type_hint)) {
+            .bool => unreachable,
+            .byte => unreachable,
+            .short => unreachable,
+            .int => unreachable,
             .long => |num| switch (num) {
                 0 => .zero,
                 1 => .one,
                 else => gz.addLong(num),
             },
+            .real => unreachable,
+            .float => unreachable,
+            .char => unreachable,
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
     };
@@ -1755,7 +1780,7 @@ fn parseNumberLiteral(gz: *GenZir, token: Ast.Token.Index) InnerError!Zir.Inst.R
 
 fn failWithNumberError(
     astgen: *AstGen,
-    err: kdb.number_literal.Error,
+    err: NumberLiteral.Error,
     token: Ast.Token.Index,
     bytes: []const u8,
 ) InnerError {
@@ -1782,9 +1807,15 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
     const len = last_token - first_token + 1;
     try astgen.scratch.ensureUnusedCapacity(gpa, len);
 
+    const type_hint = NumberLiteral.TypeHint.get(tree.tokenSlice(last_token)) catch return astgen.failNode(
+        node,
+        "Invalid number suffix",
+        .{},
+    );
+
     var i: u32 = first_token;
     while (i <= last_token) : (i += 1) {
-        const ref = try parseNumberLiteral(gz, i);
+        const ref = try parseNumberLiteral(gz, i, type_hint);
         astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
     }
 
