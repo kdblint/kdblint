@@ -13,8 +13,14 @@ pub const Result = union(enum) {
     failure: Error,
 };
 
-pub const Error = union(enum) {
+pub const Error = enum {
     nyi,
+    invalid_type,
+    invalid_character,
+    overflow,
+    prefer_short_inf,
+    prefer_int_inf,
+    prefer_long_inf,
 };
 
 pub const TypeHint = enum {
@@ -77,19 +83,220 @@ pub const TypeHint = enum {
     }
 };
 
-pub fn parse(bytes: []const u8, type_hint: TypeHint) Result {
+const null_short = -32768;
+const inf_short = 32767;
+
+const null_int = -2147483648;
+const inf_int = 2147483647;
+
+const null_long = -9223372036854775808;
+const inf_long = 9223372036854775807;
+
+pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result {
     switch (type_hint) {
-        .none => {},
-        else => return .{ .failure = .nyi },
-    }
-    const result = std.zig.parseNumberLiteral(bytes);
-    switch (result) {
-        .int => |v| return .{ .long = @intCast(v) },
-        else => return .{ .failure = .nyi },
+        .none => return parseNone(bytes, allow_suffix),
+        .bool => return .{ .failure = .nyi },
+        .guid => return .{ .failure = .nyi },
+        .byte => return .{ .failure = .nyi },
+        .short => return parseShort(bytes, allow_suffix),
+        .int => return parseInt(bytes, allow_suffix),
+        .long => return parseLong(bytes, allow_suffix),
+        .real => return .{ .failure = .nyi },
+        .float => return .{ .failure = .nyi },
+        .char => return .{ .failure = .nyi },
+        .timestamp => return .{ .failure = .nyi },
+        .month => return .{ .failure = .nyi },
+        .date => return .{ .failure = .nyi },
+        .datetime => return .{ .failure = .nyi },
+        .timespan => return .{ .failure = .nyi },
+        .minute => return .{ .failure = .nyi },
+        .second => return .{ .failure = .nyi },
+        .time => return .{ .failure = .nyi },
+        .real_or_float => return .{ .failure = .nyi },
     }
 }
 
-test "longs" {
-    // parse("0 1 2j", .long);
-    // parse("0 1 2", .none);
+fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
+    if (allow_suffix) {
+        return switch (std.zig.parseNumberLiteral(bytes)) {
+            .int => |i| .{ .long = @intCast(i) },
+            else => .{ .failure = .nyi },
+        };
+    }
+
+    return switch (std.zig.parseNumberLiteral(bytes)) {
+        .int => |i| .{ .long = @intCast(i) },
+        else => .{ .failure = .nyi },
+    };
+}
+
+fn parseShort(bytes: []const u8, allow_suffix: bool) Result {
+    var i: usize = 0;
+    var x: i16 = 0;
+    while (i < bytes.len) : (i += 1) {
+        const c = bytes[i];
+        const digit = switch (c) {
+            '0'...'9' => c - '0',
+            'h' => if (allow_suffix and i == bytes.len - 1)
+                continue
+            else
+                return .{ .failure = .invalid_character },
+            else => return .{ .failure = .invalid_character },
+        };
+        if (x != 0) {
+            const res = @mulWithOverflow(x, 10);
+            if (res[1] != 0) return .{ .failure = .overflow };
+            x = res[0];
+        }
+        const res = @addWithOverflow(x, digit);
+        if (res[1] != 0) return .{ .failure = .overflow };
+        x = res[0];
+    }
+
+    if (x == inf_short or x == -inf_short) return .{ .failure = .prefer_short_inf };
+    if (x > inf_short or x < -inf_short) return .{ .failure = .overflow };
+
+    return .{ .short = x };
+}
+
+fn parseInt(bytes: []const u8, allow_suffix: bool) Result {
+    var i: usize = 0;
+    var x: i32 = 0;
+    while (i < bytes.len) : (i += 1) {
+        const c = bytes[i];
+        const digit = switch (c) {
+            '0'...'9' => c - '0',
+            'i' => if (allow_suffix and i == bytes.len - 1)
+                continue
+            else
+                return .{ .failure = .invalid_character },
+            else => return .{ .failure = .invalid_character },
+        };
+        if (x != 0) {
+            const res = @mulWithOverflow(x, 10);
+            if (res[1] != 0) return .{ .failure = .overflow };
+            x = res[0];
+        }
+        const res = @addWithOverflow(x, digit);
+        if (res[1] != 0) return .{ .failure = .overflow };
+        x = res[0];
+    }
+
+    if (x == inf_int or x == -inf_int) return .{ .failure = .prefer_int_inf };
+    if (x > inf_int or x < -inf_int) return .{ .failure = .overflow };
+
+    return .{ .int = x };
+}
+
+fn parseLong(bytes: []const u8, allow_suffix: bool) Result {
+    var i: usize = 0;
+    var x: i64 = 0;
+    while (i < bytes.len) : (i += 1) {
+        const c = bytes[i];
+        const digit = switch (c) {
+            '0'...'9' => c - '0',
+            'j' => if (allow_suffix and i == bytes.len - 1)
+                continue
+            else
+                return .{ .failure = .invalid_character },
+            else => return .{ .failure = .invalid_character },
+        };
+        if (x != 0) {
+            const res = @mulWithOverflow(x, 10);
+            if (res[1] != 0) return .{ .failure = .overflow };
+            x = res[0];
+        }
+        const res = @addWithOverflow(x, digit);
+        if (res[1] != 0) return .{ .failure = .overflow };
+        x = res[0];
+    }
+
+    if (x == inf_long or x == -inf_long) return .{ .failure = .prefer_long_inf };
+    if (x > inf_long or x < -inf_long) return .{ .failure = .overflow };
+
+    return .{ .long = x };
+}
+
+fn testParse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool, expected: Result) !void {
+    const result = parse(bytes, type_hint, allow_suffix);
+    try std.testing.expectEqual(expected, result);
+}
+
+const invalid_type: Result = .{ .failure = .invalid_type };
+const invalid_character: Result = .{ .failure = .invalid_character };
+
+test "parse number literal - short" {
+    try testParse("0", .short, false, .{ .short = 0 });
+    try testParse("1", .short, false, .{ .short = 1 });
+    try testParse("2", .short, false, .{ .short = 2 });
+    try testParse("0", .short, true, .{ .short = 0 });
+    try testParse("1", .short, true, .{ .short = 1 });
+    try testParse("2", .short, true, .{ .short = 2 });
+
+    try testParse("0h", .none, false, invalid_character);
+    try testParse("1h", .none, false, invalid_character);
+    try testParse("2h", .none, false, invalid_character);
+    try testParse("0h", .none, true, .{ .short = 0 });
+    try testParse("1h", .none, true, .{ .short = 1 });
+    try testParse("2h", .none, true, .{ .short = 2 });
+
+    try testParse("0h", .short, false, invalid_character);
+    try testParse("1h", .short, false, invalid_character);
+    try testParse("2h", .short, false, invalid_character);
+    try testParse("0h", .short, true, .{ .short = 0 });
+    try testParse("1h", .short, true, .{ .short = 1 });
+    try testParse("2h", .short, true, .{ .short = 2 });
+}
+
+test "parse number literal - int" {
+    try testParse("0", .int, false, .{ .int = 0 });
+    try testParse("1", .int, false, .{ .int = 1 });
+    try testParse("2", .int, false, .{ .int = 2 });
+    try testParse("0", .int, true, .{ .int = 0 });
+    try testParse("1", .int, true, .{ .int = 1 });
+    try testParse("2", .int, true, .{ .int = 2 });
+
+    try testParse("0i", .none, false, invalid_character);
+    try testParse("1i", .none, false, invalid_character);
+    try testParse("2i", .none, false, invalid_character);
+    try testParse("0i", .none, true, .{ .int = 0 });
+    try testParse("1i", .none, true, .{ .int = 1 });
+    try testParse("2i", .none, true, .{ .int = 2 });
+
+    try testParse("0i", .int, false, invalid_character);
+    try testParse("1i", .int, false, invalid_character);
+    try testParse("2i", .int, false, invalid_character);
+    try testParse("0i", .int, true, .{ .int = 0 });
+    try testParse("1i", .int, true, .{ .int = 1 });
+    try testParse("2i", .int, true, .{ .int = 2 });
+}
+
+test "parse number literal - long" {
+    try testParse("0", .none, false, .{ .long = 0 });
+    try testParse("1", .none, false, .{ .long = 1 });
+    try testParse("2", .none, false, .{ .long = 2 });
+    try testParse("0", .none, true, .{ .long = 0 });
+    try testParse("1", .none, true, .{ .long = 1 });
+    try testParse("2", .none, true, .{ .long = 2 });
+
+    try testParse("0", .long, false, .{ .long = 0 });
+    try testParse("1", .long, false, .{ .long = 1 });
+    try testParse("2", .long, false, .{ .long = 2 });
+    try testParse("0", .long, true, .{ .long = 0 });
+    try testParse("1", .long, true, .{ .long = 1 });
+    try testParse("2", .long, true, .{ .long = 2 });
+
+    try testParse("0j", .none, false, invalid_character);
+    try testParse("1j", .none, false, invalid_character);
+    try testParse("2j", .none, false, invalid_character);
+    try testParse("0j", .none, true, .{ .long = 0 });
+    try testParse("1j", .none, true, .{ .long = 1 });
+    try testParse("2j", .none, true, .{ .long = 2 });
+
+    try testParse("0j", .long, false, invalid_character);
+    try testParse("1j", .long, false, invalid_character);
+    try testParse("2j", .long, false, invalid_character);
+    try testParse("0j", .long, true, .{ .long = 0 });
+    try testParse("1j", .long, true, .{ .long = 1 });
+    try testParse("2j", .long, true, .{ .long = 2 });
 }
