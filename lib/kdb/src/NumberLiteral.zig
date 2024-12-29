@@ -226,76 +226,150 @@ const invalid_type: Result = .{ .failure = .invalid_type };
 const invalid_character: Result = .{ .failure = .invalid_character };
 
 test "parse number literal - short" {
-    try testParse("0", .short, false, .{ .short = 0 });
+    try testParse("0n", .short, false, .{ .short = null_short });
+    try testParse("0N", .short, false, .{ .short = null_short });
+    try testParse("0w", .short, false, .{ .short = inf_short });
+    try testParse("0W", .short, false, .{ .short = inf_short });
     try testParse("1", .short, false, .{ .short = 1 });
     try testParse("2", .short, false, .{ .short = 2 });
+    try testParse("0n", .short, true, .{ .short = null_short });
+    try testParse("0N", .short, true, .{ .short = null_short });
+    try testParse("0w", .short, true, .{ .short = inf_short });
+    try testParse("0W", .short, true, .{ .short = inf_short });
     try testParse("0", .short, true, .{ .short = 0 });
     try testParse("1", .short, true, .{ .short = 1 });
     try testParse("2", .short, true, .{ .short = 2 });
 
+    try testParse("0nh", .none, false, invalid_character);
+    try testParse("0Nh", .none, false, invalid_character);
+    try testParse("0wh", .none, false, invalid_character);
+    try testParse("0Wh", .none, false, invalid_character);
     try testParse("0h", .none, false, invalid_character);
     try testParse("1h", .none, false, invalid_character);
     try testParse("2h", .none, false, invalid_character);
+    try testParse("0nh", .none, true, .{ .short = null_short });
+    try testParse("0Nh", .none, true, .{ .short = null_short });
+    try testParse("0wh", .none, true, .{ .short = inf_short });
+    try testParse("0Wh", .none, true, .{ .short = inf_short });
     try testParse("0h", .none, true, .{ .short = 0 });
     try testParse("1h", .none, true, .{ .short = 1 });
     try testParse("2h", .none, true, .{ .short = 2 });
 
+    try testParse("0nh", .short, false, invalid_character);
+    try testParse("0Nh", .short, false, invalid_character);
+    try testParse("0wh", .short, false, invalid_character);
+    try testParse("0Wh", .short, false, invalid_character);
     try testParse("0h", .short, false, invalid_character);
     try testParse("1h", .short, false, invalid_character);
     try testParse("2h", .short, false, invalid_character);
+    try testParse("0nh", .short, true, .{ .short = null_short });
+    try testParse("0Nh", .short, true, .{ .short = null_short });
+    try testParse("0wh", .short, true, .{ .short = inf_short });
+    try testParse("0Wh", .short, true, .{ .short = inf_short });
     try testParse("0h", .short, true, .{ .short = 0 });
     try testParse("1h", .short, true, .{ .short = 1 });
     try testParse("2h", .short, true, .{ .short = 2 });
 }
 
 test "parse number literal - int" {
-    try testParse("0", .int, false, .{ .int = 0 });
+    try testParse("0n", .int, false, .{ .int = null_int });
+    try testParse("0N", .int, false, .{ .int = null_int });
+    try testParse("0w", .int, false, .{ .int = inf_int });
+    try testParse("0W", .int, false, .{ .int = inf_int });
     try testParse("1", .int, false, .{ .int = 1 });
     try testParse("2", .int, false, .{ .int = 2 });
+    try testParse("0n", .int, true, .{ .int = null_int });
+    try testParse("0N", .int, true, .{ .int = null_int });
+    try testParse("0w", .int, true, .{ .int = inf_int });
+    try testParse("0W", .int, true, .{ .int = inf_int });
     try testParse("0", .int, true, .{ .int = 0 });
     try testParse("1", .int, true, .{ .int = 1 });
     try testParse("2", .int, true, .{ .int = 2 });
 
+    try testParse("0ni", .none, false, invalid_character);
+    try testParse("0Ni", .none, false, invalid_character);
+    try testParse("0wi", .none, false, invalid_character);
+    try testParse("0Wi", .none, false, invalid_character);
     try testParse("0i", .none, false, invalid_character);
     try testParse("1i", .none, false, invalid_character);
     try testParse("2i", .none, false, invalid_character);
+    try testParse("0ni", .none, true, .{ .int = null_int });
+    try testParse("0Ni", .none, true, .{ .int = null_int });
+    try testParse("0wi", .none, true, .{ .int = inf_int });
+    try testParse("0Wi", .none, true, .{ .int = inf_int });
     try testParse("0i", .none, true, .{ .int = 0 });
     try testParse("1i", .none, true, .{ .int = 1 });
     try testParse("2i", .none, true, .{ .int = 2 });
 
+    try testParse("0ni", .int, false, invalid_character);
+    try testParse("0Ni", .int, false, invalid_character);
+    try testParse("0wi", .int, false, invalid_character);
+    try testParse("0Wi", .int, false, invalid_character);
     try testParse("0i", .int, false, invalid_character);
     try testParse("1i", .int, false, invalid_character);
     try testParse("2i", .int, false, invalid_character);
+    try testParse("0ni", .int, true, .{ .int = null_int });
+    try testParse("0Ni", .int, true, .{ .int = null_int });
+    try testParse("0wi", .int, true, .{ .int = inf_int });
+    try testParse("0Wi", .int, true, .{ .int = inf_int });
     try testParse("0i", .int, true, .{ .int = 0 });
     try testParse("1i", .int, true, .{ .int = 1 });
     try testParse("2i", .int, true, .{ .int = 2 });
 }
 
 test "parse number literal - long" {
+    try testParse("0N", .none, false, .{ .long = null_long });
+    try testParse("0W", .none, false, .{ .long = inf_long });
     try testParse("0", .none, false, .{ .long = 0 });
     try testParse("1", .none, false, .{ .long = 1 });
     try testParse("2", .none, false, .{ .long = 2 });
+    try testParse("0N", .none, true, .{ .long = null_long });
+    try testParse("0W", .none, true, .{ .long = inf_long });
     try testParse("0", .none, true, .{ .long = 0 });
     try testParse("1", .none, true, .{ .long = 1 });
     try testParse("2", .none, true, .{ .long = 2 });
 
+    try testParse("0n", .long, false, .{ .long = null_long });
+    try testParse("0N", .long, false, .{ .long = null_long });
+    try testParse("0w", .long, false, .{ .long = inf_long });
+    try testParse("0W", .long, false, .{ .long = inf_long });
     try testParse("0", .long, false, .{ .long = 0 });
     try testParse("1", .long, false, .{ .long = 1 });
     try testParse("2", .long, false, .{ .long = 2 });
+    try testParse("0n", .long, true, .{ .long = null_long });
+    try testParse("0N", .long, true, .{ .long = null_long });
+    try testParse("0w", .long, true, .{ .long = inf_long });
+    try testParse("0W", .long, true, .{ .long = inf_long });
     try testParse("0", .long, true, .{ .long = 0 });
     try testParse("1", .long, true, .{ .long = 1 });
     try testParse("2", .long, true, .{ .long = 2 });
 
+    try testParse("0nj", .none, false, invalid_character);
+    try testParse("0Nj", .none, false, invalid_character);
+    try testParse("0wj", .none, false, invalid_character);
+    try testParse("0Wj", .none, false, invalid_character);
     try testParse("0j", .none, false, invalid_character);
     try testParse("1j", .none, false, invalid_character);
     try testParse("2j", .none, false, invalid_character);
+    try testParse("0nj", .none, true, .{ .long = null_long });
+    try testParse("0Nj", .none, true, .{ .long = null_long });
+    try testParse("0wj", .none, true, .{ .long = inf_long });
+    try testParse("0Wj", .none, true, .{ .long = inf_long });
     try testParse("0j", .none, true, .{ .long = 0 });
     try testParse("1j", .none, true, .{ .long = 1 });
     try testParse("2j", .none, true, .{ .long = 2 });
 
+    try testParse("0nj", .long, false, invalid_character);
+    try testParse("0Nj", .long, false, invalid_character);
+    try testParse("0wj", .long, false, invalid_character);
+    try testParse("0Wj", .long, false, invalid_character);
     try testParse("0j", .long, false, invalid_character);
     try testParse("1j", .long, false, invalid_character);
     try testParse("2j", .long, false, invalid_character);
+    try testParse("0nj", .long, true, .{ .long = null_long });
+    try testParse("0Nj", .long, true, .{ .long = null_long });
+    try testParse("0wj", .long, true, .{ .long = inf_long });
+    try testParse("0Wj", .long, true, .{ .long = inf_long });
     try testParse("0j", .long, true, .{ .long = 0 });
     try testParse("1j", .long, true, .{ .long = 1 });
     try testParse("2j", .long, true, .{ .long = 2 });
