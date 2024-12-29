@@ -1732,13 +1732,14 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
         "Invalid number suffix",
         .{},
     );
-    return parseNumberLiteral(gz, num_token, type_hint);
+    return parseNumberLiteral(gz, num_token, type_hint, true);
 }
 
 fn parseNumberLiteral(
     gz: *GenZir,
     token: Ast.Token.Index,
     type_hint: NumberLiteral.TypeHint,
+    allow_suffix: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.context.tree;
@@ -1746,7 +1747,7 @@ fn parseNumberLiteral(
     const slice = if (false) bytes[0 .. bytes.len - 1] else bytes;
 
     return switch (bytes[0]) {
-        '-' => switch (NumberLiteral.parse(slice[1..], type_hint)) {
+        '-' => switch (NumberLiteral.parse(slice[1..], type_hint, allow_suffix)) {
             .bool => unreachable,
             .byte => unreachable,
             .short => unreachable,
@@ -1760,7 +1761,7 @@ fn parseNumberLiteral(
             .char => unreachable,
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
-        else => switch (NumberLiteral.parse(slice, type_hint)) {
+        else => switch (NumberLiteral.parse(slice, type_hint, allow_suffix)) {
             .bool => unreachable,
             .byte => unreachable,
             .short => unreachable,
@@ -1786,6 +1787,12 @@ fn failWithNumberError(
 ) InnerError {
     switch (err) {
         .nyi => return astgen.failTok(token, "nyi: '{s}'", .{bytes}),
+        .invalid_type => return astgen.failTok(token, "invalid type", .{}),
+        .invalid_character => return astgen.failTok(token, "invalid character", .{}),
+        .overflow => return astgen.failTok(token, "overflow", .{}),
+        .prefer_short_inf => return astgen.failTok(token, "prefer 0Wh/-0Wh", .{}),
+        .prefer_int_inf => return astgen.failTok(token, "prefer 0Wi/-0Wi", .{}),
+        .prefer_long_inf => return astgen.failTok(token, "prefer 0W/-0W", .{}),
     }
 }
 
@@ -1812,12 +1819,16 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
         "Invalid number suffix",
         .{},
     );
+    assert(type_hint != .none); // NYI
+    assert(type_hint != .real_or_float); // NYI
 
     var i: u32 = first_token;
-    while (i <= last_token) : (i += 1) {
-        const ref = try parseNumberLiteral(gz, i, type_hint);
+    while (i < last_token) : (i += 1) {
+        const ref = try parseNumberLiteral(gz, i, type_hint, false);
         astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
     }
+    const ref = try parseNumberLiteral(gz, i, type_hint, true);
+    astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
 
     const list = astgen.scratch.items[scratch_top..];
     assert(list.len == len);
