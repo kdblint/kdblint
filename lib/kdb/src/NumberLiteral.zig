@@ -4,15 +4,45 @@ const assert = std.debug.assert;
 const Base = enum(u8) { decimal = 10, hex = 16, binary = 2, octal = 8 };
 const FloatBase = enum(u8) { decimal = 10, hex = 16 };
 
-pub const Result = union(enum) {
+const Type = enum {
+    bool,
+    guid,
+    byte,
+    short,
+    int,
+    long,
+    real,
+    float,
+    char,
+    timestamp,
+    month,
+    date,
+    datetime,
+    timespan,
+    minute,
+    second,
+    time,
+    failure,
+};
+
+pub const Result = union(Type) {
     bool: bool,
+    guid,
     byte: u8,
     short: i16,
     int: i32,
     long: i64,
-    real: f32,
-    float: f64,
+    real,
+    float,
     char: u8,
+    timestamp: i64,
+    month: i32,
+    date: i32,
+    datetime,
+    timespan: i64,
+    minute: i32,
+    second: i32,
+    time: i32,
     failure: Error,
 };
 
@@ -23,10 +53,6 @@ pub const Error = union(enum) {
     prefer_int_inf,
     prefer_long_inf,
 
-    /// The number has leading zeroes.
-    leading_zero,
-    /// Expected a digit after base prefix.
-    digit_after_base,
     /// The base prefix is in uppercase.
     upper_case_base: usize,
     /// Float literal has an invalid base prefix.
@@ -82,17 +108,11 @@ pub const TypeHint = enum {
     real_or_float,
 
     pub fn get(slice: []const u8) error{InvalidSuffix}!TypeHint {
-        switch (slice.len) {
-            2 => switch (slice[0]) {
-                '0' => switch (slice[1]) {
-                    'N', 'n' => return .none,
-                    'x' => return .byte,
-                    else => {},
-                },
-                else => {},
-            },
+        if (slice.len == 2 and slice[0] == '0') switch (slice[1]) {
+            'N', 'W', 'n', 'w' => return .none,
+            'x' => return .byte,
             else => {},
-        }
+        };
         return if (std.mem.startsWith(u8, slice, "0x"))
             .byte // TODO: This is maybe indexing: 0 1 2 0x0001000001 => 0 1 0 0 1
         else switch (slice[slice.len - 1]) {
@@ -118,6 +138,8 @@ pub const TypeHint = enum {
         };
     }
 };
+
+const null_char = ' ';
 
 const null_short = -32768;
 const inf_short = 32767;
@@ -153,6 +175,52 @@ pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result 
 }
 
 fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N' => return .{ .long = null_long },
+        'n' => return .float,
+        'W' => return .{ .long = inf_long },
+        'w' => return .float,
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'c' => .{ .char = null_char },
+            'd' => .{ .date = null_int },
+            'e' => .real,
+            'f' => .float,
+            'g' => .guid,
+            'h' => .{ .short = null_short },
+            'i' => .{ .int = null_int },
+            'j' => .{ .long = null_long },
+            'm' => .{ .month = null_int },
+            'n' => .{ .timespan = null_long },
+            'p' => .{ .timestamp = null_long },
+            't' => .{ .time = null_int },
+            'u' => .{ .minute = null_int },
+            'v' => .{ .second = null_int },
+            'z' => .datetime,
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'c' => .{ .char = null_char },
+            'd' => .{ .date = inf_int },
+            'e' => .real,
+            'f' => .float,
+            'g' => .guid,
+            'h' => .{ .short = inf_short },
+            'i' => .{ .int = inf_int },
+            'j' => .{ .long = inf_long },
+            'm' => .{ .month = inf_int },
+            'n' => .{ .timespan = inf_long },
+            'p' => .{ .timestamp = inf_long },
+            't' => .{ .time = inf_int },
+            'u' => .{ .minute = inf_int },
+            'v' => .{ .second = inf_int },
+            'z' => .datetime,
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
     var i: usize = 0;
     var base: u8 = 10;
     if (bytes.len >= 2 and bytes[0] == '0') switch (bytes[1]) {
@@ -162,33 +230,8 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
         },
         'X' => return .{ .failure = .{ .upper_case_base = 1 } },
         '.', 'e', 'E' => {},
-        'n' => unreachable,
-        'N' => switch (allow_suffix) {
-            true => unreachable,
-            false => switch (bytes.len) {
-                0, 1 => unreachable,
-                2 => return .{ .long = null_long },
-                else => switch (bytes[2]) {
-                    '0'...'9' => return .{ .failure = .{ .invalid_character = 1 } },
-                    else => return .{ .failure = .{ .invalid_character = 2 } },
-                },
-            },
-        },
-        'w' => unreachable,
-        'W' => switch (allow_suffix) {
-            true => unreachable,
-            false => switch (bytes.len) {
-                0, 1 => unreachable,
-                2 => return .{ .long = inf_long },
-                else => switch (bytes[2]) {
-                    '0'...'9' => return .{ .failure = .{ .invalid_character = 1 } },
-                    else => return .{ .failure = .{ .invalid_character = 2 } },
-                },
-            },
-        },
-        else => return .{ .failure = .leading_zero },
+        else => {},
     };
-    if (bytes.len == 2 and base != 10) return .{ .failure = .digit_after_base };
 
     var x: u32 = 0;
     var underscore = false;
@@ -196,6 +239,7 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
     var special: u8 = 0;
     var exponent = false;
     var float = false;
+    var return_type: ?Type = null;
     while (i < bytes.len) : (i += 1) {
         const c = bytes[i];
         switch (c) {
@@ -215,9 +259,6 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
                 continue;
             },
             'p', 'P' => if (base == 16) {
-                if (i == 2) {
-                    return .{ .failure = .{ .digit_after_base = {} } };
-                }
                 float = true;
                 if (exponent) return .{ .failure = .{ .duplicate_exponent = i } };
                 if (underscore) return .{ .failure = .{ .exponent_after_underscore = i } };
@@ -260,7 +301,35 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
             'a'...'z' => c - 'a' + 10,
             else => return .{ .failure = .{ .invalid_character = i } },
         };
-        if (digit >= base) return .{ .failure = .{ .invalid_digit = .{ .i = i, .base = @as(Base, @enumFromInt(base)) } } };
+        if (digit >= base) {
+            if (allow_suffix and i == bytes.len - 1) {
+                switch (c) {
+                    'c' => return_type = .char,
+                    'd' => return_type = .date,
+                    'e' => return_type = .real,
+                    'f' => return_type = .float,
+                    'g' => return_type = .guid,
+                    'h' => return_type = .short,
+                    'i' => return_type = .int,
+                    'j' => return_type = .long,
+                    'm' => return_type = .month,
+                    'n' => return_type = .timespan,
+                    'p' => return_type = .timestamp,
+                    't' => return_type = .time,
+                    'u' => return_type = .minute,
+                    'v' => return_type = .second,
+                    'z' => return_type = .datetime,
+                    else => return .{ .failure = .{
+                        .invalid_digit = .{ .i = i, .base = @enumFromInt(base) },
+                    } },
+                }
+                continue;
+            }
+
+            return .{ .failure = .{
+                .invalid_digit = .{ .i = i, .base = @enumFromInt(base) },
+            } };
+        }
         if (exponent and digit >= 10) return .{ .failure = .{ .invalid_digit_exponent = i } };
         underscore = false;
         special = 0;
@@ -278,11 +347,92 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
     if (underscore) return .{ .failure = .{ .trailing_underscore = bytes.len - 1 } };
     if (special != 0) return .{ .failure = .{ .trailing_special = bytes.len - 1 } };
 
-    // if (float) return .{ .float = @as(FloatBase, @enumFromInt(base)) };
-    return .{ .long = @intCast(x) };
+    if (return_type) |rt| switch (rt) {
+        .bool => {
+            return .{ .bool = false };
+        },
+        .guid => {
+            return .{ .bool = false };
+        },
+        .byte => {
+            return .{ .bool = false };
+        },
+        .short => {
+            if (x == inf_short) return .{ .failure = .prefer_short_inf };
+            if (x > inf_short) return .{ .failure = .overflow };
+
+            return .{ .short = @intCast(x) };
+        },
+        .int => {
+            if (x == inf_int) return .{ .failure = .prefer_int_inf };
+            if (x > inf_int) return .{ .failure = .overflow };
+
+            return .{ .int = @intCast(x) };
+        },
+        .long => {
+            if (x == inf_long) return .{ .failure = .prefer_long_inf };
+            if (x > inf_long) return .{ .failure = .overflow };
+
+            return .{ .long = x };
+        },
+        .real => {
+            return .{ .bool = false };
+        },
+        .float => {
+            return .{ .bool = false };
+        },
+        .char => {
+            return .{ .bool = false };
+        },
+        .timestamp => {
+            return .{ .bool = false };
+        },
+        .month => {
+            return .{ .bool = false };
+        },
+        .date => {
+            return .{ .bool = false };
+        },
+        .datetime => {
+            return .{ .bool = false };
+        },
+        .timespan => {
+            return .{ .bool = false };
+        },
+        .minute => {
+            return .{ .bool = false };
+        },
+        .second => {
+            return .{ .bool = false };
+        },
+        .time => {
+            return .{ .bool = false };
+        },
+        .failure => unreachable,
+    } else {
+        if (float) return .float;
+        return .{ .long = @intCast(x) };
+    }
 }
 
 fn parseShort(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .short = null_short },
+        'W', 'w' => return .{ .short = inf_short },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'h' => .{ .short = null_short },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'h' => .{ .short = inf_short },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
     var i: usize = 0;
     var x: i16 = 0;
     while (i < bytes.len) : (i += 1) {
@@ -305,13 +455,30 @@ fn parseShort(bytes: []const u8, allow_suffix: bool) Result {
         x = res[0];
     }
 
-    if (x == inf_short or x == -inf_short) return .{ .failure = .prefer_short_inf };
-    if (x > inf_short or x < -inf_short) return .{ .failure = .overflow };
+    if (x == inf_short) return .{ .failure = .prefer_short_inf };
+    if (x > inf_short) return .{ .failure = .overflow };
 
     return .{ .short = x };
 }
 
 fn parseInt(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .int = null_int },
+        'W', 'w' => return .{ .int = inf_int },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'i' => .{ .int = null_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'i' => .{ .int = inf_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
     var i: usize = 0;
     var x: i32 = 0;
     while (i < bytes.len) : (i += 1) {
@@ -334,13 +501,30 @@ fn parseInt(bytes: []const u8, allow_suffix: bool) Result {
         x = res[0];
     }
 
-    if (x == inf_int or x == -inf_int) return .{ .failure = .prefer_int_inf };
-    if (x > inf_int or x < -inf_int) return .{ .failure = .overflow };
+    if (x == inf_int) return .{ .failure = .prefer_int_inf };
+    if (x > inf_int) return .{ .failure = .overflow };
 
     return .{ .int = x };
 }
 
 fn parseLong(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .long = null_long },
+        'W', 'w' => return .{ .long = inf_long },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'j' => .{ .long = null_long },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'j' => .{ .long = inf_long },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
     var i: usize = 0;
     var x: i64 = 0;
     while (i < bytes.len) : (i += 1) {
@@ -363,8 +547,8 @@ fn parseLong(bytes: []const u8, allow_suffix: bool) Result {
         x = res[0];
     }
 
-    if (x == inf_long or x == -inf_long) return .{ .failure = .prefer_long_inf };
-    if (x > inf_long or x < -inf_long) return .{ .failure = .overflow };
+    if (x == inf_long) return .{ .failure = .prefer_long_inf };
+    if (x > inf_long) return .{ .failure = .overflow };
 
     return .{ .long = x };
 }
@@ -377,6 +561,11 @@ fn testParse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool, expecte
 const invalid_type: Result = .{ .failure = .invalid_type };
 fn invalidCharacter(i: usize) Result {
     return .{ .failure = .{ .invalid_character = i } };
+}
+fn invalidDigit(i: usize) Result {
+    return .{ .failure = .{
+        .invalid_digit = .{ .i = i, .base = @enumFromInt(10) },
+    } };
 }
 
 test "parse number literal - short" {
@@ -398,9 +587,9 @@ test "parse number literal - short" {
     try testParse("0Nh", .none, false, invalidCharacter(2));
     try testParse("0wh", .none, false, invalidCharacter(2));
     try testParse("0Wh", .none, false, invalidCharacter(2));
-    try testParse("0h", .none, false, invalidCharacter(1));
-    try testParse("1h", .none, false, invalidCharacter(1));
-    try testParse("2h", .none, false, invalidCharacter(1));
+    try testParse("0h", .none, false, invalidDigit(1));
+    try testParse("1h", .none, false, invalidDigit(1));
+    try testParse("2h", .none, false, invalidDigit(1));
     try testParse("0nh", .none, true, .{ .short = null_short });
     try testParse("0Nh", .none, true, .{ .short = null_short });
     try testParse("0wh", .none, true, .{ .short = inf_short });
@@ -444,9 +633,9 @@ test "parse number literal - int" {
     try testParse("0Ni", .none, false, invalidCharacter(2));
     try testParse("0wi", .none, false, invalidCharacter(2));
     try testParse("0Wi", .none, false, invalidCharacter(2));
-    try testParse("0i", .none, false, invalidCharacter(1));
-    try testParse("1i", .none, false, invalidCharacter(1));
-    try testParse("2i", .none, false, invalidCharacter(1));
+    try testParse("0i", .none, false, invalidDigit(1));
+    try testParse("1i", .none, false, invalidDigit(1));
+    try testParse("2i", .none, false, invalidDigit(1));
     try testParse("0ni", .none, true, .{ .int = null_int });
     try testParse("0Ni", .none, true, .{ .int = null_int });
     try testParse("0wi", .none, true, .{ .int = inf_int });
@@ -502,9 +691,9 @@ test "parse number literal - long" {
     try testParse("0Nj", .none, false, invalidCharacter(2));
     try testParse("0wj", .none, false, invalidCharacter(2));
     try testParse("0Wj", .none, false, invalidCharacter(2));
-    try testParse("0j", .none, false, invalidCharacter(1));
-    try testParse("1j", .none, false, invalidCharacter(1));
-    try testParse("2j", .none, false, invalidCharacter(1));
+    try testParse("0j", .none, false, invalidDigit(1));
+    try testParse("1j", .none, false, invalidDigit(1));
+    try testParse("2j", .none, false, invalidDigit(1));
     try testParse("0nj", .none, true, .{ .long = null_long });
     try testParse("0Nj", .none, true, .{ .long = null_long });
     try testParse("0wj", .none, true, .{ .long = inf_long });

@@ -1744,11 +1744,11 @@ fn parseNumberLiteral(
     const astgen = gz.astgen;
     const tree = astgen.context.tree;
     const bytes = tree.tokenSlice(token);
-    const slice = if (false) bytes[0 .. bytes.len - 1] else bytes;
 
     return switch (bytes[0]) {
-        '-' => switch (NumberLiteral.parse(slice[1..], type_hint, allow_suffix)) {
+        '-' => switch (NumberLiteral.parse(bytes[1..], type_hint, allow_suffix)) {
             .bool => unreachable,
+            .guid => unreachable,
             .byte => unreachable,
             .short => unreachable,
             .int => unreachable,
@@ -1759,10 +1759,19 @@ fn parseNumberLiteral(
             .real => unreachable,
             .float => unreachable,
             .char => unreachable,
+            .timestamp => unreachable,
+            .month => unreachable,
+            .date => unreachable,
+            .datetime => unreachable,
+            .timespan => unreachable,
+            .minute => unreachable,
+            .second => unreachable,
+            .time => unreachable,
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
-        else => switch (NumberLiteral.parse(slice, type_hint, allow_suffix)) {
+        else => switch (NumberLiteral.parse(bytes, type_hint, allow_suffix)) {
             .bool => unreachable,
+            .guid => unreachable,
             .byte => unreachable,
             .short => unreachable,
             .int => unreachable,
@@ -1774,6 +1783,14 @@ fn parseNumberLiteral(
             .real => unreachable,
             .float => unreachable,
             .char => unreachable,
+            .timestamp => unreachable,
+            .month => unreachable,
+            .date => unreachable,
+            .datetime => unreachable,
+            .timespan => unreachable,
+            .minute => unreachable,
+            .second => unreachable,
+            .time => unreachable,
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
     };
@@ -1790,8 +1807,6 @@ fn failWithNumberError(
         .nyi => return astgen.failTok(token, "nyi", .{}),
         .overflow => return astgen.failTok(token, "overflow", .{}),
 
-        .leading_zero => return astgen.failTok(token, "leading_zero", .{}),
-        .digit_after_base => return astgen.failTok(token, "digit_after_base", .{}),
         .upper_case_base => return astgen.failTok(token, "upper_case_base", .{}),
         .invalid_float_base => return astgen.failTok(token, "invalid_float_base", .{}),
         .repeated_underscore => return astgen.failTok(token, "repeated_underscore", .{}),
@@ -1839,8 +1854,9 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
         "Invalid number suffix",
         .{},
     );
-    assert(type_hint != .none); // NYI
     assert(type_hint != .real_or_float); // NYI
+
+    // TODO: Backtrack and change number list types.
 
     var i: u32 = first_token;
     while (i < last_token) : (i += 1) {
