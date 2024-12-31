@@ -230,6 +230,12 @@ pub const Inst = struct {
         /// Boolean list literal.
         /// Uses the `pl_node` union field with payload `List`.
         bool_list,
+        /// Integer literal that fits in a u8.
+        /// Uses the `byte` union field.
+        byte,
+        /// Integer list literal that fits in a u8.
+        /// Uses the `pl_node` union field with payload `List`.
+        byte_list,
         /// Integer literal that fits in an i16.
         /// Uses the `short` union field.
         short,
@@ -317,6 +323,8 @@ pub const Inst = struct {
                 .@"if",
                 .@"while",
                 .bool_list,
+                .byte,
+                .byte_list,
                 .short,
                 .short_list,
                 .int,
@@ -482,6 +490,7 @@ pub const Inst = struct {
         },
         /// Offset from Decl AST node index.
         node: i32,
+        byte: u8,
         short: i16,
         int: i32,
         long: i64,

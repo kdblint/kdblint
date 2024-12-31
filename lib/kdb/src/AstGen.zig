@@ -1750,7 +1750,18 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                     false,
                 )) {
                     .bool => |value| if (value) .true else .false,
-                    .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
+                    .failure => |err| switch (err) {
+                        .invalid_digit => |info| return astgen.failWithNumberError(.{
+                            .invalid_digit = .{
+                                .i = i + info.i,
+                                .base = info.base,
+                            },
+                        }, num_token, slice),
+                        .invalid_character => |j| return astgen.failWithNumberError(.{
+                            .invalid_character = i + j,
+                        }, num_token, slice),
+                        else => return astgen.failWithNumberError(err, num_token, bytes),
+                    },
                     else => unreachable,
                 };
                 astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
@@ -1763,6 +1774,99 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
             });
             try astgen.extra.appendSlice(gpa, list);
             return bool_list;
+        },
+        .byte => {
+            const scratch_top = astgen.scratch.items.len;
+            defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
+
+            const slice = tree.tokenSlice(num_token);
+            const len = ((slice.len - 2) + (slice.len - 2) % 2) / 2;
+            try astgen.scratch.ensureUnusedCapacity(gpa, len);
+
+            if ((slice.len - 2) % 2 == 0) {
+                for (0..len) |i| {
+                    const bytes = slice[2..][(i * 2) .. (i * 2) + 2];
+                    const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
+                        bytes,
+                        .byte,
+                        false,
+                    )) {
+                        .byte => |value| try gz.addByte(value),
+                        .failure => |err| switch (err) {
+                            .invalid_digit => |info| return astgen.failWithNumberError(.{
+                                .invalid_digit = .{
+                                    .i = 2 + i * 2 + info.i,
+                                    .base = info.base,
+                                },
+                            }, num_token, slice),
+                            .invalid_character => |j| return astgen.failWithNumberError(.{
+                                .invalid_character = 2 + i * 2 + j,
+                            }, num_token, slice),
+                            else => return astgen.failWithNumberError(err, num_token, bytes),
+                        },
+                        else => unreachable,
+                    };
+                    astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+                }
+            } else {
+                {
+                    const bytes = slice[2..][0..1];
+                    const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
+                        bytes,
+                        .byte,
+                        false,
+                    )) {
+                        .byte => |value| try gz.addByte(value),
+                        .failure => |err| switch (err) {
+                            .invalid_digit => |info| return astgen.failWithNumberError(.{
+                                .invalid_digit = .{
+                                    .i = 2 + info.i,
+                                    .base = info.base,
+                                },
+                            }, num_token, slice),
+                            .invalid_character => |j| return astgen.failWithNumberError(.{
+                                .invalid_character = 2 + j,
+                            }, num_token, slice),
+                            else => return astgen.failWithNumberError(err, num_token, bytes),
+                        },
+                        else => unreachable,
+                    };
+                    astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+                }
+
+                for (1..len) |i| {
+                    const bytes = slice[1..][(i * 2) .. (i * 2) + 2];
+                    const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
+                        bytes,
+                        .byte,
+                        false,
+                    )) {
+                        .byte => |value| try gz.addByte(value),
+                        .failure => |err| switch (err) {
+                            .invalid_digit => |info| return astgen.failWithNumberError(.{
+                                .invalid_digit = .{
+                                    .i = 1 + i * 2 + info.i,
+                                    .base = info.base,
+                                },
+                            }, num_token, slice),
+                            .invalid_character => |j| return astgen.failWithNumberError(.{
+                                .invalid_character = 1 + i * 2 + j,
+                            }, num_token, slice),
+                            else => return astgen.failWithNumberError(err, num_token, bytes),
+                        },
+                        else => unreachable,
+                    };
+                    astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+                }
+            }
+
+            const list = astgen.scratch.items[scratch_top..];
+            assert(list.len == len);
+            const byte_list = try gz.addPlNode(.byte_list, node, Zir.Inst.List{
+                .len = @intCast(list.len),
+            });
+            try astgen.extra.appendSlice(gpa, list);
+            return byte_list;
         },
         else => return parseNumberLiteral(gz, num_token, type_hint, true),
     }
@@ -1782,7 +1886,7 @@ fn parseNumberLiteral(
         '-' => switch (NumberLiteral.parse(bytes[1..], type_hint, allow_suffix)) {
             .bool => unreachable,
             .guid => return astgen.failWithNumberError(.nyi, token, bytes),
-            .byte => return astgen.failWithNumberError(.nyi, token, bytes),
+            .byte => unreachable,
             .short => |num| gz.addShort(-num),
             .int => |num| gz.addInt(-num),
             .long => |num| switch (num) {
@@ -1805,7 +1909,7 @@ fn parseNumberLiteral(
         else => switch (NumberLiteral.parse(bytes, type_hint, allow_suffix)) {
             .bool => unreachable,
             .guid => return astgen.failWithNumberError(.nyi, token, bytes),
-            .byte => return astgen.failWithNumberError(.nyi, token, bytes),
+            .byte => unreachable,
             .short => |num| gz.addShort(num),
             .int => |num| gz.addInt(num),
             .long => |num| switch (num) {
@@ -1843,7 +1947,12 @@ fn failWithNumberError(
         .invalid_float_base => return astgen.failTok(token, "invalid_float_base", .{}),
         .repeated_underscore => return astgen.failTok(token, "repeated_underscore", .{}),
         .invalid_underscore_after_special => return astgen.failTok(token, "invalid_underscore_after_special", .{}),
-        .invalid_digit => return astgen.failTok(token, "invalid_digit", .{}),
+        .invalid_digit => |info| return astgen.failOff(
+            token,
+            @intCast(info.i),
+            "invalid digit '{c}' for {s} base",
+            .{ bytes[info.i], @tagName(info.base) },
+        ),
         .invalid_digit_exponent => return astgen.failTok(token, "invalid_digit_exponent", .{}),
         .duplicate_period => return astgen.failTok(token, "duplicate_period", .{}),
         .duplicate_exponent => return astgen.failTok(token, "duplicate_exponent", .{}),
@@ -1851,7 +1960,12 @@ fn failWithNumberError(
         .special_after_underscore => return astgen.failTok(token, "special_after_underscore", .{}),
         .trailing_special => return astgen.failTok(token, "trailing_special", .{}),
         .trailing_underscore => return astgen.failTok(token, "trailing_underscore", .{}),
-        .invalid_character => |i| return astgen.failOff(token, @intCast(i), "invalid character '{c}'", .{bytes[i]}),
+        .invalid_character => |i| return astgen.failOff(
+            token,
+            @intCast(i),
+            "invalid character '{c}'",
+            .{bytes[i]},
+        ),
         .invalid_exponent_sign => return astgen.failTok(token, "invalid_exponent_sign", .{}),
         .period_after_exponent => return astgen.failTok(token, "period_after_exponent", .{}),
 
@@ -1885,8 +1999,16 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
         "Invalid number suffix",
         .{},
     );
-    assert(type_hint != .bool); // NYI - 0 1 2 010b
-    assert(type_hint != .real_or_float); // NYI
+    switch (type_hint) {
+        .bool,
+        .byte,
+        .real_or_float,
+        => return astgen.failNode(node, "NYI: {s} '{s}'", .{
+            @tagName(type_hint),
+            tree.getNodeSource(node),
+        }),
+        else => {},
+    }
 
     // TODO: Backtrack and change number list types.
 
@@ -2833,6 +2955,13 @@ const GenZir = struct {
                 .start = str_index,
                 .src_tok = gz.tokenIndexToRelative(abs_tok_index),
             } },
+        });
+    }
+
+    fn addByte(gz: *GenZir, value: u8) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .byte,
+            .data = .{ .byte = value },
         });
     }
 
