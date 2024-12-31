@@ -114,9 +114,9 @@ pub const TypeHint = enum {
             else => {},
         };
         return if (std.mem.startsWith(u8, slice, "0x"))
-            .byte // TODO: This is maybe indexing: 0 1 2 0x0001000001 => 0 1 0 0 1
+            .byte
         else switch (slice[slice.len - 1]) {
-            'b' => .bool, // TODO: This is maybe indexing: 0 1 2 01001b => 0 1 0 0 1
+            'b' => .bool,
             'g' => .guid,
             'h' => .short,
             'i' => .int,
@@ -155,7 +155,7 @@ pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result 
         .none => return parseNone(bytes, allow_suffix),
         .bool => return parseBool(bytes, allow_suffix),
         .guid => return .{ .failure = .nyi },
-        .byte => return .{ .failure = .nyi },
+        .byte => return parseByte(bytes),
         .short => return parseShort(bytes, allow_suffix),
         .int => return parseInt(bytes, allow_suffix),
         .long => return parseLong(bytes, allow_suffix),
@@ -434,6 +434,38 @@ fn parseBool(bytes: []const u8, allow_suffix: bool) Result {
     return .{ .bool = value };
 }
 
+fn parseByte(bytes: []const u8) Result {
+    const base: u8 = 16;
+
+    var i: usize = 0;
+    var x: u8 = 0;
+    while (i < bytes.len) : (i += 1) {
+        const c = bytes[i];
+        const digit = switch (c) {
+            '0'...'9' => c - '0',
+            'A'...'Z' => c - 'A' + 10,
+            'a'...'z' => c - 'a' + 10,
+            else => return .{ .failure = .{ .invalid_character = i } },
+        };
+        if (digit >= base) {
+            return .{ .failure = .{
+                .invalid_digit = .{ .i = i, .base = @enumFromInt(base) },
+            } };
+        }
+
+        if (x != 0) {
+            const res = @mulWithOverflow(x, base);
+            if (res[1] != 0) return .{ .failure = .overflow };
+            x = res[0];
+        }
+        const res = @addWithOverflow(x, digit);
+        if (res[1] != 0) return .{ .failure = .overflow };
+        x = res[0];
+    }
+
+    return .{ .byte = x };
+}
+
 fn parseShort(bytes: []const u8, allow_suffix: bool) Result {
     if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
         'N', 'n' => return .{ .short = null_short },
@@ -577,7 +609,7 @@ fn testParse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool, expecte
     try std.testing.expectEqual(expected, result);
 }
 
-const invalid_type: Result = .{ .failure = .invalid_type };
+const overflow: Result = .{ .failure = .overflow };
 fn invalidCharacter(i: usize) Result {
     return .{ .failure = .{ .invalid_character = i } };
 }
@@ -617,6 +649,66 @@ test "parse number literal - bool" {
     try testParse("0b", .bool, true, .{ .bool = false });
     try testParse("1b", .bool, true, .{ .bool = true });
     try testParse("2b", .bool, true, invalidDigit(0, .binary));
+}
+
+test "parse number literal - byte" {
+    inline for (&.{ false, true }) |allow_suffix| {
+        try testParse("0n", .byte, allow_suffix, invalidDigit(1, .hex));
+        try testParse("0N", .byte, allow_suffix, invalidDigit(1, .hex));
+        try testParse("0w", .byte, allow_suffix, invalidDigit(1, .hex));
+        try testParse("0W", .byte, allow_suffix, invalidDigit(1, .hex));
+        try testParse("0", .byte, allow_suffix, .{ .byte = 0x0 });
+        try testParse("1", .byte, allow_suffix, .{ .byte = 0x1 });
+        try testParse("2", .byte, allow_suffix, .{ .byte = 0x2 });
+        try testParse("3", .byte, allow_suffix, .{ .byte = 0x3 });
+        try testParse("4", .byte, allow_suffix, .{ .byte = 0x4 });
+        try testParse("5", .byte, allow_suffix, .{ .byte = 0x5 });
+        try testParse("6", .byte, allow_suffix, .{ .byte = 0x6 });
+        try testParse("7", .byte, allow_suffix, .{ .byte = 0x7 });
+        try testParse("8", .byte, allow_suffix, .{ .byte = 0x8 });
+        try testParse("9", .byte, allow_suffix, .{ .byte = 0x9 });
+        try testParse("a", .byte, allow_suffix, .{ .byte = 0xa });
+        try testParse("b", .byte, allow_suffix, .{ .byte = 0xb });
+        try testParse("c", .byte, allow_suffix, .{ .byte = 0xc });
+        try testParse("d", .byte, allow_suffix, .{ .byte = 0xd });
+        try testParse("e", .byte, allow_suffix, .{ .byte = 0xe });
+        try testParse("f", .byte, allow_suffix, .{ .byte = 0xf });
+        try testParse("00", .byte, allow_suffix, .{ .byte = 0x0 });
+        try testParse("01", .byte, allow_suffix, .{ .byte = 0x1 });
+        try testParse("02", .byte, allow_suffix, .{ .byte = 0x2 });
+        try testParse("03", .byte, allow_suffix, .{ .byte = 0x3 });
+        try testParse("04", .byte, allow_suffix, .{ .byte = 0x4 });
+        try testParse("05", .byte, allow_suffix, .{ .byte = 0x5 });
+        try testParse("06", .byte, allow_suffix, .{ .byte = 0x6 });
+        try testParse("07", .byte, allow_suffix, .{ .byte = 0x7 });
+        try testParse("08", .byte, allow_suffix, .{ .byte = 0x8 });
+        try testParse("09", .byte, allow_suffix, .{ .byte = 0x9 });
+        try testParse("0a", .byte, allow_suffix, .{ .byte = 0xa });
+        try testParse("0b", .byte, allow_suffix, .{ .byte = 0xb });
+        try testParse("0c", .byte, allow_suffix, .{ .byte = 0xc });
+        try testParse("0d", .byte, allow_suffix, .{ .byte = 0xd });
+        try testParse("0e", .byte, allow_suffix, .{ .byte = 0xe });
+        try testParse("0f", .byte, allow_suffix, .{ .byte = 0xf });
+        try testParse("10", .byte, allow_suffix, .{ .byte = 0x10 });
+        try testParse("11", .byte, allow_suffix, .{ .byte = 0x11 });
+        try testParse("12", .byte, allow_suffix, .{ .byte = 0x12 });
+        try testParse("13", .byte, allow_suffix, .{ .byte = 0x13 });
+        try testParse("14", .byte, allow_suffix, .{ .byte = 0x14 });
+        try testParse("15", .byte, allow_suffix, .{ .byte = 0x15 });
+        try testParse("16", .byte, allow_suffix, .{ .byte = 0x16 });
+        try testParse("17", .byte, allow_suffix, .{ .byte = 0x17 });
+        try testParse("18", .byte, allow_suffix, .{ .byte = 0x18 });
+        try testParse("19", .byte, allow_suffix, .{ .byte = 0x19 });
+        try testParse("1a", .byte, allow_suffix, .{ .byte = 0x1a });
+        try testParse("1b", .byte, allow_suffix, .{ .byte = 0x1b });
+        try testParse("1c", .byte, allow_suffix, .{ .byte = 0x1c });
+        try testParse("1d", .byte, allow_suffix, .{ .byte = 0x1d });
+        try testParse("1e", .byte, allow_suffix, .{ .byte = 0x1e });
+        try testParse("1f", .byte, allow_suffix, .{ .byte = 0x1f });
+
+        try testParse("g", .byte, allow_suffix, invalidDigit(0, .hex));
+        try testParse("100", .byte, allow_suffix, overflow);
+    }
 }
 
 test "parse number literal - short" {

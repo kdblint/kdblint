@@ -185,11 +185,13 @@ const Writer = struct {
             .@"if" => try self.writePlNodeIf(stream, inst),
             .@"while" => try self.writePlNodeWhile(stream, inst),
 
+            .byte => try self.writeByte(stream, inst),
             .short => try self.writeShort(stream, inst),
             .int => try self.writeInt(stream, inst),
             .long => try self.writeLong(stream, inst),
 
             .bool_list,
+            .byte_list,
             .short_list,
             .int_list,
             .long_list,
@@ -232,6 +234,11 @@ const Writer = struct {
         try self.writeInstRef(stream, inst_data.operand);
         try stream.writeAll(") ");
         try self.writeSrcTok(stream, inst_data.src_tok);
+    }
+
+    fn writeByte(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].byte;
+        try stream.print("{d})", .{inst_data});
     }
 
     fn writeShort(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
