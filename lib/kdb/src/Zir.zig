@@ -227,6 +227,18 @@ pub const Inst = struct {
         /// Uses the `un_node` union field.
         signal,
 
+        /// Integer literal that fits in an i16.
+        /// Uses the `short` union field.
+        short,
+        /// Integer list literal that fits in an i16.
+        /// Uses the `pl_node` union field with payload `List`.
+        short_list,
+        /// Integer literal that fits in an i32.
+        /// Uses the `int` union field.
+        int,
+        /// Integer list literal that fits in an i32.
+        /// Uses the `pl_node` union field with payload `List`.
+        int_list,
         /// Integer literal that fits in an i64.
         /// Uses the `long` union field.
         long,
@@ -301,6 +313,10 @@ pub const Inst = struct {
                 .do,
                 .@"if",
                 .@"while",
+                .short,
+                .short_list,
+                .int,
+                .int_list,
                 .long,
                 .long_list,
                 .str,
@@ -460,6 +476,8 @@ pub const Inst = struct {
         },
         /// Offset from Decl AST node index.
         node: i32,
+        short: i16,
+        int: i32,
         long: i64,
         lambda: struct {
             /// This node provides a new absolute baseline node for all instructions within this struct.

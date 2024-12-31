@@ -1747,50 +1747,50 @@ fn parseNumberLiteral(
 
     return switch (bytes[0]) {
         '-' => switch (NumberLiteral.parse(bytes[1..], type_hint, allow_suffix)) {
-            .bool => unreachable,
-            .guid => unreachable,
-            .byte => unreachable,
-            .short => unreachable,
-            .int => unreachable,
+            .bool => return astgen.failWithNumberError(.nyi, token, bytes),
+            .guid => return astgen.failWithNumberError(.nyi, token, bytes),
+            .byte => return astgen.failWithNumberError(.nyi, token, bytes),
+            .short => |num| gz.addShort(-num),
+            .int => |num| gz.addInt(-num),
             .long => |num| switch (num) {
                 1 => .negative_one,
                 else => gz.addLong(-num),
             },
-            .real => unreachable,
-            .float => unreachable,
-            .char => unreachable,
-            .timestamp => unreachable,
-            .month => unreachable,
-            .date => unreachable,
-            .datetime => unreachable,
-            .timespan => unreachable,
-            .minute => unreachable,
-            .second => unreachable,
-            .time => unreachable,
+            .real => return astgen.failWithNumberError(.nyi, token, bytes),
+            .float => return astgen.failWithNumberError(.nyi, token, bytes),
+            .char => return astgen.failWithNumberError(.nyi, token, bytes),
+            .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
+            .month => return astgen.failWithNumberError(.nyi, token, bytes),
+            .date => return astgen.failWithNumberError(.nyi, token, bytes),
+            .datetime => return astgen.failWithNumberError(.nyi, token, bytes),
+            .timespan => return astgen.failWithNumberError(.nyi, token, bytes),
+            .minute => return astgen.failWithNumberError(.nyi, token, bytes),
+            .second => return astgen.failWithNumberError(.nyi, token, bytes),
+            .time => return astgen.failWithNumberError(.nyi, token, bytes),
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
         else => switch (NumberLiteral.parse(bytes, type_hint, allow_suffix)) {
-            .bool => unreachable,
-            .guid => unreachable,
-            .byte => unreachable,
-            .short => unreachable,
-            .int => unreachable,
+            .bool => return astgen.failWithNumberError(.nyi, token, bytes),
+            .guid => return astgen.failWithNumberError(.nyi, token, bytes),
+            .byte => return astgen.failWithNumberError(.nyi, token, bytes),
+            .short => |num| gz.addShort(num),
+            .int => |num| gz.addInt(num),
             .long => |num| switch (num) {
                 0 => .zero,
                 1 => .one,
                 else => gz.addLong(num),
             },
-            .real => unreachable,
-            .float => unreachable,
-            .char => unreachable,
-            .timestamp => unreachable,
-            .month => unreachable,
-            .date => unreachable,
-            .datetime => unreachable,
-            .timespan => unreachable,
-            .minute => unreachable,
-            .second => unreachable,
-            .time => unreachable,
+            .real => return astgen.failWithNumberError(.nyi, token, bytes),
+            .float => return astgen.failWithNumberError(.nyi, token, bytes),
+            .char => return astgen.failWithNumberError(.nyi, token, bytes),
+            .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
+            .month => return astgen.failWithNumberError(.nyi, token, bytes),
+            .date => return astgen.failWithNumberError(.nyi, token, bytes),
+            .datetime => return astgen.failWithNumberError(.nyi, token, bytes),
+            .timespan => return astgen.failWithNumberError(.nyi, token, bytes),
+            .minute => return astgen.failWithNumberError(.nyi, token, bytes),
+            .second => return astgen.failWithNumberError(.nyi, token, bytes),
+            .time => return astgen.failWithNumberError(.nyi, token, bytes),
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
     };
@@ -1802,9 +1802,8 @@ fn failWithNumberError(
     token: Ast.Token.Index,
     bytes: []const u8,
 ) InnerError {
-    _ = bytes; // autofix
     switch (err) {
-        .nyi => return astgen.failTok(token, "nyi", .{}),
+        .nyi => return astgen.failTok(token, "nyi: {s}", .{bytes}),
         .overflow => return astgen.failTok(token, "overflow", .{}),
 
         .upper_case_base => return astgen.failTok(token, "upper_case_base", .{}),
@@ -2800,6 +2799,20 @@ const GenZir = struct {
                 .start = str_index,
                 .src_tok = gz.tokenIndexToRelative(abs_tok_index),
             } },
+        });
+    }
+
+    fn addShort(gz: *GenZir, short: i16) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .short,
+            .data = .{ .short = short },
+        });
+    }
+
+    fn addInt(gz: *GenZir, int: i32) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .int,
+            .data = .{ .int = int },
         });
     }
 
