@@ -107,7 +107,8 @@ pub const TypeHint = enum {
 
     real_or_float,
 
-    pub fn get(slice: []const u8) error{InvalidSuffix}!TypeHint {
+    pub fn get(bytes: []const u8) error{InvalidSuffix}!TypeHint {
+        const slice = if (bytes[0] == '-') bytes[1..] else bytes;
         if (slice.len == 2 and slice[0] == '0') switch (slice[1]) {
             'N', 'W', 'n', 'w' => return .none,
             'x' => return .byte,
@@ -139,22 +140,22 @@ pub const TypeHint = enum {
     }
 };
 
-const null_char = ' ';
+pub const null_char = ' ';
 
-const null_short = -32768;
-const inf_short = 32767;
+pub const null_short = -32768;
+pub const inf_short = 32767;
 
-const null_int = -2147483648;
-const inf_int = 2147483647;
+pub const null_int = -2147483648;
+pub const inf_int = 2147483647;
 
-const null_long = -9223372036854775808;
-const inf_long = 9223372036854775807;
+pub const null_long = -9223372036854775808;
+pub const inf_long = 9223372036854775807;
 
 pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result {
     switch (type_hint) {
         .none => return parseNone(bytes, allow_suffix),
         .bool => return parseBool(bytes, allow_suffix),
-        .guid => return .{ .failure = .nyi },
+        .guid => return parseGuid(bytes, allow_suffix),
         .byte => return parseByte(bytes),
         .short => return parseShort(bytes, allow_suffix),
         .int => return parseInt(bytes, allow_suffix),
@@ -432,6 +433,28 @@ fn parseBool(bytes: []const u8, allow_suffix: bool) Result {
     }
 
     return .{ .bool = value };
+}
+
+fn parseGuid(bytes: []const u8, allow_suffix: bool) Result {
+    return switch (bytes.len) {
+        0 => unreachable,
+        1 => .{ .failure = .{ .invalid_character = 0 } },
+        2 => if (bytes[0] != '0')
+            .{ .failure = .{ .invalid_character = 0 } }
+        else switch (bytes[1]) {
+            'n', 'N' => .guid,
+            else => .{ .failure = .{ .invalid_character = 1 } },
+        },
+        else => if (bytes[0] != '0')
+            .{ .failure = .{ .invalid_character = 0 } }
+        else switch (bytes[1]) {
+            'n', 'N' => if (allow_suffix and bytes[2] == 'g')
+                .guid
+            else
+                .{ .failure = .{ .invalid_character = 2 } },
+            else => .{ .failure = .{ .invalid_character = 1 } },
+        },
+    };
 }
 
 fn parseByte(bytes: []const u8) Result {
