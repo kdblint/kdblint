@@ -189,6 +189,7 @@ const Writer = struct {
             .int => try self.writeInt(stream, inst),
             .long => try self.writeLong(stream, inst),
 
+            .bool_list,
             .short_list,
             .int_list,
             .long_list,
