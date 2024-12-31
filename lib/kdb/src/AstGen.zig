@@ -1720,6 +1720,7 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
+    const gpa = astgen.gpa;
     const tree = astgen.context.tree;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
@@ -1732,7 +1733,39 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
         "Invalid number suffix",
         .{},
     );
-    return parseNumberLiteral(gz, num_token, type_hint, true);
+    switch (type_hint) {
+        .bool => {
+            const scratch_top = astgen.scratch.items.len;
+            defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
+
+            const slice = tree.tokenSlice(num_token);
+            const len = slice.len - 1;
+            try astgen.scratch.ensureUnusedCapacity(gpa, len);
+
+            for (0..len) |i| {
+                const bytes = slice[i .. i + 1];
+                const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
+                    bytes,
+                    .bool,
+                    false,
+                )) {
+                    .bool => |value| if (value) .true else .false,
+                    .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
+                    else => unreachable,
+                };
+                astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+            }
+
+            const list = astgen.scratch.items[scratch_top..];
+            assert(list.len == len);
+            const bool_list = try gz.addPlNode(.bool_list, node, Zir.Inst.List{
+                .len = @intCast(list.len),
+            });
+            try astgen.extra.appendSlice(gpa, list);
+            return bool_list;
+        },
+        else => return parseNumberLiteral(gz, num_token, type_hint, true),
+    }
 }
 
 fn parseNumberLiteral(
@@ -1747,7 +1780,7 @@ fn parseNumberLiteral(
 
     return switch (bytes[0]) {
         '-' => switch (NumberLiteral.parse(bytes[1..], type_hint, allow_suffix)) {
-            .bool => return astgen.failWithNumberError(.nyi, token, bytes),
+            .bool => unreachable,
             .guid => return astgen.failWithNumberError(.nyi, token, bytes),
             .byte => return astgen.failWithNumberError(.nyi, token, bytes),
             .short => |num| gz.addShort(-num),
@@ -1770,7 +1803,7 @@ fn parseNumberLiteral(
             .failure => |err| return astgen.failWithNumberError(err, token, bytes),
         },
         else => switch (NumberLiteral.parse(bytes, type_hint, allow_suffix)) {
-            .bool => return astgen.failWithNumberError(.nyi, token, bytes),
+            .bool => unreachable,
             .guid => return astgen.failWithNumberError(.nyi, token, bytes),
             .byte => return astgen.failWithNumberError(.nyi, token, bytes),
             .short => |num| gz.addShort(num),
@@ -1818,15 +1851,14 @@ fn failWithNumberError(
         .special_after_underscore => return astgen.failTok(token, "special_after_underscore", .{}),
         .trailing_special => return astgen.failTok(token, "trailing_special", .{}),
         .trailing_underscore => return astgen.failTok(token, "trailing_underscore", .{}),
-        .invalid_character => return astgen.failTok(token, "invalid_character", .{}),
+        .invalid_character => |i| return astgen.failOff(token, @intCast(i), "invalid character '{c}'", .{bytes[i]}),
         .invalid_exponent_sign => return astgen.failTok(token, "invalid_exponent_sign", .{}),
         .period_after_exponent => return astgen.failTok(token, "period_after_exponent", .{}),
 
-        // .invalid_type => return astgen.failTok(token, "invalid type", .{}),
-        // .invalid_character => return astgen.failTok(token, "invalid character", .{}),
-        .prefer_short_inf => return astgen.failTok(token, "prefer 0Wh/-0Wh", .{}),
-        .prefer_int_inf => return astgen.failTok(token, "prefer 0Wi/-0Wi", .{}),
-        .prefer_long_inf => return astgen.failTok(token, "prefer 0W/-0W", .{}),
+        // TODO: These should be warnings
+        .prefer_short_inf => return astgen.failTok(token, "prefer 0Wh", .{}),
+        .prefer_int_inf => return astgen.failTok(token, "prefer 0Wi", .{}),
+        .prefer_long_inf => return astgen.failTok(token, "prefer 0W", .{}),
     }
 }
 
@@ -1853,6 +1885,7 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
         "Invalid number suffix",
         .{},
     );
+    assert(type_hint != .bool); // NYI - 0 1 2 010b
     assert(type_hint != .real_or_float); // NYI
 
     // TODO: Backtrack and change number list types.
@@ -1865,13 +1898,14 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
     const ref = try parseNumberLiteral(gz, i, type_hint, true);
     astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
 
+    // TODO: long_list
     const list = astgen.scratch.items[scratch_top..];
     assert(list.len == len);
-    const sym_list = try gz.addPlNode(.long_list, node, Zir.Inst.List{
+    const long_list = try gz.addPlNode(.long_list, node, Zir.Inst.List{
         .len = @intCast(list.len),
     });
     try astgen.extra.appendSlice(gpa, list);
-    return sym_list;
+    return long_list;
 }
 
 fn stringLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -2802,24 +2836,24 @@ const GenZir = struct {
         });
     }
 
-    fn addShort(gz: *GenZir, short: i16) !Zir.Inst.Ref {
+    fn addShort(gz: *GenZir, value: i16) !Zir.Inst.Ref {
         return gz.add(.{
             .tag = .short,
-            .data = .{ .short = short },
+            .data = .{ .short = value },
         });
     }
 
-    fn addInt(gz: *GenZir, int: i32) !Zir.Inst.Ref {
+    fn addInt(gz: *GenZir, value: i32) !Zir.Inst.Ref {
         return gz.add(.{
             .tag = .int,
-            .data = .{ .int = int },
+            .data = .{ .int = value },
         });
     }
 
-    fn addLong(gz: *GenZir, long: i64) !Zir.Inst.Ref {
+    fn addLong(gz: *GenZir, value: i64) !Zir.Inst.Ref {
         return gz.add(.{
             .tag = .long,
-            .data = .{ .long = long },
+            .data = .{ .long = value },
         });
     }
 
@@ -3148,6 +3182,7 @@ fn failOff(
         format,
         args,
         &.{},
+        .@"error",
     );
     return error.AnalysisFail;
 }

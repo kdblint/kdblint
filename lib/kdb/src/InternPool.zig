@@ -12,6 +12,10 @@ const InternPool = @This();
 /// When adding a tag to this enum, consider adding a corresponding entry to
 /// `primitives` in AstGen.zig.
 pub const Index = enum(u32) {
+    /// `true`
+    true,
+    /// `false`
+    false,
     /// `0` (comptime_int)
     zero,
     /// `1` (comptime_int)

@@ -153,7 +153,7 @@ const inf_long = 9223372036854775807;
 pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result {
     switch (type_hint) {
         .none => return parseNone(bytes, allow_suffix),
-        .bool => return .{ .failure = .nyi },
+        .bool => return parseBool(bytes, allow_suffix),
         .guid => return .{ .failure = .nyi },
         .byte => return .{ .failure = .nyi },
         .short => return parseShort(bytes, allow_suffix),
@@ -415,6 +415,25 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
     }
 }
 
+fn parseBool(bytes: []const u8, allow_suffix: bool) Result {
+    const value = switch (bytes[0]) {
+        '0' => false,
+        '1' => true,
+        else => return .{ .failure = .{
+            .invalid_digit = .{ .i = 0, .base = .binary },
+        } },
+    };
+
+    if (allow_suffix) {
+        if (bytes.len > 1 and bytes[1] != 'b') return .{ .failure = .{ .invalid_character = 1 } };
+        if (bytes.len > 2) return .{ .failure = .{ .invalid_character = 2 } };
+    } else {
+        if (bytes.len > 1) return .{ .failure = .{ .invalid_character = 1 } };
+    }
+
+    return .{ .bool = value };
+}
+
 fn parseShort(bytes: []const u8, allow_suffix: bool) Result {
     if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
         'N', 'n' => return .{ .short = null_short },
@@ -562,10 +581,42 @@ const invalid_type: Result = .{ .failure = .invalid_type };
 fn invalidCharacter(i: usize) Result {
     return .{ .failure = .{ .invalid_character = i } };
 }
-fn invalidDigit(i: usize) Result {
+fn invalidDigit(i: usize, base: Base) Result {
     return .{ .failure = .{
-        .invalid_digit = .{ .i = i, .base = @enumFromInt(10) },
+        .invalid_digit = .{ .i = i, .base = base },
     } };
+}
+
+test "parse number literal - bool" {
+    try testParse("0n", .bool, false, invalidCharacter(1));
+    try testParse("0N", .bool, false, invalidCharacter(1));
+    try testParse("0w", .bool, false, invalidCharacter(1));
+    try testParse("0W", .bool, false, invalidCharacter(1));
+    try testParse("0", .bool, false, .{ .bool = false });
+    try testParse("1", .bool, false, .{ .bool = true });
+    try testParse("2", .bool, false, invalidDigit(0, .binary));
+    try testParse("0n", .bool, true, invalidCharacter(1));
+    try testParse("0N", .bool, true, invalidCharacter(1));
+    try testParse("0w", .bool, true, invalidCharacter(1));
+    try testParse("0W", .bool, true, invalidCharacter(1));
+    try testParse("0", .bool, true, .{ .bool = false });
+    try testParse("1", .bool, true, .{ .bool = true });
+    try testParse("2", .bool, true, invalidDigit(0, .binary));
+
+    try testParse("0nb", .bool, false, invalidCharacter(1));
+    try testParse("0Nb", .bool, false, invalidCharacter(1));
+    try testParse("0wb", .bool, false, invalidCharacter(1));
+    try testParse("0Wb", .bool, false, invalidCharacter(1));
+    try testParse("0b", .bool, false, invalidCharacter(1));
+    try testParse("1b", .bool, false, invalidCharacter(1));
+    try testParse("2b", .bool, false, invalidDigit(0, .binary));
+    try testParse("0nb", .bool, true, invalidCharacter(1));
+    try testParse("0Nb", .bool, true, invalidCharacter(1));
+    try testParse("0wb", .bool, true, invalidCharacter(1));
+    try testParse("0Wb", .bool, true, invalidCharacter(1));
+    try testParse("0b", .bool, true, .{ .bool = false });
+    try testParse("1b", .bool, true, .{ .bool = true });
+    try testParse("2b", .bool, true, invalidDigit(0, .binary));
 }
 
 test "parse number literal - short" {
@@ -582,21 +633,6 @@ test "parse number literal - short" {
     try testParse("0", .short, true, .{ .short = 0 });
     try testParse("1", .short, true, .{ .short = 1 });
     try testParse("2", .short, true, .{ .short = 2 });
-
-    try testParse("0nh", .none, false, invalidCharacter(2));
-    try testParse("0Nh", .none, false, invalidCharacter(2));
-    try testParse("0wh", .none, false, invalidCharacter(2));
-    try testParse("0Wh", .none, false, invalidCharacter(2));
-    try testParse("0h", .none, false, invalidDigit(1));
-    try testParse("1h", .none, false, invalidDigit(1));
-    try testParse("2h", .none, false, invalidDigit(1));
-    try testParse("0nh", .none, true, .{ .short = null_short });
-    try testParse("0Nh", .none, true, .{ .short = null_short });
-    try testParse("0wh", .none, true, .{ .short = inf_short });
-    try testParse("0Wh", .none, true, .{ .short = inf_short });
-    try testParse("0h", .none, true, .{ .short = 0 });
-    try testParse("1h", .none, true, .{ .short = 1 });
-    try testParse("2h", .none, true, .{ .short = 2 });
 
     try testParse("0nh", .short, false, invalidCharacter(2));
     try testParse("0Nh", .short, false, invalidCharacter(2));
@@ -628,21 +664,6 @@ test "parse number literal - int" {
     try testParse("0", .int, true, .{ .int = 0 });
     try testParse("1", .int, true, .{ .int = 1 });
     try testParse("2", .int, true, .{ .int = 2 });
-
-    try testParse("0ni", .none, false, invalidCharacter(2));
-    try testParse("0Ni", .none, false, invalidCharacter(2));
-    try testParse("0wi", .none, false, invalidCharacter(2));
-    try testParse("0Wi", .none, false, invalidCharacter(2));
-    try testParse("0i", .none, false, invalidDigit(1));
-    try testParse("1i", .none, false, invalidDigit(1));
-    try testParse("2i", .none, false, invalidDigit(1));
-    try testParse("0ni", .none, true, .{ .int = null_int });
-    try testParse("0Ni", .none, true, .{ .int = null_int });
-    try testParse("0wi", .none, true, .{ .int = inf_int });
-    try testParse("0Wi", .none, true, .{ .int = inf_int });
-    try testParse("0i", .none, true, .{ .int = 0 });
-    try testParse("1i", .none, true, .{ .int = 1 });
-    try testParse("2i", .none, true, .{ .int = 2 });
 
     try testParse("0ni", .int, false, invalidCharacter(2));
     try testParse("0Ni", .int, false, invalidCharacter(2));
@@ -686,21 +707,6 @@ test "parse number literal - long" {
     try testParse("0", .long, true, .{ .long = 0 });
     try testParse("1", .long, true, .{ .long = 1 });
     try testParse("2", .long, true, .{ .long = 2 });
-
-    try testParse("0nj", .none, false, invalidCharacter(2));
-    try testParse("0Nj", .none, false, invalidCharacter(2));
-    try testParse("0wj", .none, false, invalidCharacter(2));
-    try testParse("0Wj", .none, false, invalidCharacter(2));
-    try testParse("0j", .none, false, invalidDigit(1));
-    try testParse("1j", .none, false, invalidDigit(1));
-    try testParse("2j", .none, false, invalidDigit(1));
-    try testParse("0nj", .none, true, .{ .long = null_long });
-    try testParse("0Nj", .none, true, .{ .long = null_long });
-    try testParse("0wj", .none, true, .{ .long = inf_long });
-    try testParse("0Wj", .none, true, .{ .long = inf_long });
-    try testParse("0j", .none, true, .{ .long = 0 });
-    try testParse("1j", .none, true, .{ .long = 1 });
-    try testParse("2j", .none, true, .{ .long = 2 });
 
     try testParse("0nj", .long, false, invalidCharacter(2));
     try testParse("0Nj", .long, false, invalidCharacter(2));
