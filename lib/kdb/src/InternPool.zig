@@ -66,6 +66,17 @@ pub const Index = enum(u32) {
     each_right,
     scan,
     each_left,
+
+    null_guid,
+    null_short,
+    inf_short,
+    negative_inf_short,
+    null_int,
+    inf_int,
+    negative_inf_int,
+    null_long,
+    inf_long,
+    negative_inf_long,
 };
 
 pub fn init(gpa: Allocator) Allocator.Error!InternPool {

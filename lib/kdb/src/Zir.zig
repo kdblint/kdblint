@@ -418,6 +418,17 @@ pub const Inst = struct {
         scan,
         each_left,
 
+        null_guid,
+        null_short,
+        inf_short,
+        negative_inf_short,
+        null_int,
+        inf_int,
+        negative_inf_int,
+        null_long,
+        inf_long,
+        negative_inf_long,
+
         nyi,
 
         /// This Ref does not correspond to any ZIR instruction or constant
