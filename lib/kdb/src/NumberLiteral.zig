@@ -674,6 +674,38 @@ test "parse number literal - bool" {
     try testParse("2b", .bool, true, invalidDigit(0, .binary));
 }
 
+test "parse number literal - guid" {
+    try testParse("0n", .guid, false, .guid);
+    try testParse("0N", .guid, false, .guid);
+    try testParse("0w", .guid, false, invalidCharacter(1));
+    try testParse("0W", .guid, false, invalidCharacter(1));
+    try testParse("0", .guid, false, invalidCharacter(0));
+    try testParse("1", .guid, false, invalidCharacter(0));
+    try testParse("2", .guid, false, invalidCharacter(0));
+    try testParse("0n", .guid, true, .guid);
+    try testParse("0N", .guid, true, .guid);
+    try testParse("0w", .guid, true, invalidCharacter(1));
+    try testParse("0W", .guid, true, invalidCharacter(1));
+    try testParse("0", .guid, true, invalidCharacter(0));
+    try testParse("1", .guid, true, invalidCharacter(0));
+    try testParse("2", .guid, true, invalidCharacter(0));
+
+    try testParse("0ng", .guid, false, invalidCharacter(2));
+    try testParse("0Ng", .guid, false, invalidCharacter(2));
+    try testParse("0wg", .guid, false, invalidCharacter(1));
+    try testParse("0Wg", .guid, false, invalidCharacter(1));
+    try testParse("0g", .guid, false, invalidCharacter(1));
+    try testParse("1g", .guid, false, invalidCharacter(0));
+    try testParse("2g", .guid, false, invalidCharacter(0));
+    try testParse("0ng", .guid, true, .guid);
+    try testParse("0Ng", .guid, true, .guid);
+    try testParse("0wg", .guid, true, invalidCharacter(1));
+    try testParse("0Wg", .guid, true, invalidCharacter(1));
+    try testParse("0g", .guid, true, invalidCharacter(1));
+    try testParse("1g", .guid, true, invalidCharacter(0));
+    try testParse("2g", .guid, true, invalidCharacter(0));
+}
+
 test "parse number literal - byte" {
     inline for (&.{ false, true }) |allow_suffix| {
         try testParse("0n", .byte, allow_suffix, invalidDigit(1, .hex));
