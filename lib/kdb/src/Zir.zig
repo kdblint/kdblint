@@ -227,6 +227,9 @@ pub const Inst = struct {
         /// Uses the `un_node` union field.
         signal,
 
+        /// Boolean list literal.
+        /// Uses the `pl_node` union field with payload `List`.
+        bool_list,
         /// Integer literal that fits in an i16.
         /// Uses the `short` union field.
         short,
@@ -313,6 +316,7 @@ pub const Inst = struct {
                 .do,
                 .@"if",
                 .@"while",
+                .bool_list,
                 .short,
                 .short_list,
                 .int,
@@ -361,6 +365,8 @@ pub const Inst = struct {
     /// The tag type is specified so that it is safe to bitcast between `[]u32`
     /// and `[]Ref`.
     pub const Ref = enum(u32) {
+        true,
+        false,
         zero,
         one,
         negative_one,
