@@ -1735,10 +1735,16 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     );
     switch (type_hint) {
         .bool => {
+            const slice = tree.tokenSlice(num_token);
+            if (slice[0] == '-') return astgen.failWithNumberError(
+                .{ .invalid_character = 0 },
+                num_token,
+                slice,
+            );
+
             const scratch_top = astgen.scratch.items.len;
             defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
 
-            const slice = tree.tokenSlice(num_token);
             const len = slice.len - 1;
             try astgen.scratch.ensureUnusedCapacity(gpa, len);
 
@@ -1776,10 +1782,16 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
             return bool_list;
         },
         .byte => {
+            const slice = tree.tokenSlice(num_token);
+            if (slice[0] == '-') return astgen.failWithNumberError(
+                .{ .invalid_character = 0 },
+                num_token,
+                slice,
+            );
+
             const scratch_top = astgen.scratch.items.len;
             defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
 
-            const slice = tree.tokenSlice(num_token);
             const len = ((slice.len - 2) + (slice.len - 2) % 2) / 2;
             try astgen.scratch.ensureUnusedCapacity(gpa, len);
 
@@ -1885,12 +1897,38 @@ fn parseNumberLiteral(
     return switch (bytes[0]) {
         '-' => switch (NumberLiteral.parse(bytes[1..], type_hint, allow_suffix)) {
             .bool => unreachable,
-            .guid => return astgen.failWithNumberError(.nyi, token, bytes),
+            .guid => return astgen.failWithNumberError(
+                .{ .invalid_character = 0 },
+                token,
+                bytes,
+            ),
             .byte => unreachable,
-            .short => |num| gz.addShort(-num),
-            .int => |num| gz.addInt(-num),
+            .short => |num| switch (num) {
+                NumberLiteral.null_short => return astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                ),
+                NumberLiteral.inf_short => .negative_inf_short,
+                else => gz.addShort(-num),
+            },
+            .int => |num| switch (num) {
+                NumberLiteral.null_int => return astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                ),
+                NumberLiteral.inf_int => .negative_inf_int,
+                else => gz.addInt(-num),
+            },
             .long => |num| switch (num) {
                 1 => .negative_one,
+                NumberLiteral.null_long => return astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                ),
+                NumberLiteral.inf_long => .negative_inf_long,
                 else => gz.addLong(-num),
             },
             .real => return astgen.failWithNumberError(.nyi, token, bytes),
@@ -1908,13 +1946,23 @@ fn parseNumberLiteral(
         },
         else => switch (NumberLiteral.parse(bytes, type_hint, allow_suffix)) {
             .bool => unreachable,
-            .guid => return astgen.failWithNumberError(.nyi, token, bytes),
+            .guid => .null_guid,
             .byte => unreachable,
-            .short => |num| gz.addShort(num),
-            .int => |num| gz.addInt(num),
+            .short => |num| switch (num) {
+                NumberLiteral.null_short => .null_short,
+                NumberLiteral.inf_short => .inf_short,
+                else => gz.addShort(num),
+            },
+            .int => |num| switch (num) {
+                NumberLiteral.null_int => .null_int,
+                NumberLiteral.inf_int => .inf_int,
+                else => gz.addInt(num),
+            },
             .long => |num| switch (num) {
                 0 => .zero,
                 1 => .one,
+                NumberLiteral.null_long => .null_long,
+                NumberLiteral.inf_long => .inf_long,
                 else => gz.addLong(num),
             },
             .real => return astgen.failWithNumberError(.nyi, token, bytes),
