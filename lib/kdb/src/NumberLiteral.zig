@@ -105,8 +105,6 @@ pub const TypeHint = enum {
     second,
     time,
 
-    real_or_float,
-
     pub fn get(bytes: []const u8) error{InvalidSuffix}!TypeHint {
         const slice = if (bytes[0] == '-') bytes[1..] else bytes;
         if (slice.len == 2 and slice[0] == '0') switch (slice[1]) {
@@ -133,7 +131,7 @@ pub const TypeHint = enum {
             'u' => .minute,
             'v' => .second,
             't' => .time,
-            '.' => .real_or_float,
+            '.' => .float,
             '0'...'9' => .none,
             else => error.InvalidSuffix,
         };
@@ -171,7 +169,6 @@ pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result 
         .minute => return .{ .failure = .nyi },
         .second => return .{ .failure = .nyi },
         .time => return .{ .failure = .nyi },
-        .real_or_float => return .{ .failure = .nyi },
     }
 }
 
