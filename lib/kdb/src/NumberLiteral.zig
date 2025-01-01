@@ -232,7 +232,7 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
         else => {},
     };
 
-    var x: u32 = 0;
+    var x: u64 = 0;
     var underscore = false;
     var period = false;
     var special: u8 = 0;
@@ -372,7 +372,7 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
             if (x == inf_long) return .{ .failure = .prefer_long_inf };
             if (x > inf_long) return .{ .failure = .overflow };
 
-            return .{ .long = x };
+            return .{ .long = @intCast(x) };
         },
         .real => {
             return .{ .bool = false };
@@ -410,6 +410,10 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
         .failure => unreachable,
     } else {
         if (float) return .float;
+
+        if (x == inf_long) return .{ .failure = .prefer_long_inf };
+        if (x > inf_long) return .{ .failure = .overflow };
+
         return .{ .long = @intCast(x) };
     }
 }
@@ -945,11 +949,25 @@ test "parse number literal - long" {
     try testParse("0", .none, false, .{ .long = 0 });
     try testParse("1", .none, false, .{ .long = 1 });
     try testParse("2", .none, false, .{ .long = 2 });
+    try testParse("9223372036854775806", .none, false, .{
+        .long = 9223372036854775806,
+    });
+    try testParse("9223372036854775807", .none, false, .{
+        .failure = .prefer_long_inf,
+    });
+    try testParse("9223372036854775808", .none, false, overflow);
     try testParse("0N", .none, true, .{ .long = null_long });
     try testParse("0W", .none, true, .{ .long = inf_long });
     try testParse("0", .none, true, .{ .long = 0 });
     try testParse("1", .none, true, .{ .long = 1 });
     try testParse("2", .none, true, .{ .long = 2 });
+    try testParse("9223372036854775806", .none, true, .{
+        .long = 9223372036854775806,
+    });
+    try testParse("9223372036854775807", .none, true, .{
+        .failure = .prefer_long_inf,
+    });
+    try testParse("9223372036854775808", .none, true, overflow);
 
     try testParse("0n", .long, false, .{ .long = null_long });
     try testParse("0N", .long, false, .{ .long = null_long });
@@ -958,6 +976,13 @@ test "parse number literal - long" {
     try testParse("0", .long, false, .{ .long = 0 });
     try testParse("1", .long, false, .{ .long = 1 });
     try testParse("2", .long, false, .{ .long = 2 });
+    try testParse("9223372036854775806", .long, false, .{
+        .long = 9223372036854775806,
+    });
+    try testParse("9223372036854775807", .long, false, .{
+        .failure = .prefer_long_inf,
+    });
+    try testParse("9223372036854775808", .long, false, overflow);
     try testParse("0n", .long, true, .{ .long = null_long });
     try testParse("0N", .long, true, .{ .long = null_long });
     try testParse("0w", .long, true, .{ .long = inf_long });
@@ -965,6 +990,13 @@ test "parse number literal - long" {
     try testParse("0", .long, true, .{ .long = 0 });
     try testParse("1", .long, true, .{ .long = 1 });
     try testParse("2", .long, true, .{ .long = 2 });
+    try testParse("9223372036854775806", .long, true, .{
+        .long = 9223372036854775806,
+    });
+    try testParse("9223372036854775807", .long, true, .{
+        .failure = .prefer_long_inf,
+    });
+    try testParse("9223372036854775808", .long, true, overflow);
 
     try testParse("0nj", .long, false, invalidCharacter(2));
     try testParse("0Nj", .long, false, invalidCharacter(2));
@@ -973,6 +1005,9 @@ test "parse number literal - long" {
     try testParse("0j", .long, false, invalidCharacter(1));
     try testParse("1j", .long, false, invalidCharacter(1));
     try testParse("2j", .long, false, invalidCharacter(1));
+    try testParse("9223372036854775806j", .long, false, invalidCharacter(19));
+    try testParse("9223372036854775807j", .long, false, invalidCharacter(19));
+    try testParse("9223372036854775808j", .long, false, overflow);
     try testParse("0nj", .long, true, .{ .long = null_long });
     try testParse("0Nj", .long, true, .{ .long = null_long });
     try testParse("0wj", .long, true, .{ .long = inf_long });
@@ -980,6 +1015,13 @@ test "parse number literal - long" {
     try testParse("0j", .long, true, .{ .long = 0 });
     try testParse("1j", .long, true, .{ .long = 1 });
     try testParse("2j", .long, true, .{ .long = 2 });
+    try testParse("9223372036854775806j", .long, true, .{
+        .long = 9223372036854775806,
+    });
+    try testParse("9223372036854775807j", .long, true, .{
+        .failure = .prefer_long_inf,
+    });
+    try testParse("9223372036854775808j", .long, true, overflow);
 }
 
 test "parse number literal - char" {
