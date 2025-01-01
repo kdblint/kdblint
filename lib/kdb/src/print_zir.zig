@@ -185,7 +185,9 @@ const Writer = struct {
             .@"if" => try self.writePlNodeIf(stream, inst),
             .@"while" => try self.writePlNodeWhile(stream, inst),
 
-            .byte => try self.writeByte(stream, inst),
+            .byte,
+            .char,
+            => try self.writeByte(stream, inst),
             .short => try self.writeShort(stream, inst),
             .int => try self.writeInt(stream, inst),
             .long => try self.writeLong(stream, inst),
@@ -195,6 +197,7 @@ const Writer = struct {
             .short_list,
             .int_list,
             .long_list,
+            .char_list,
             => try self.writePlNodeList(stream, inst),
 
             .str,

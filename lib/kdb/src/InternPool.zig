@@ -69,12 +69,14 @@ pub const Index = enum(u32) {
 
     null_guid,
     null_short,
+    null_int,
+    null_long,
+    null_char,
+
     inf_short,
     negative_inf_short,
-    null_int,
     inf_int,
     negative_inf_int,
-    null_long,
     inf_long,
     negative_inf_long,
 };
