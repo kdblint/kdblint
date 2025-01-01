@@ -52,6 +52,7 @@ pub const Error = union(enum) {
     prefer_short_inf,
     prefer_int_inf,
     prefer_long_inf,
+    prefer_month_inf,
 
     /// The base prefix is in uppercase.
     upper_case_base: usize,
@@ -694,7 +695,7 @@ fn parseMonth(bytes: []const u8, allow_suffix: bool) Result {
 
         return .{ .month = y * 12 + x - 1 };
     } else {
-        if (x == inf_int) return .{ .failure = .prefer_int_inf };
+        if (x == inf_int) return .{ .failure = .prefer_month_inf };
         if (x > inf_int) return .{ .failure = .overflow };
 
         return .{ .month = x };
@@ -982,53 +983,103 @@ test "parse number literal - month" {
     try testParse("0N", .month, false, .{ .month = null_int });
     try testParse("0w", .month, false, .{ .month = inf_int });
     try testParse("0W", .month, false, .{ .month = inf_int });
-    try testParse("0", .month, false, .{ .month = 0 });
-    try testParse("1", .month, false, .{ .month = 1 });
-    try testParse("2", .month, false, .{ .month = 2 });
-    try testParse("1999.11", .month, false, .{ .month = -2 });
     try testParse("1999.12", .month, false, .{ .month = -1 });
     try testParse("2000.01", .month, false, .{ .month = 0 });
     try testParse("2000.02", .month, false, .{ .month = 1 });
-    try testParse("2001.01", .month, false, .{ .month = 12 });
-    try testParse("2001.02", .month, false, .{ .month = 13 });
-    try testParse("0n", .month, true, .{ .month = null_int });
-    try testParse("0N", .month, true, .{ .month = null_int });
-    try testParse("0w", .month, true, .{ .month = inf_int });
-    try testParse("0W", .month, true, .{ .month = inf_int });
-    try testParse("0", .month, true, .{ .month = 0 });
-    try testParse("1", .month, true, .{ .month = 1 });
-    try testParse("2", .month, true, .{ .month = 2 });
-    try testParse("1999.11", .month, true, .{ .month = -2 });
-    try testParse("1999.12", .month, true, .{ .month = -1 });
-    try testParse("2000.01", .month, true, .{ .month = 0 });
-    try testParse("2000.02", .month, true, .{ .month = 1 });
-    try testParse("2001.01", .month, true, .{ .month = 12 });
-    try testParse("2001.02", .month, true, .{ .month = 13 });
+    try testParse("0001.01", .month, false, .{ .month = -23988 });
+    try testParse("9999.12", .month, false, .{ .month = 95999 });
 
-    try testParse("0nm", .month, false, invalidCharacter(2));
-    try testParse("0Nm", .month, false, invalidCharacter(2));
-    try testParse("0wm", .month, false, invalidCharacter(2));
-    try testParse("0Wm", .month, false, invalidCharacter(2));
-    try testParse("0m", .month, false, invalidCharacter(1));
-    try testParse("1m", .month, false, invalidCharacter(1));
-    try testParse("2m", .month, false, invalidCharacter(1));
-    try testParse("1999.11m", .month, false, invalidCharacter(7));
-    try testParse("1999.12m", .month, false, invalidCharacter(7));
-    try testParse("2000.01m", .month, false, invalidCharacter(7));
-    try testParse("2000.02m", .month, false, invalidCharacter(7));
-    try testParse("2001.01m", .month, false, invalidCharacter(7));
-    try testParse("2001.02m", .month, false, invalidCharacter(7));
+    try testParse("0001", .month, false, .{ .month = 0 });
+    try testParse("0012", .month, false, .{ .month = 11 });
+    try testParse("4912", .month, false, .{ .month = 599 });
+    try testParse("5001", .month, false, .{ .month = -600 });
+    try testParse("9901", .month, false, .{ .month = -12 });
+    try testParse("9912", .month, false, .{ .month = -1 });
+
+    try testParse("000101", .month, false, .{ .month = -23988 });
+    try testParse("000112", .month, false, .{ .month = -23977 });
+    try testParse("999901", .month, false, .{ .month = 95988 });
+    try testParse("999912", .month, false, .{ .month = 95999 });
+
     try testParse("0nm", .month, true, .{ .month = null_int });
     try testParse("0Nm", .month, true, .{ .month = null_int });
     try testParse("0wm", .month, true, .{ .month = inf_int });
     try testParse("0Wm", .month, true, .{ .month = inf_int });
-    try testParse("0m", .month, true, .{ .month = 0 });
-    try testParse("1m", .month, true, .{ .month = 1 });
-    try testParse("2m", .month, true, .{ .month = 2 });
-    try testParse("1999.11m", .month, true, .{ .month = -2 });
     try testParse("1999.12m", .month, true, .{ .month = -1 });
     try testParse("2000.01m", .month, true, .{ .month = 0 });
     try testParse("2000.02m", .month, true, .{ .month = 1 });
-    try testParse("2001.01m", .month, true, .{ .month = 12 });
-    try testParse("2001.02m", .month, true, .{ .month = 13 });
+    try testParse("0001.01m", .month, true, .{ .month = -23988 });
+    try testParse("9999.12m", .month, true, .{ .month = 95999 });
+
+    try testParse("0001m", .month, true, .{ .month = 0 });
+    try testParse("0012m", .month, true, .{ .month = 11 });
+    try testParse("4912m", .month, true, .{ .month = 599 });
+    try testParse("5001m", .month, true, .{ .month = -600 });
+    try testParse("9901m", .month, true, .{ .month = -12 });
+    try testParse("9912m", .month, true, .{ .month = -1 });
+
+    try testParse("000101m", .month, true, .{ .month = -23988 });
+    try testParse("000112m", .month, true, .{ .month = -23977 });
+    try testParse("999901m", .month, true, .{ .month = 95988 });
+    try testParse("999912m", .month, true, .{ .month = 95999 });
+
+    try testParse("0", .month, false, invalidCharacter(1));
+    try testParse("1", .month, false, invalidCharacter(1));
+    try testParse("9", .month, false, invalidCharacter(1));
+
+    try testParse("00", .month, false, invalidCharacter(2));
+    try testParse("11", .month, false, invalidCharacter(2));
+    try testParse("99", .month, false, invalidCharacter(2));
+
+    try testParse("000", .month, false, invalidCharacter(3));
+    try testParse("111", .month, false, invalidCharacter(3));
+    try testParse("999", .month, false, invalidCharacter(3));
+
+    try testParse("0000", .month, false, .{ .failure = .overflow });
+    try testParse("0013", .month, false, .{ .failure = .overflow });
+    try testParse("9999", .month, false, .{ .failure = .overflow });
+
+    try testParse("00000", .month, false, invalidCharacter(5));
+    try testParse("11111", .month, false, invalidCharacter(5));
+    try testParse("99999", .month, false, invalidCharacter(5));
+
+    try testParse("000000", .month, false, .{ .failure = .overflow });
+    try testParse("000113", .month, false, .{ .failure = .overflow });
+    try testParse("999999", .month, false, .{ .failure = .overflow });
+
+    try testParse("1111111", .month, false, invalidCharacter(7));
+
+    try testParse("2000.1", .month, false, invalidCharacter(6));
+    try testParse("2000.00", .month, false, .{ .failure = .overflow });
+    try testParse("2000.13", .month, false, .{ .failure = .overflow });
+
+    try testParse("0m", .month, true, invalidCharacter(1));
+    try testParse("1m", .month, true, invalidCharacter(1));
+    try testParse("9m", .month, true, invalidCharacter(1));
+
+    try testParse("00m", .month, true, invalidCharacter(2));
+    try testParse("11m", .month, true, invalidCharacter(2));
+    try testParse("99m", .month, true, invalidCharacter(2));
+
+    try testParse("000m", .month, true, invalidCharacter(3));
+    try testParse("111m", .month, true, invalidCharacter(3));
+    try testParse("999m", .month, true, invalidCharacter(3));
+
+    try testParse("0000m", .month, true, .{ .failure = .overflow });
+    try testParse("0013m", .month, true, .{ .failure = .overflow });
+    try testParse("9999m", .month, true, .{ .failure = .overflow });
+
+    try testParse("00000m", .month, true, invalidCharacter(5));
+    try testParse("11111m", .month, true, invalidCharacter(5));
+    try testParse("99999m", .month, true, invalidCharacter(5));
+
+    try testParse("000000m", .month, true, .{ .failure = .overflow });
+    try testParse("000113m", .month, true, .{ .failure = .overflow });
+    try testParse("999999m", .month, true, .{ .failure = .overflow });
+
+    try testParse("1111111m", .month, true, invalidCharacter(7));
+
+    try testParse("2000.1m", .month, true, invalidCharacter(6));
+    try testParse("2000.00m", .month, true, .{ .failure = .overflow });
+    try testParse("2000.13m", .month, true, .{ .failure = .overflow });
 }
