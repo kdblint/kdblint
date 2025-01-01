@@ -1933,7 +1933,7 @@ fn parseNumberLiteral(
             },
             .real => return astgen.failWithNumberError(.nyi, token, bytes),
             .float => return astgen.failWithNumberError(.nyi, token, bytes),
-            .char => return astgen.failWithNumberError(.nyi, token, bytes),
+            .char => return .null_char,
             .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
             .month => return astgen.failWithNumberError(.nyi, token, bytes),
             .date => return astgen.failWithNumberError(.nyi, token, bytes),
@@ -1967,7 +1967,10 @@ fn parseNumberLiteral(
             },
             .real => return astgen.failWithNumberError(.nyi, token, bytes),
             .float => return astgen.failWithNumberError(.nyi, token, bytes),
-            .char => return astgen.failWithNumberError(.nyi, token, bytes),
+            .char => |num| switch (num) {
+                '0'...'9' => gz.addChar(num),
+                else => .null_char,
+            },
             .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
             .month => return astgen.failWithNumberError(.nyi, token, bytes),
             .date => return astgen.failWithNumberError(.nyi, token, bytes),
@@ -3031,6 +3034,13 @@ const GenZir = struct {
         return gz.add(.{
             .tag = .long,
             .data = .{ .long = value },
+        });
+    }
+
+    fn addChar(gz: *GenZir, value: u8) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .char,
+            .data = .{ .byte = value },
         });
     }
 

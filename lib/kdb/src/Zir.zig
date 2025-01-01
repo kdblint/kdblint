@@ -254,6 +254,12 @@ pub const Inst = struct {
         /// Integer list literal that fits in an i64.
         /// Uses the `pl_node` union field with payload `List`.
         long_list,
+        /// Integer literal that fits in a u8.
+        /// Uses the `byte` union field.
+        char,
+        /// Integer list literal that fits in a u8.
+        /// Uses the `pl_node` union field with payload `List`.
+        char_list,
 
         /// String literal
         /// Uses the `str_tok` union field. Token is the string literal. String is the string content.
@@ -331,6 +337,8 @@ pub const Inst = struct {
                 .int_list,
                 .long,
                 .long_list,
+                .char,
+                .char_list,
                 .str,
                 .sym,
                 .sym_list,
@@ -420,12 +428,14 @@ pub const Inst = struct {
 
         null_guid,
         null_short,
+        null_int,
+        null_long,
+        null_char,
+
         inf_short,
         negative_inf_short,
-        null_int,
         inf_int,
         negative_inf_int,
-        null_long,
         inf_long,
         negative_inf_long,
 
