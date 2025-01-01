@@ -260,6 +260,12 @@ pub const Inst = struct {
         /// Integer list literal that fits in a u8.
         /// Uses the `pl_node` union field with payload `List`.
         char_list,
+        /// Integer literal that fits in an i32.
+        /// Uses the `int` union field.
+        month,
+        /// Integer list literal that fits in an i32.
+        /// Uses the `pl_node` union field with payload `List`.
+        month_list,
 
         /// String literal
         /// Uses the `str_tok` union field. Token is the string literal. String is the string content.
@@ -339,6 +345,8 @@ pub const Inst = struct {
                 .long_list,
                 .char,
                 .char_list,
+                .month,
+                .month_list,
                 .str,
                 .sym,
                 .sym_list,
@@ -431,6 +439,7 @@ pub const Inst = struct {
         null_int,
         null_long,
         null_char,
+        null_month,
 
         inf_short,
         negative_inf_short,
@@ -438,6 +447,8 @@ pub const Inst = struct {
         negative_inf_int,
         inf_long,
         negative_inf_long,
+        inf_month,
+        negative_inf_month,
 
         nyi,
 

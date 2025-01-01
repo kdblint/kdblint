@@ -188,8 +188,13 @@ const Writer = struct {
             .byte,
             .char,
             => try self.writeByte(stream, inst),
+
             .short => try self.writeShort(stream, inst),
-            .int => try self.writeInt(stream, inst),
+
+            .int,
+            .month,
+            => try self.writeInt(stream, inst),
+
             .long => try self.writeLong(stream, inst),
 
             .bool_list,
@@ -198,6 +203,7 @@ const Writer = struct {
             .int_list,
             .long_list,
             .char_list,
+            .month_list,
             => try self.writePlNodeList(stream, inst),
 
             .str,
