@@ -2036,6 +2036,7 @@ fn failWithNumberError(
         .prefer_short_inf => return astgen.failTok(token, "prefer 0Wh", .{}),
         .prefer_int_inf => return astgen.failTok(token, "prefer 0Wi", .{}),
         .prefer_long_inf => return astgen.failTok(token, "prefer 0W", .{}),
+        .prefer_month_inf => return astgen.failTok(token, "prefer 0Wm", .{}),
     }
 }
 
