@@ -848,6 +848,11 @@ test "parse number literal - short" {
     try testParse("0W", .short, false, .{ .short = inf_short });
     try testParse("1", .short, false, .{ .short = 1 });
     try testParse("2", .short, false, .{ .short = 2 });
+    try testParse("32766", .short, false, .{ .short = 32766 });
+    try testParse("32767", .short, false, .{
+        .failure = .prefer_short_inf,
+    });
+    try testParse("32768", .short, false, overflow);
     try testParse("0n", .short, true, .{ .short = null_short });
     try testParse("0N", .short, true, .{ .short = null_short });
     try testParse("0w", .short, true, .{ .short = inf_short });
@@ -855,6 +860,11 @@ test "parse number literal - short" {
     try testParse("0", .short, true, .{ .short = 0 });
     try testParse("1", .short, true, .{ .short = 1 });
     try testParse("2", .short, true, .{ .short = 2 });
+    try testParse("32766", .short, true, .{ .short = 32766 });
+    try testParse("32767", .short, true, .{
+        .failure = .prefer_short_inf,
+    });
+    try testParse("32768", .short, true, overflow);
 
     try testParse("0nh", .short, false, invalidCharacter(2));
     try testParse("0Nh", .short, false, invalidCharacter(2));
@@ -863,6 +873,9 @@ test "parse number literal - short" {
     try testParse("0h", .short, false, invalidCharacter(1));
     try testParse("1h", .short, false, invalidCharacter(1));
     try testParse("2h", .short, false, invalidCharacter(1));
+    try testParse("32766h", .short, false, invalidCharacter(5));
+    try testParse("32767h", .short, false, invalidCharacter(5));
+    try testParse("32768h", .short, false, overflow);
     try testParse("0nh", .short, true, .{ .short = null_short });
     try testParse("0Nh", .short, true, .{ .short = null_short });
     try testParse("0wh", .short, true, .{ .short = inf_short });
@@ -870,6 +883,11 @@ test "parse number literal - short" {
     try testParse("0h", .short, true, .{ .short = 0 });
     try testParse("1h", .short, true, .{ .short = 1 });
     try testParse("2h", .short, true, .{ .short = 2 });
+    try testParse("32766h", .short, true, .{ .short = 32766 });
+    try testParse("32767h", .short, true, .{
+        .failure = .prefer_short_inf,
+    });
+    try testParse("32768h", .short, true, overflow);
 }
 
 test "parse number literal - int" {
