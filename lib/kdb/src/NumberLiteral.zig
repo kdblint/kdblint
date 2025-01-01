@@ -153,7 +153,7 @@ pub const inf_long = 9223372036854775807;
 pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result {
     switch (type_hint) {
         .none => return parseNone(bytes, allow_suffix),
-        .bool => return parseBool(bytes, allow_suffix),
+        .bool => return parseBool(bytes),
         .guid => return parseGuid(bytes, allow_suffix),
         .byte => return parseByte(bytes),
         .short => return parseShort(bytes, allow_suffix),
@@ -418,7 +418,7 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
     }
 }
 
-fn parseBool(bytes: []const u8, allow_suffix: bool) Result {
+fn parseBool(bytes: []const u8) Result {
     const value = switch (bytes[0]) {
         '0' => false,
         '1' => true,
@@ -427,12 +427,7 @@ fn parseBool(bytes: []const u8, allow_suffix: bool) Result {
         } },
     };
 
-    if (allow_suffix) {
-        if (bytes.len > 1 and bytes[1] != 'b') return .{ .failure = .{ .invalid_character = 1 } };
-        if (bytes.len > 2) return .{ .failure = .{ .invalid_character = 2 } };
-    } else {
-        if (bytes.len > 1) return .{ .failure = .{ .invalid_character = 1 } };
-    }
+    if (bytes.len > 1) return .{ .failure = .{ .invalid_character = 1 } };
 
     return .{ .bool = value };
 }
@@ -715,42 +710,21 @@ const overflow: Result = .{ .failure = .overflow };
 fn invalidCharacter(i: usize) Result {
     return .{ .failure = .{ .invalid_character = i } };
 }
-fn invalidDigit(i: usize, base: Base) Result {
-    return .{ .failure = .{
-        .invalid_digit = .{ .i = i, .base = base },
-    } };
+fn invalidBinary(i: usize) Result {
+    return .{ .failure = .{ .invalid_digit = .{ .i = i, .base = .binary } } };
+}
+fn invalidHex(i: usize) Result {
+    return .{ .failure = .{ .invalid_digit = .{ .i = i, .base = .hex } } };
 }
 
 test "parse number literal - bool" {
-    try testParse("0n", .bool, false, invalidCharacter(1));
-    try testParse("0N", .bool, false, invalidCharacter(1));
-    try testParse("0w", .bool, false, invalidCharacter(1));
-    try testParse("0W", .bool, false, invalidCharacter(1));
-    try testParse("0", .bool, false, .{ .bool = false });
-    try testParse("1", .bool, false, .{ .bool = true });
-    try testParse("2", .bool, false, invalidDigit(0, .binary));
-    try testParse("0n", .bool, true, invalidCharacter(1));
-    try testParse("0N", .bool, true, invalidCharacter(1));
-    try testParse("0w", .bool, true, invalidCharacter(1));
-    try testParse("0W", .bool, true, invalidCharacter(1));
-    try testParse("0", .bool, true, .{ .bool = false });
-    try testParse("1", .bool, true, .{ .bool = true });
-    try testParse("2", .bool, true, invalidDigit(0, .binary));
-
-    try testParse("0nb", .bool, false, invalidCharacter(1));
-    try testParse("0Nb", .bool, false, invalidCharacter(1));
-    try testParse("0wb", .bool, false, invalidCharacter(1));
-    try testParse("0Wb", .bool, false, invalidCharacter(1));
-    try testParse("0b", .bool, false, invalidCharacter(1));
-    try testParse("1b", .bool, false, invalidCharacter(1));
-    try testParse("2b", .bool, false, invalidDigit(0, .binary));
-    try testParse("0nb", .bool, true, invalidCharacter(1));
-    try testParse("0Nb", .bool, true, invalidCharacter(1));
-    try testParse("0wb", .bool, true, invalidCharacter(1));
-    try testParse("0Wb", .bool, true, invalidCharacter(1));
-    try testParse("0b", .bool, true, .{ .bool = false });
-    try testParse("1b", .bool, true, .{ .bool = true });
-    try testParse("2b", .bool, true, invalidDigit(0, .binary));
+    try testParse("0n", .bool, undefined, invalidCharacter(1));
+    try testParse("0N", .bool, undefined, invalidCharacter(1));
+    try testParse("0w", .bool, undefined, invalidCharacter(1));
+    try testParse("0W", .bool, undefined, invalidCharacter(1));
+    try testParse("0", .bool, undefined, .{ .bool = false });
+    try testParse("1", .bool, undefined, .{ .bool = true });
+    try testParse("2", .bool, undefined, invalidBinary(0));
 }
 
 test "parse number literal - guid" {
@@ -786,63 +760,61 @@ test "parse number literal - guid" {
 }
 
 test "parse number literal - byte" {
-    inline for (&.{ false, true }) |allow_suffix| {
-        try testParse("0n", .byte, allow_suffix, invalidDigit(1, .hex));
-        try testParse("0N", .byte, allow_suffix, invalidDigit(1, .hex));
-        try testParse("0w", .byte, allow_suffix, invalidDigit(1, .hex));
-        try testParse("0W", .byte, allow_suffix, invalidDigit(1, .hex));
-        try testParse("0", .byte, allow_suffix, .{ .byte = 0x0 });
-        try testParse("1", .byte, allow_suffix, .{ .byte = 0x1 });
-        try testParse("2", .byte, allow_suffix, .{ .byte = 0x2 });
-        try testParse("3", .byte, allow_suffix, .{ .byte = 0x3 });
-        try testParse("4", .byte, allow_suffix, .{ .byte = 0x4 });
-        try testParse("5", .byte, allow_suffix, .{ .byte = 0x5 });
-        try testParse("6", .byte, allow_suffix, .{ .byte = 0x6 });
-        try testParse("7", .byte, allow_suffix, .{ .byte = 0x7 });
-        try testParse("8", .byte, allow_suffix, .{ .byte = 0x8 });
-        try testParse("9", .byte, allow_suffix, .{ .byte = 0x9 });
-        try testParse("a", .byte, allow_suffix, .{ .byte = 0xa });
-        try testParse("b", .byte, allow_suffix, .{ .byte = 0xb });
-        try testParse("c", .byte, allow_suffix, .{ .byte = 0xc });
-        try testParse("d", .byte, allow_suffix, .{ .byte = 0xd });
-        try testParse("e", .byte, allow_suffix, .{ .byte = 0xe });
-        try testParse("f", .byte, allow_suffix, .{ .byte = 0xf });
-        try testParse("00", .byte, allow_suffix, .{ .byte = 0x0 });
-        try testParse("01", .byte, allow_suffix, .{ .byte = 0x1 });
-        try testParse("02", .byte, allow_suffix, .{ .byte = 0x2 });
-        try testParse("03", .byte, allow_suffix, .{ .byte = 0x3 });
-        try testParse("04", .byte, allow_suffix, .{ .byte = 0x4 });
-        try testParse("05", .byte, allow_suffix, .{ .byte = 0x5 });
-        try testParse("06", .byte, allow_suffix, .{ .byte = 0x6 });
-        try testParse("07", .byte, allow_suffix, .{ .byte = 0x7 });
-        try testParse("08", .byte, allow_suffix, .{ .byte = 0x8 });
-        try testParse("09", .byte, allow_suffix, .{ .byte = 0x9 });
-        try testParse("0a", .byte, allow_suffix, .{ .byte = 0xa });
-        try testParse("0b", .byte, allow_suffix, .{ .byte = 0xb });
-        try testParse("0c", .byte, allow_suffix, .{ .byte = 0xc });
-        try testParse("0d", .byte, allow_suffix, .{ .byte = 0xd });
-        try testParse("0e", .byte, allow_suffix, .{ .byte = 0xe });
-        try testParse("0f", .byte, allow_suffix, .{ .byte = 0xf });
-        try testParse("10", .byte, allow_suffix, .{ .byte = 0x10 });
-        try testParse("11", .byte, allow_suffix, .{ .byte = 0x11 });
-        try testParse("12", .byte, allow_suffix, .{ .byte = 0x12 });
-        try testParse("13", .byte, allow_suffix, .{ .byte = 0x13 });
-        try testParse("14", .byte, allow_suffix, .{ .byte = 0x14 });
-        try testParse("15", .byte, allow_suffix, .{ .byte = 0x15 });
-        try testParse("16", .byte, allow_suffix, .{ .byte = 0x16 });
-        try testParse("17", .byte, allow_suffix, .{ .byte = 0x17 });
-        try testParse("18", .byte, allow_suffix, .{ .byte = 0x18 });
-        try testParse("19", .byte, allow_suffix, .{ .byte = 0x19 });
-        try testParse("1a", .byte, allow_suffix, .{ .byte = 0x1a });
-        try testParse("1b", .byte, allow_suffix, .{ .byte = 0x1b });
-        try testParse("1c", .byte, allow_suffix, .{ .byte = 0x1c });
-        try testParse("1d", .byte, allow_suffix, .{ .byte = 0x1d });
-        try testParse("1e", .byte, allow_suffix, .{ .byte = 0x1e });
-        try testParse("1f", .byte, allow_suffix, .{ .byte = 0x1f });
+    try testParse("0n", .byte, undefined, invalidHex(1));
+    try testParse("0N", .byte, undefined, invalidHex(1));
+    try testParse("0w", .byte, undefined, invalidHex(1));
+    try testParse("0W", .byte, undefined, invalidHex(1));
+    try testParse("0", .byte, undefined, .{ .byte = 0x0 });
+    try testParse("1", .byte, undefined, .{ .byte = 0x1 });
+    try testParse("2", .byte, undefined, .{ .byte = 0x2 });
+    try testParse("3", .byte, undefined, .{ .byte = 0x3 });
+    try testParse("4", .byte, undefined, .{ .byte = 0x4 });
+    try testParse("5", .byte, undefined, .{ .byte = 0x5 });
+    try testParse("6", .byte, undefined, .{ .byte = 0x6 });
+    try testParse("7", .byte, undefined, .{ .byte = 0x7 });
+    try testParse("8", .byte, undefined, .{ .byte = 0x8 });
+    try testParse("9", .byte, undefined, .{ .byte = 0x9 });
+    try testParse("a", .byte, undefined, .{ .byte = 0xa });
+    try testParse("b", .byte, undefined, .{ .byte = 0xb });
+    try testParse("c", .byte, undefined, .{ .byte = 0xc });
+    try testParse("d", .byte, undefined, .{ .byte = 0xd });
+    try testParse("e", .byte, undefined, .{ .byte = 0xe });
+    try testParse("f", .byte, undefined, .{ .byte = 0xf });
+    try testParse("00", .byte, undefined, .{ .byte = 0x0 });
+    try testParse("01", .byte, undefined, .{ .byte = 0x1 });
+    try testParse("02", .byte, undefined, .{ .byte = 0x2 });
+    try testParse("03", .byte, undefined, .{ .byte = 0x3 });
+    try testParse("04", .byte, undefined, .{ .byte = 0x4 });
+    try testParse("05", .byte, undefined, .{ .byte = 0x5 });
+    try testParse("06", .byte, undefined, .{ .byte = 0x6 });
+    try testParse("07", .byte, undefined, .{ .byte = 0x7 });
+    try testParse("08", .byte, undefined, .{ .byte = 0x8 });
+    try testParse("09", .byte, undefined, .{ .byte = 0x9 });
+    try testParse("0a", .byte, undefined, .{ .byte = 0xa });
+    try testParse("0b", .byte, undefined, .{ .byte = 0xb });
+    try testParse("0c", .byte, undefined, .{ .byte = 0xc });
+    try testParse("0d", .byte, undefined, .{ .byte = 0xd });
+    try testParse("0e", .byte, undefined, .{ .byte = 0xe });
+    try testParse("0f", .byte, undefined, .{ .byte = 0xf });
+    try testParse("10", .byte, undefined, .{ .byte = 0x10 });
+    try testParse("11", .byte, undefined, .{ .byte = 0x11 });
+    try testParse("12", .byte, undefined, .{ .byte = 0x12 });
+    try testParse("13", .byte, undefined, .{ .byte = 0x13 });
+    try testParse("14", .byte, undefined, .{ .byte = 0x14 });
+    try testParse("15", .byte, undefined, .{ .byte = 0x15 });
+    try testParse("16", .byte, undefined, .{ .byte = 0x16 });
+    try testParse("17", .byte, undefined, .{ .byte = 0x17 });
+    try testParse("18", .byte, undefined, .{ .byte = 0x18 });
+    try testParse("19", .byte, undefined, .{ .byte = 0x19 });
+    try testParse("1a", .byte, undefined, .{ .byte = 0x1a });
+    try testParse("1b", .byte, undefined, .{ .byte = 0x1b });
+    try testParse("1c", .byte, undefined, .{ .byte = 0x1c });
+    try testParse("1d", .byte, undefined, .{ .byte = 0x1d });
+    try testParse("1e", .byte, undefined, .{ .byte = 0x1e });
+    try testParse("1f", .byte, undefined, .{ .byte = 0x1f });
 
-        try testParse("g", .byte, allow_suffix, invalidDigit(0, .hex));
-        try testParse("100", .byte, allow_suffix, overflow);
-    }
+    try testParse("g", .byte, undefined, invalidHex(0));
+    try testParse("100", .byte, undefined, overflow);
 }
 
 test "parse number literal - short" {
@@ -1113,23 +1085,23 @@ test "parse number literal - month" {
     try testParse("111", .month, false, invalidCharacter(3));
     try testParse("999", .month, false, invalidCharacter(3));
 
-    try testParse("0000", .month, false, .{ .failure = .overflow });
-    try testParse("0013", .month, false, .{ .failure = .overflow });
-    try testParse("9999", .month, false, .{ .failure = .overflow });
+    try testParse("0000", .month, false, overflow);
+    try testParse("0013", .month, false, overflow);
+    try testParse("9999", .month, false, overflow);
 
     try testParse("00000", .month, false, invalidCharacter(5));
     try testParse("11111", .month, false, invalidCharacter(5));
     try testParse("99999", .month, false, invalidCharacter(5));
 
-    try testParse("000000", .month, false, .{ .failure = .overflow });
-    try testParse("000113", .month, false, .{ .failure = .overflow });
-    try testParse("999999", .month, false, .{ .failure = .overflow });
+    try testParse("000000", .month, false, overflow);
+    try testParse("000113", .month, false, overflow);
+    try testParse("999999", .month, false, overflow);
 
     try testParse("1111111", .month, false, invalidCharacter(7));
 
     try testParse("2000.1", .month, false, invalidCharacter(6));
-    try testParse("2000.00", .month, false, .{ .failure = .overflow });
-    try testParse("2000.13", .month, false, .{ .failure = .overflow });
+    try testParse("2000.00", .month, false, overflow);
+    try testParse("2000.13", .month, false, overflow);
 
     try testParse("0m", .month, true, invalidCharacter(1));
     try testParse("1m", .month, true, invalidCharacter(1));
@@ -1143,21 +1115,21 @@ test "parse number literal - month" {
     try testParse("111m", .month, true, invalidCharacter(3));
     try testParse("999m", .month, true, invalidCharacter(3));
 
-    try testParse("0000m", .month, true, .{ .failure = .overflow });
-    try testParse("0013m", .month, true, .{ .failure = .overflow });
-    try testParse("9999m", .month, true, .{ .failure = .overflow });
+    try testParse("0000m", .month, true, overflow);
+    try testParse("0013m", .month, true, overflow);
+    try testParse("9999m", .month, true, overflow);
 
     try testParse("00000m", .month, true, invalidCharacter(5));
     try testParse("11111m", .month, true, invalidCharacter(5));
     try testParse("99999m", .month, true, invalidCharacter(5));
 
-    try testParse("000000m", .month, true, .{ .failure = .overflow });
-    try testParse("000113m", .month, true, .{ .failure = .overflow });
-    try testParse("999999m", .month, true, .{ .failure = .overflow });
+    try testParse("000000m", .month, true, overflow);
+    try testParse("000113m", .month, true, overflow);
+    try testParse("999999m", .month, true, overflow);
 
     try testParse("1111111m", .month, true, invalidCharacter(7));
 
     try testParse("2000.1m", .month, true, invalidCharacter(6));
-    try testParse("2000.00m", .month, true, .{ .failure = .overflow });
-    try testParse("2000.13m", .month, true, .{ .failure = .overflow });
+    try testParse("2000.00m", .month, true, overflow);
+    try testParse("2000.13m", .month, true, overflow);
 }
