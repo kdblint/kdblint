@@ -58,6 +58,9 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const check_step = b.step("check", "Check");
+    check_step.dependOn(&exe.step);
+
     const test_filters = b.option(
         []const []const u8,
         "test-filter",
