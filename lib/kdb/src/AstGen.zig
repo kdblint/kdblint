@@ -1935,7 +1935,15 @@ fn parseNumberLiteral(
             .float => return astgen.failWithNumberError(.nyi, token, bytes),
             .char => return .null_char,
             .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
-            .month => return astgen.failWithNumberError(.nyi, token, bytes),
+            .month => |num| switch (num) {
+                NumberLiteral.null_int => return astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                ),
+                NumberLiteral.inf_int => .negative_inf_month,
+                else => gz.addMonth(-num),
+            },
             .date => return astgen.failWithNumberError(.nyi, token, bytes),
             .datetime => return astgen.failWithNumberError(.nyi, token, bytes),
             .timespan => return astgen.failWithNumberError(.nyi, token, bytes),
@@ -1972,7 +1980,11 @@ fn parseNumberLiteral(
                 else => .null_char,
             },
             .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
-            .month => return astgen.failWithNumberError(.nyi, token, bytes),
+            .month => |num| switch (num) {
+                NumberLiteral.null_int => .null_month,
+                NumberLiteral.inf_int => .inf_month,
+                else => gz.addMonth(num),
+            },
             .date => return astgen.failWithNumberError(.nyi, token, bytes),
             .datetime => return astgen.failWithNumberError(.nyi, token, bytes),
             .timespan => return astgen.failWithNumberError(.nyi, token, bytes),
@@ -3041,6 +3053,13 @@ const GenZir = struct {
         return gz.add(.{
             .tag = .char,
             .data = .{ .byte = value },
+        });
+    }
+
+    fn addMonth(gz: *GenZir, value: i32) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .month,
+            .data = .{ .int = value },
         });
     }
 

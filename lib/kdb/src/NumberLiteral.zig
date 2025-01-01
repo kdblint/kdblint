@@ -162,7 +162,7 @@ pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result 
         .float => return .{ .failure = .nyi },
         .char => return parseChar(bytes, allow_suffix),
         .timestamp => return .{ .failure = .nyi },
-        .month => return .{ .failure = .nyi },
+        .month => return parseMonth(bytes, allow_suffix),
         .date => return .{ .failure = .nyi },
         .datetime => return .{ .failure = .nyi },
         .timespan => return .{ .failure = .nyi },
@@ -642,6 +642,65 @@ fn parseChar(bytes: []const u8, allow_suffix: bool) Result {
     };
 }
 
+fn parseMonth(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .month = null_int },
+        'W', 'w' => return .{ .month = inf_int },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'm' => .{ .month = null_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'm' => .{ .month = inf_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    var i: usize = 0;
+    var x: i32 = 0;
+    var year: ?i32 = null;
+    while (i < bytes.len) : (i += 1) {
+        const c = bytes[i];
+        const digit = switch (c) {
+            '0'...'9' => c - '0',
+            'm' => if (allow_suffix and i == bytes.len - 1)
+                continue
+            else
+                return .{ .failure = .{ .invalid_character = i } },
+            '.' => {
+                if (i != 4) return .{ .failure = .{ .invalid_character = i } };
+                year = x - 2000;
+                x = 0;
+                continue;
+            },
+            else => return .{ .failure = .{ .invalid_character = i } },
+        };
+        if (x != 0) {
+            const res = @mulWithOverflow(x, 10);
+            if (res[1] != 0) return .{ .failure = .overflow };
+            x = res[0];
+        }
+        const res = @addWithOverflow(x, digit);
+        if (res[1] != 0) return .{ .failure = .overflow };
+        x = res[0];
+    }
+
+    if (year) |y| {
+        if (x == 0 or x > 12) return .{ .failure = .overflow };
+
+        return .{ .month = y * 12 + x - 1 };
+    } else {
+        if (x == inf_int) return .{ .failure = .prefer_int_inf };
+        if (x > inf_int) return .{ .failure = .overflow };
+
+        return .{ .month = x };
+    }
+}
+
 fn testParse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool, expected: Result) !void {
     const result = parse(bytes, type_hint, allow_suffix);
     try std.testing.expectEqual(expected, result);
@@ -916,4 +975,60 @@ test "parse number literal - char" {
     try testParse("0c", .char, true, .{ .char = '0' });
     try testParse("1c", .char, true, .{ .char = '1' });
     try testParse("2c", .char, true, .{ .char = '2' });
+}
+
+test "parse number literal - month" {
+    try testParse("0n", .month, false, .{ .month = null_int });
+    try testParse("0N", .month, false, .{ .month = null_int });
+    try testParse("0w", .month, false, .{ .month = inf_int });
+    try testParse("0W", .month, false, .{ .month = inf_int });
+    try testParse("0", .month, false, .{ .month = 0 });
+    try testParse("1", .month, false, .{ .month = 1 });
+    try testParse("2", .month, false, .{ .month = 2 });
+    try testParse("1999.11", .month, false, .{ .month = -2 });
+    try testParse("1999.12", .month, false, .{ .month = -1 });
+    try testParse("2000.01", .month, false, .{ .month = 0 });
+    try testParse("2000.02", .month, false, .{ .month = 1 });
+    try testParse("2001.01", .month, false, .{ .month = 12 });
+    try testParse("2001.02", .month, false, .{ .month = 13 });
+    try testParse("0n", .month, true, .{ .month = null_int });
+    try testParse("0N", .month, true, .{ .month = null_int });
+    try testParse("0w", .month, true, .{ .month = inf_int });
+    try testParse("0W", .month, true, .{ .month = inf_int });
+    try testParse("0", .month, true, .{ .month = 0 });
+    try testParse("1", .month, true, .{ .month = 1 });
+    try testParse("2", .month, true, .{ .month = 2 });
+    try testParse("1999.11", .month, true, .{ .month = -2 });
+    try testParse("1999.12", .month, true, .{ .month = -1 });
+    try testParse("2000.01", .month, true, .{ .month = 0 });
+    try testParse("2000.02", .month, true, .{ .month = 1 });
+    try testParse("2001.01", .month, true, .{ .month = 12 });
+    try testParse("2001.02", .month, true, .{ .month = 13 });
+
+    try testParse("0nm", .month, false, invalidCharacter(2));
+    try testParse("0Nm", .month, false, invalidCharacter(2));
+    try testParse("0wm", .month, false, invalidCharacter(2));
+    try testParse("0Wm", .month, false, invalidCharacter(2));
+    try testParse("0m", .month, false, invalidCharacter(1));
+    try testParse("1m", .month, false, invalidCharacter(1));
+    try testParse("2m", .month, false, invalidCharacter(1));
+    try testParse("1999.11m", .month, false, invalidCharacter(7));
+    try testParse("1999.12m", .month, false, invalidCharacter(7));
+    try testParse("2000.01m", .month, false, invalidCharacter(7));
+    try testParse("2000.02m", .month, false, invalidCharacter(7));
+    try testParse("2001.01m", .month, false, invalidCharacter(7));
+    try testParse("2001.02m", .month, false, invalidCharacter(7));
+    try testParse("0nm", .month, true, .{ .month = null_int });
+    try testParse("0Nm", .month, true, .{ .month = null_int });
+    try testParse("0wm", .month, true, .{ .month = inf_int });
+    try testParse("0Wm", .month, true, .{ .month = inf_int });
+    try testParse("0m", .month, true, .{ .month = 0 });
+    try testParse("1m", .month, true, .{ .month = 1 });
+    try testParse("2m", .month, true, .{ .month = 2 });
+    try testParse("1999.11m", .month, true, .{ .month = -2 });
+    try testParse("1999.12m", .month, true, .{ .month = -1 });
+    try testParse("2000.01m", .month, true, .{ .month = 0 });
+    try testParse("2000.02m", .month, true, .{ .month = 1 });
+    try testParse("2001.01m", .month, true, .{ .month = 12 });
+    try testParse("2001.02m", .month, true, .{ .month = 13 });
 }
