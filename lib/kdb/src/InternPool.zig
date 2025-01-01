@@ -72,6 +72,7 @@ pub const Index = enum(u32) {
     null_int,
     null_long,
     null_char,
+    null_month,
 
     inf_short,
     negative_inf_short,
@@ -79,6 +80,8 @@ pub const Index = enum(u32) {
     negative_inf_int,
     inf_long,
     negative_inf_long,
+    inf_month,
+    negative_inf_month,
 };
 
 pub fn init(gpa: Allocator) Allocator.Error!InternPool {
