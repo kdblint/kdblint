@@ -897,6 +897,11 @@ test "parse number literal - int" {
     try testParse("0W", .int, false, .{ .int = inf_int });
     try testParse("1", .int, false, .{ .int = 1 });
     try testParse("2", .int, false, .{ .int = 2 });
+    try testParse("2147483646", .int, false, .{ .int = 2147483646 });
+    try testParse("2147483647", .int, false, .{
+        .failure = .prefer_int_inf,
+    });
+    try testParse("2147483648", .int, false, overflow);
     try testParse("0n", .int, true, .{ .int = null_int });
     try testParse("0N", .int, true, .{ .int = null_int });
     try testParse("0w", .int, true, .{ .int = inf_int });
@@ -904,6 +909,11 @@ test "parse number literal - int" {
     try testParse("0", .int, true, .{ .int = 0 });
     try testParse("1", .int, true, .{ .int = 1 });
     try testParse("2", .int, true, .{ .int = 2 });
+    try testParse("2147483646", .int, true, .{ .int = 2147483646 });
+    try testParse("2147483647", .int, true, .{
+        .failure = .prefer_int_inf,
+    });
+    try testParse("2147483648", .int, true, overflow);
 
     try testParse("0ni", .int, false, invalidCharacter(2));
     try testParse("0Ni", .int, false, invalidCharacter(2));
@@ -912,6 +922,9 @@ test "parse number literal - int" {
     try testParse("0i", .int, false, invalidCharacter(1));
     try testParse("1i", .int, false, invalidCharacter(1));
     try testParse("2i", .int, false, invalidCharacter(1));
+    try testParse("2147483646i", .int, false, invalidCharacter(10));
+    try testParse("2147483647i", .int, false, invalidCharacter(10));
+    try testParse("2147483648i", .int, false, overflow);
     try testParse("0ni", .int, true, .{ .int = null_int });
     try testParse("0Ni", .int, true, .{ .int = null_int });
     try testParse("0wi", .int, true, .{ .int = inf_int });
@@ -919,6 +932,11 @@ test "parse number literal - int" {
     try testParse("0i", .int, true, .{ .int = 0 });
     try testParse("1i", .int, true, .{ .int = 1 });
     try testParse("2i", .int, true, .{ .int = 2 });
+    try testParse("2147483646i", .int, true, .{ .int = 2147483646 });
+    try testParse("2147483647i", .int, true, .{
+        .failure = .prefer_int_inf,
+    });
+    try testParse("2147483648i", .int, true, overflow);
 }
 
 test "parse number literal - long" {
