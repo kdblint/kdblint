@@ -1289,7 +1289,17 @@ pub const Tokenizer = struct {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
                     },
-                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
+                    'e' => {
+                        if (self.index + 1 < self.buffer.len) switch (self.buffer[self.index + 1]) {
+                            '+', '-' => switch (self.buffer[self.index + 2]) {
+                                '0'...'9' => self.index += 2,
+                                else => {},
+                            },
+                            else => {},
+                        };
+                        continue :state .int;
+                    },
+                    '0'...'9', 'a'...'d', 'f'...'z', 'A'...'Z', '.' => continue :state .int,
                     else => {},
                 }
             },
@@ -1970,7 +1980,11 @@ test "tokenize system commands" {
 }
 
 test "number literals" {
-    if (true) return error.SkipZigTest;
+    try testTokenize("123e+e", &.{ .number_literal, .plus, .identifier });
+    try testTokenize("123e-e", &.{ .number_literal, .minus, .identifier });
+    try testTokenize("123e45", &.{.number_literal});
+    try testTokenize("123e+45", &.{.number_literal});
+    try testTokenize("123e-45", &.{.number_literal});
 }
 
 fn testTokenize(
