@@ -504,32 +504,17 @@ fn parseShort(bytes: []const u8, allow_suffix: bool) Result {
         else => {},
     };
 
-    var i: usize = 0;
-    var x: u16 = 0;
-    while (i < bytes.len) : (i += 1) {
-        const c = bytes[i];
-        const digit = switch (c) {
-            '0'...'9' => c - '0',
-            'h' => if (allow_suffix and i == bytes.len - 1)
-                continue
-            else
-                return .{ .failure = .{ .invalid_character = i } },
-            else => return .{ .failure = .{ .invalid_character = i } },
-        };
-        if (x != 0) {
-            const res = @mulWithOverflow(x, 10);
-            if (res[1] != 0) return .{ .failure = .overflow };
-            x = res[0];
-        }
-        const res = @addWithOverflow(x, digit);
-        if (res[1] != 0) return .{ .failure = .overflow };
-        x = res[0];
-    }
+    const slice = if (allow_suffix and bytes[bytes.len - 1] == 'h') bytes[0 .. bytes.len - 1] else bytes;
+    const x = switch (parseSlice(i16, slice)) {
+        .overflow => return .{ .failure = .overflow },
+        .invalid_character => |i| return .{ .failure = .{ .invalid_character = i } },
+        .int => |int| int,
+    };
 
     if (x == inf_short) return .{ .failure = .prefer_short_inf };
     if (x > inf_short) return .{ .failure = .overflow };
 
-    return .{ .short = @intCast(x) };
+    return .{ .short = x };
 }
 
 fn parseInt(bytes: []const u8, allow_suffix: bool) Result {
@@ -550,32 +535,17 @@ fn parseInt(bytes: []const u8, allow_suffix: bool) Result {
         else => {},
     };
 
-    var i: usize = 0;
-    var x: u32 = 0;
-    while (i < bytes.len) : (i += 1) {
-        const c = bytes[i];
-        const digit = switch (c) {
-            '0'...'9' => c - '0',
-            'i' => if (allow_suffix and i == bytes.len - 1)
-                continue
-            else
-                return .{ .failure = .{ .invalid_character = i } },
-            else => return .{ .failure = .{ .invalid_character = i } },
-        };
-        if (x != 0) {
-            const res = @mulWithOverflow(x, 10);
-            if (res[1] != 0) return .{ .failure = .overflow };
-            x = res[0];
-        }
-        const res = @addWithOverflow(x, digit);
-        if (res[1] != 0) return .{ .failure = .overflow };
-        x = res[0];
-    }
+    const slice = if (allow_suffix and bytes[bytes.len - 1] == 'i') bytes[0 .. bytes.len - 1] else bytes;
+    const x = switch (parseSlice(i32, slice)) {
+        .overflow => return .{ .failure = .overflow },
+        .invalid_character => |i| return .{ .failure = .{ .invalid_character = i } },
+        .int => |int| int,
+    };
 
     if (x == inf_int) return .{ .failure = .prefer_int_inf };
     if (x > inf_int) return .{ .failure = .overflow };
 
-    return .{ .int = @intCast(x) };
+    return .{ .int = x };
 }
 
 fn parseLong(bytes: []const u8, allow_suffix: bool) Result {
@@ -596,32 +566,17 @@ fn parseLong(bytes: []const u8, allow_suffix: bool) Result {
         else => {},
     };
 
-    var i: usize = 0;
-    var x: u64 = 0;
-    while (i < bytes.len) : (i += 1) {
-        const c = bytes[i];
-        const digit = switch (c) {
-            '0'...'9' => c - '0',
-            'j' => if (allow_suffix and i == bytes.len - 1)
-                continue
-            else
-                return .{ .failure = .{ .invalid_character = i } },
-            else => return .{ .failure = .{ .invalid_character = i } },
-        };
-        if (x != 0) {
-            const res = @mulWithOverflow(x, 10);
-            if (res[1] != 0) return .{ .failure = .overflow };
-            x = res[0];
-        }
-        const res = @addWithOverflow(x, digit);
-        if (res[1] != 0) return .{ .failure = .overflow };
-        x = res[0];
-    }
+    const slice = if (allow_suffix and bytes[bytes.len - 1] == 'j') bytes[0 .. bytes.len - 1] else bytes;
+    const x = switch (parseSlice(i64, slice)) {
+        .overflow => return .{ .failure = .overflow },
+        .invalid_character => |i| return .{ .failure = .{ .invalid_character = i } },
+        .int => |int| int,
+    };
 
     if (x == inf_long) return .{ .failure = .prefer_long_inf };
     if (x > inf_long) return .{ .failure = .overflow };
 
-    return .{ .long = @intCast(x) };
+    return .{ .long = x };
 }
 
 fn parseReal(bytes: []const u8, allow_suffix: bool) Result {
@@ -846,45 +801,72 @@ fn parseMonth(bytes: []const u8, allow_suffix: bool) Result {
         else => {},
     };
 
-    var i: usize = 0;
-    var x: i32 = 0;
-    var year: ?i32 = null;
-    while (i < bytes.len) : (i += 1) {
-        const c = bytes[i];
+    const slice = if (allow_suffix and bytes[bytes.len - 1] == 'm') bytes[0 .. bytes.len - 1] else bytes;
+    switch (slice.len) {
+        4 => {
+            const year_value: i32 = switch (parseSlice(i32, slice[0..2])) {
+                .overflow => return .{ .failure = .overflow },
+                .invalid_character => |i| return .{ .failure = .{ .invalid_character = i } },
+                .int => |int| int,
+            };
+            const month_value: i32 = switch (parseSlice(i32, slice[2..4])) {
+                .overflow => return .{ .failure = .overflow },
+                .invalid_character => |i| return .{ .failure = .{
+                    .invalid_character = i + 2,
+                } },
+                .int => |int| int,
+            };
+            if (month_value == 0 or month_value > 12) return .{ .failure = .overflow };
+            const months = calculateMonths(
+                if (year_value < 50) year_value + 2000 else year_value + 1900,
+                month_value,
+            );
+            return .{ .month = months };
+        },
+        6, 7 => {
+            const year_value: i32 = switch (parseSlice(i32, slice[0..4])) {
+                .overflow => return .{ .failure = .overflow },
+                .invalid_character => |i| return .{ .failure = .{ .invalid_character = i } },
+                .int => |int| int,
+            };
+            if (year_value == 0) return .{ .failure = .overflow };
+            const month_value: i32 = switch (parseSlice(i32, slice[(slice.len - 2)..])) {
+                .overflow => return .{ .failure = .overflow },
+                .invalid_character => |i| return .{ .failure = .{
+                    .invalid_character = i + slice.len - 2,
+                } },
+                .int => |int| int,
+            };
+            if (month_value == 0 or month_value > 12) return .{ .failure = .overflow };
+            const months = calculateMonths(year_value, month_value);
+            return .{ .month = months };
+        },
+        else => return .{ .failure = .{ .invalid_character = slice.len - 1 } },
+    }
+}
+
+fn calculateMonths(year_value: i32, month_value: i32) i32 {
+    return (year_value - 2000) * 12 + month_value - 1;
+}
+
+fn parseSlice(T: type, bytes: []const u8) union(enum) { overflow, invalid_character: usize, int: T } {
+    var x: T = 0;
+    for (bytes, 0..) |c, i| {
         const digit = switch (c) {
             '0'...'9' => c - '0',
-            'm' => if (allow_suffix and i == bytes.len - 1)
-                continue
-            else
-                return .{ .failure = .{ .invalid_character = i } },
-            '.' => {
-                if (i != 4) return .{ .failure = .{ .invalid_character = i } };
-                year = x - 2000;
-                x = 0;
-                continue;
-            },
-            else => return .{ .failure = .{ .invalid_character = i } },
+            else => return .{ .invalid_character = i },
         };
         if (x != 0) {
             const res = @mulWithOverflow(x, 10);
-            if (res[1] != 0) return .{ .failure = .overflow };
+            if (res[1] != 0) return .overflow;
             x = res[0];
         }
         const res = @addWithOverflow(x, digit);
-        if (res[1] != 0) return .{ .failure = .overflow };
+        if (res[1] != 0) return .overflow;
         x = res[0];
     }
 
-    if (year) |y| {
-        if (x == 0 or x > 12) return .{ .failure = .overflow };
-
-        return .{ .month = y * 12 + x - 1 };
-    } else {
-        if (x == inf_int) return .{ .failure = .prefer_month_inf };
-        if (x > inf_int) return .{ .failure = .overflow };
-
-        return .{ .month = x };
-    }
+    return .{ .int = x };
 }
 
 fn testParse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool, expected: Result) !void {
@@ -1043,7 +1025,7 @@ test "parse number literal - short" {
     try testParse("2h", .short, false, invalidCharacter(1));
     try testParse("32766h", .short, false, invalidCharacter(5));
     try testParse("32767h", .short, false, invalidCharacter(5));
-    try testParse("32768h", .short, false, invalidCharacter(5));
+    try testParse("32768h", .short, false, overflow);
     try testParse("0nh", .short, true, .{ .short = null_short });
     try testParse("0Nh", .short, true, .{ .short = null_short });
     try testParse("0wh", .short, true, .{ .short = inf_short });
@@ -1092,7 +1074,7 @@ test "parse number literal - int" {
     try testParse("2i", .int, false, invalidCharacter(1));
     try testParse("2147483646i", .int, false, invalidCharacter(10));
     try testParse("2147483647i", .int, false, invalidCharacter(10));
-    try testParse("2147483648i", .int, false, invalidCharacter(10));
+    try testParse("2147483648i", .int, false, overflow);
     try testParse("0ni", .int, true, .{ .int = null_int });
     try testParse("0Ni", .int, true, .{ .int = null_int });
     try testParse("0wi", .int, true, .{ .int = inf_int });
@@ -1171,7 +1153,7 @@ test "parse number literal - long" {
     try testParse("2j", .long, false, invalidCharacter(1));
     try testParse("9223372036854775806j", .long, false, invalidCharacter(19));
     try testParse("9223372036854775807j", .long, false, invalidCharacter(19));
-    try testParse("9223372036854775808j", .long, false, invalidCharacter(19));
+    try testParse("9223372036854775808j", .long, false, overflow);
     try testParse("0nj", .long, true, .{ .long = null_long });
     try testParse("0Nj", .long, true, .{ .long = null_long });
     try testParse("0wj", .long, true, .{ .long = inf_long });
@@ -1545,63 +1527,63 @@ test "parse number literal - month" {
     try testParse("999901m", .month, true, .{ .month = 95988 });
     try testParse("999912m", .month, true, .{ .month = 95999 });
 
-    try testParse("0", .month, false, invalidCharacter(1));
-    try testParse("1", .month, false, invalidCharacter(1));
-    try testParse("9", .month, false, invalidCharacter(1));
+    try testParse("0", .month, false, invalidCharacter(0));
+    try testParse("1", .month, false, invalidCharacter(0));
+    try testParse("9", .month, false, invalidCharacter(0));
 
-    try testParse("00", .month, false, invalidCharacter(2));
-    try testParse("11", .month, false, invalidCharacter(2));
-    try testParse("99", .month, false, invalidCharacter(2));
+    try testParse("00", .month, false, invalidCharacter(1));
+    try testParse("11", .month, false, invalidCharacter(1));
+    try testParse("99", .month, false, invalidCharacter(1));
 
-    try testParse("000", .month, false, invalidCharacter(3));
-    try testParse("111", .month, false, invalidCharacter(3));
-    try testParse("999", .month, false, invalidCharacter(3));
+    try testParse("000", .month, false, invalidCharacter(2));
+    try testParse("111", .month, false, invalidCharacter(2));
+    try testParse("999", .month, false, invalidCharacter(2));
 
     try testParse("0000", .month, false, overflow);
     try testParse("0013", .month, false, overflow);
     try testParse("9999", .month, false, overflow);
 
-    try testParse("00000", .month, false, invalidCharacter(5));
-    try testParse("11111", .month, false, invalidCharacter(5));
-    try testParse("99999", .month, false, invalidCharacter(5));
+    try testParse("00000", .month, false, invalidCharacter(4));
+    try testParse("11111", .month, false, invalidCharacter(4));
+    try testParse("99999", .month, false, invalidCharacter(4));
 
     try testParse("000000", .month, false, overflow);
     try testParse("000113", .month, false, overflow);
     try testParse("999999", .month, false, overflow);
 
-    try testParse("1111111", .month, false, invalidCharacter(7));
+    try testParse("1111111", .month, false, .{ .month = -10658 });
 
-    try testParse("2000.1", .month, false, invalidCharacter(6));
+    try testParse("2000.1", .month, false, invalidCharacter(4));
     try testParse("2000.00", .month, false, overflow);
     try testParse("2000.13", .month, false, overflow);
 
-    try testParse("0m", .month, true, invalidCharacter(1));
-    try testParse("1m", .month, true, invalidCharacter(1));
-    try testParse("9m", .month, true, invalidCharacter(1));
+    try testParse("0m", .month, true, invalidCharacter(0));
+    try testParse("1m", .month, true, invalidCharacter(0));
+    try testParse("9m", .month, true, invalidCharacter(0));
 
-    try testParse("00m", .month, true, invalidCharacter(2));
-    try testParse("11m", .month, true, invalidCharacter(2));
-    try testParse("99m", .month, true, invalidCharacter(2));
+    try testParse("00m", .month, true, invalidCharacter(1));
+    try testParse("11m", .month, true, invalidCharacter(1));
+    try testParse("99m", .month, true, invalidCharacter(1));
 
-    try testParse("000m", .month, true, invalidCharacter(3));
-    try testParse("111m", .month, true, invalidCharacter(3));
-    try testParse("999m", .month, true, invalidCharacter(3));
+    try testParse("000m", .month, true, invalidCharacter(2));
+    try testParse("111m", .month, true, invalidCharacter(2));
+    try testParse("999m", .month, true, invalidCharacter(2));
 
     try testParse("0000m", .month, true, overflow);
     try testParse("0013m", .month, true, overflow);
     try testParse("9999m", .month, true, overflow);
 
-    try testParse("00000m", .month, true, invalidCharacter(5));
-    try testParse("11111m", .month, true, invalidCharacter(5));
-    try testParse("99999m", .month, true, invalidCharacter(5));
+    try testParse("00000m", .month, true, invalidCharacter(4));
+    try testParse("11111m", .month, true, invalidCharacter(4));
+    try testParse("99999m", .month, true, invalidCharacter(4));
 
     try testParse("000000m", .month, true, overflow);
     try testParse("000113m", .month, true, overflow);
     try testParse("999999m", .month, true, overflow);
 
-    try testParse("1111111m", .month, true, invalidCharacter(7));
+    try testParse("1111111m", .month, true, .{ .month = -10658 });
 
-    try testParse("2000.1m", .month, true, invalidCharacter(6));
+    try testParse("2000.1m", .month, true, invalidCharacter(4));
     try testParse("2000.00m", .month, true, overflow);
     try testParse("2000.13m", .month, true, overflow);
 }
