@@ -160,7 +160,7 @@ pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result 
         .int => return parseInt(bytes, allow_suffix),
         .long => return parseLong(bytes, allow_suffix),
         .real => return parseReal(bytes, allow_suffix),
-        .float => return .{ .failure = .nyi },
+        .float => return parseFloat(bytes, allow_suffix),
         .char => return parseChar(bytes, allow_suffix),
         .timestamp => return .{ .failure = .nyi },
         .month => return parseMonth(bytes, allow_suffix),
@@ -713,6 +713,103 @@ fn parseReal(bytes: []const u8, allow_suffix: bool) Result {
     return .real;
 }
 
+fn parseFloat(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .float,
+        'W', 'w' => return .float,
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'f' => .float,
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'f' => .float,
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    var i: usize = 0;
+    var x: u64 = 0;
+    var period = false;
+    var special: u8 = 0;
+    var exponent = false;
+    var float = false;
+    while (i < bytes.len) : (i += 1) {
+        const c = bytes[i];
+        switch (c) {
+            'e' => {
+                if (i + 1 < bytes.len) switch (bytes[i + 1]) {
+                    '+', '-' => {},
+                    '0'...'9' => {},
+                    else => return .{ .failure = .{ .trailing_special = i } },
+                };
+                float = true;
+                if (exponent) {
+                    return .{ .failure = .{ .duplicate_exponent = i } };
+                }
+                special = c;
+                exponent = true;
+                continue;
+            },
+            '.' => {
+                if (exponent) {
+                    const digit_index = i - ".e".len;
+                    if (digit_index < bytes.len) {
+                        switch (bytes[digit_index]) {
+                            '0'...'9' => return .{ .failure = .{ .period_after_exponent = i } },
+                            else => {},
+                        }
+                    }
+                }
+                float = true;
+                if (period) return .{ .failure = .duplicate_period };
+                period = true;
+                continue;
+            },
+            '+', '-' => {
+                switch (special) {
+                    'e' => if (i + 1 < bytes.len) switch (bytes[i + 1]) {
+                        '0'...'9' => {},
+                        else => return .{ .failure = .{ .trailing_special = i } },
+                    },
+                    else => return .{ .failure = .{ .invalid_exponent_sign = i } },
+                }
+                special = c;
+                continue;
+            },
+            else => {},
+        }
+        const digit = switch (c) {
+            '0'...'9' => c - '0',
+            'f' => if (allow_suffix and i == bytes.len - 1)
+                continue
+            else
+                return .{ .failure = .{ .invalid_character = i } },
+            'A'...'Z', 'a'...'e', 'g'...'z' => return .{ .failure = .{
+                .invalid_digit = .{ .i = i, .base = .decimal },
+            } },
+            else => return .{ .failure = .{ .invalid_character = i } },
+        };
+        special = 0;
+
+        if (float) continue;
+        if (x != 0) {
+            const res = @mulWithOverflow(x, 10);
+            if (res[1] != 0) return .{ .failure = .overflow };
+            x = res[0];
+        }
+        const res = @addWithOverflow(x, digit);
+        if (res[1] != 0) return .{ .failure = .overflow };
+        x = res[0];
+    }
+    if (special != 0) return .{ .failure = .{ .trailing_special = i - 1 } };
+
+    return .float;
+}
+
 fn parseChar(bytes: []const u8, allow_suffix: bool) Result {
     return switch (bytes.len) {
         0 => unreachable,
@@ -1098,7 +1195,7 @@ test "parse number literal - real" {
     try testParse("0W", .real, false, .real);
     try testParse("0", .real, false, .real);
     try testParse("1", .real, false, .real);
-    try testParse("2", .real, false, .real);
+    try testParse(".2", .real, false, .real);
     try testParse("3.", .real, false, .real);
     try testParse("3.4", .real, false, .real);
     try testParse("3.4e", .real, false, invalidCharacter(3));
@@ -1132,7 +1229,7 @@ test "parse number literal - real" {
     try testParse("0W", .real, true, .real);
     try testParse("0", .real, true, .real);
     try testParse("1", .real, true, .real);
-    try testParse("2", .real, true, .real);
+    try testParse(".2", .real, true, .real);
     try testParse("3.", .real, true, .real);
     try testParse("3.4", .real, true, .real);
     try testParse("3.4e", .real, true, .real);
@@ -1167,7 +1264,7 @@ test "parse number literal - real" {
     try testParse("0We", .real, false, invalidCharacter(2));
     try testParse("0e", .real, false, invalidCharacter(1));
     try testParse("1e", .real, false, invalidCharacter(1));
-    try testParse("2e", .real, false, invalidCharacter(1));
+    try testParse(".2e", .real, false, invalidCharacter(2));
     try testParse("3.e", .real, false, invalidCharacter(2));
     try testParse("3.4e", .real, false, invalidCharacter(3));
     try testParse("3.4ee", .real, false, trailingSpecial(3));
@@ -1201,7 +1298,7 @@ test "parse number literal - real" {
     try testParse("0We", .real, true, .real);
     try testParse("0e", .real, true, .real);
     try testParse("1e", .real, true, .real);
-    try testParse("2e", .real, true, .real);
+    try testParse(".2e", .real, true, .real);
     try testParse("3.e", .real, true, .real);
     try testParse("3.4e", .real, true, .real);
     try testParse("3.4ee", .real, true, trailingSpecial(3));
@@ -1229,6 +1326,146 @@ test "parse number literal - real" {
     try testParse("3.4e-12.3e", .real, true, periodAfterExponent(7));
     try testParse("3.4e012.3e", .real, true, periodAfterExponent(7));
     try testParse("3.4e112.3e", .real, true, periodAfterExponent(7));
+}
+
+test "parse number literal - float" {
+    try testParse("0n", .float, false, .float);
+    try testParse("0N", .float, false, .float);
+    try testParse("0w", .float, false, .float);
+    try testParse("0W", .float, false, .float);
+    try testParse("0", .float, false, .float);
+    try testParse("1", .float, false, .float);
+    try testParse(".2", .float, false, .float);
+    try testParse("3.", .float, false, .float);
+    try testParse("3.4", .float, false, .float);
+    try testParse("3.4e", .float, false, trailingSpecial(3));
+    try testParse("3.4e+", .float, false, trailingSpecial(4));
+    try testParse("3.4e-", .float, false, trailingSpecial(4));
+    try testParse("3.4e0", .float, false, .float);
+    try testParse("3.4e1", .float, false, .float);
+    try testParse("3.4e+0", .float, false, .float);
+    try testParse("3.4e-0", .float, false, .float);
+    try testParse("3.4e00", .float, false, .float);
+    try testParse("3.4e10", .float, false, .float);
+    try testParse("3.4e+1", .float, false, .float);
+    try testParse("3.4e-1", .float, false, .float);
+    try testParse("3.4e01", .float, false, .float);
+    try testParse("3.4e11", .float, false, .float);
+    try testParse("3.4e+12", .float, false, .float);
+    try testParse("3.4e-12", .float, false, .float);
+    try testParse("3.4e012", .float, false, .float);
+    try testParse("3.4e112", .float, false, .float);
+    try testParse("3.4e+12.", .float, false, periodAfterExponent(7));
+    try testParse("3.4e-12.", .float, false, periodAfterExponent(7));
+    try testParse("3.4e012.", .float, false, periodAfterExponent(7));
+    try testParse("3.4e112.", .float, false, periodAfterExponent(7));
+    try testParse("3.4e+12.3", .float, false, periodAfterExponent(7));
+    try testParse("3.4e-12.3", .float, false, periodAfterExponent(7));
+    try testParse("3.4e012.3", .float, false, periodAfterExponent(7));
+    try testParse("3.4e112.3", .float, false, periodAfterExponent(7));
+    try testParse("0n", .float, true, .float);
+    try testParse("0N", .float, true, .float);
+    try testParse("0w", .float, true, .float);
+    try testParse("0W", .float, true, .float);
+    try testParse("0", .float, true, .float);
+    try testParse("1", .float, true, .float);
+    try testParse(".2", .float, true, .float);
+    try testParse("3.", .float, true, .float);
+    try testParse("3.4", .float, true, .float);
+    try testParse("3.4e", .float, true, trailingSpecial(3));
+    try testParse("3.4e+", .float, true, trailingSpecial(4));
+    try testParse("3.4e-", .float, true, trailingSpecial(4));
+    try testParse("3.4e0", .float, true, .float);
+    try testParse("3.4e1", .float, true, .float);
+    try testParse("3.4e+0", .float, true, .float);
+    try testParse("3.4e-0", .float, true, .float);
+    try testParse("3.4e00", .float, true, .float);
+    try testParse("3.4e10", .float, true, .float);
+    try testParse("3.4e+1", .float, true, .float);
+    try testParse("3.4e-1", .float, true, .float);
+    try testParse("3.4e01", .float, true, .float);
+    try testParse("3.4e11", .float, true, .float);
+    try testParse("3.4e+12", .float, true, .float);
+    try testParse("3.4e-12", .float, true, .float);
+    try testParse("3.4e012", .float, true, .float);
+    try testParse("3.4e112", .float, true, .float);
+    try testParse("3.4e+12.", .float, true, periodAfterExponent(7));
+    try testParse("3.4e-12.", .float, true, periodAfterExponent(7));
+    try testParse("3.4e012.", .float, true, periodAfterExponent(7));
+    try testParse("3.4e112.", .float, true, periodAfterExponent(7));
+    try testParse("3.4e+12.3", .float, true, periodAfterExponent(7));
+    try testParse("3.4e-12.3", .float, true, periodAfterExponent(7));
+    try testParse("3.4e012.3", .float, true, periodAfterExponent(7));
+    try testParse("3.4e112.3", .float, true, periodAfterExponent(7));
+
+    try testParse("0nf", .float, false, invalidCharacter(2));
+    try testParse("0Nf", .float, false, invalidCharacter(2));
+    try testParse("0wf", .float, false, invalidCharacter(2));
+    try testParse("0Wf", .float, false, invalidCharacter(2));
+    try testParse("0f", .float, false, invalidCharacter(1));
+    try testParse("1f", .float, false, invalidCharacter(1));
+    try testParse(".2f", .float, false, invalidCharacter(2));
+    try testParse("3.f", .float, false, invalidCharacter(2));
+    try testParse("3.4f", .float, false, invalidCharacter(3));
+    try testParse("3.4ef", .float, false, trailingSpecial(3));
+    try testParse("3.4e+f", .float, false, trailingSpecial(4));
+    try testParse("3.4e-f", .float, false, trailingSpecial(4));
+    try testParse("3.4e0f", .float, false, invalidCharacter(5));
+    try testParse("3.4e1f", .float, false, invalidCharacter(5));
+    try testParse("3.4e+0f", .float, false, invalidCharacter(6));
+    try testParse("3.4e-0f", .float, false, invalidCharacter(6));
+    try testParse("3.4e00f", .float, false, invalidCharacter(6));
+    try testParse("3.4e10f", .float, false, invalidCharacter(6));
+    try testParse("3.4e+1f", .float, false, invalidCharacter(6));
+    try testParse("3.4e-1f", .float, false, invalidCharacter(6));
+    try testParse("3.4e01f", .float, false, invalidCharacter(6));
+    try testParse("3.4e11f", .float, false, invalidCharacter(6));
+    try testParse("3.4e+12f", .float, false, invalidCharacter(7));
+    try testParse("3.4e-12f", .float, false, invalidCharacter(7));
+    try testParse("3.4e012f", .float, false, invalidCharacter(7));
+    try testParse("3.4e112f", .float, false, invalidCharacter(7));
+    try testParse("3.4e+12.f", .float, false, periodAfterExponent(7));
+    try testParse("3.4e-12.f", .float, false, periodAfterExponent(7));
+    try testParse("3.4e012.f", .float, false, periodAfterExponent(7));
+    try testParse("3.4e112.f", .float, false, periodAfterExponent(7));
+    try testParse("3.4e+12.3f", .float, false, periodAfterExponent(7));
+    try testParse("3.4e-12.3f", .float, false, periodAfterExponent(7));
+    try testParse("3.4e012.3f", .float, false, periodAfterExponent(7));
+    try testParse("3.4e112.3f", .float, false, periodAfterExponent(7));
+    try testParse("0nf", .float, true, .float);
+    try testParse("0Nf", .float, true, .float);
+    try testParse("0wf", .float, true, .float);
+    try testParse("0Wf", .float, true, .float);
+    try testParse("0f", .float, true, .float);
+    try testParse("1f", .float, true, .float);
+    try testParse(".2f", .float, true, .float);
+    try testParse("3.f", .float, true, .float);
+    try testParse("3.4f", .float, true, .float);
+    try testParse("3.4ef", .float, true, trailingSpecial(3));
+    try testParse("3.4e+f", .float, true, trailingSpecial(4));
+    try testParse("3.4e-f", .float, true, trailingSpecial(4));
+    try testParse("3.4e0f", .float, true, .float);
+    try testParse("3.4e1f", .float, true, .float);
+    try testParse("3.4e+0f", .float, true, .float);
+    try testParse("3.4e-0f", .float, true, .float);
+    try testParse("3.4e00f", .float, true, .float);
+    try testParse("3.4e10f", .float, true, .float);
+    try testParse("3.4e+1f", .float, true, .float);
+    try testParse("3.4e-1f", .float, true, .float);
+    try testParse("3.4e01f", .float, true, .float);
+    try testParse("3.4e11f", .float, true, .float);
+    try testParse("3.4e+12f", .float, true, .float);
+    try testParse("3.4e-12f", .float, true, .float);
+    try testParse("3.4e012f", .float, true, .float);
+    try testParse("3.4e112f", .float, true, .float);
+    try testParse("3.4e+12.f", .float, true, periodAfterExponent(7));
+    try testParse("3.4e-12.f", .float, true, periodAfterExponent(7));
+    try testParse("3.4e012.f", .float, true, periodAfterExponent(7));
+    try testParse("3.4e112.f", .float, true, periodAfterExponent(7));
+    try testParse("3.4e+12.3f", .float, true, periodAfterExponent(7));
+    try testParse("3.4e-12.3f", .float, true, periodAfterExponent(7));
+    try testParse("3.4e012.3f", .float, true, periodAfterExponent(7));
+    try testParse("3.4e112.3f", .float, true, periodAfterExponent(7));
 }
 
 test "parse number literal - char" {
