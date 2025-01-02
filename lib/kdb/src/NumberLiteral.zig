@@ -1,6 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const parse_float = @import("parse_float.zig");
+
 const Base = enum(u8) { decimal = 10, hex = 16, binary = 2, octal = 8 };
 const FloatBase = enum(u8) { decimal = 10, hex = 16 };
 
@@ -32,8 +34,8 @@ pub const Result = union(Type) {
     short: i16,
     int: i32,
     long: i64,
-    real,
-    float,
+    real: f32,
+    float: f64,
     char: u8,
     timestamp: i64,
     month: i32,
@@ -182,17 +184,17 @@ pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result 
 fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
     if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
         'N' => return .{ .long = null_long },
-        'n' => return .float,
+        'n' => return .{ .float = null_float },
         'W' => return .{ .long = inf_long },
-        'w' => return .float,
+        'w' => return .{ .float = inf_float },
         else => {},
     };
     if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
         'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
             'c' => .{ .char = null_char },
             'd' => .{ .date = null_int },
-            'e' => .real,
-            'f' => .float,
+            'e' => .{ .real = null_real },
+            'f' => .{ .float = null_float },
             'g' => .guid,
             'h' => .{ .short = null_short },
             'i' => .{ .int = null_int },
@@ -209,8 +211,8 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
         'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
             'c' => .{ .char = null_char },
             'd' => .{ .date = inf_int },
-            'e' => .real,
-            'f' => .float,
+            'e' => .{ .real = inf_real },
+            'f' => .{ .float = inf_float },
             'g' => .guid,
             'h' => .{ .short = inf_short },
             'i' => .{ .int = inf_int },
@@ -415,7 +417,10 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
         },
         .failure => unreachable,
     } else {
-        if (float) return .float;
+        if (float) {
+            const value = parse_float.parseFloat(f64, bytes) catch return .{ .failure = .nyi };
+            return .{ .float = value };
+        }
 
         if (x == inf_long) return .{ .failure = .prefer_long_inf };
         if (x > inf_long) return .{ .failure = .overflow };
@@ -587,17 +592,17 @@ fn parseLong(bytes: []const u8, allow_suffix: bool) Result {
 
 fn parseReal(bytes: []const u8, allow_suffix: bool) Result {
     if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
-        'N', 'n' => return .real,
-        'W', 'w' => return .real,
+        'N', 'n' => return .{ .real = null_real },
+        'W', 'w' => return .{ .real = inf_real },
         else => {},
     };
     if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
         'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
-            'e' => .real,
+            'e' => .{ .real = null_real },
             else => .{ .failure = .{ .invalid_character = 2 } },
         } else .{ .failure = .{ .invalid_character = 2 } },
         'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
-            'e' => .real,
+            'e' => .{ .real = inf_real },
             else => .{ .failure = .{ .invalid_character = 2 } },
         } else .{ .failure = .{ .invalid_character = 2 } },
         else => {},
@@ -671,22 +676,24 @@ fn parseReal(bytes: []const u8, allow_suffix: bool) Result {
     }
     if (special != 0) return .{ .failure = .{ .trailing_special = i - 1 } };
 
-    return .real;
+    const slice = if (allow_suffix and bytes[bytes.len - 1] == 'e') bytes[0 .. bytes.len - 1] else bytes;
+    const value = parse_float.parseFloat(f32, slice) catch return .{ .failure = .nyi };
+    return .{ .real = value };
 }
 
 fn parseFloat(bytes: []const u8, allow_suffix: bool) Result {
     if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
-        'N', 'n' => return .float,
-        'W', 'w' => return .float,
+        'N', 'n' => return .{ .float = null_float },
+        'W', 'w' => return .{ .float = inf_float },
         else => {},
     };
     if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
         'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
-            'f' => .float,
+            'f' => .{ .float = null_float },
             else => .{ .failure = .{ .invalid_character = 2 } },
         } else .{ .failure = .{ .invalid_character = 2 } },
         'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
-            'f' => .float,
+            'f' => .{ .float = inf_float },
             else => .{ .failure = .{ .invalid_character = 2 } },
         } else .{ .failure = .{ .invalid_character = 2 } },
         else => {},
@@ -768,7 +775,9 @@ fn parseFloat(bytes: []const u8, allow_suffix: bool) Result {
     }
     if (special != 0) return .{ .failure = .{ .trailing_special = i - 1 } };
 
-    return .float;
+    const slice = if (allow_suffix and bytes[bytes.len - 1] == 'f') bytes[0 .. bytes.len - 1] else bytes;
+    const value = parse_float.parseFloat(f64, slice) catch return .{ .failure = .nyi };
+    return .{ .float = value };
 }
 
 fn parseChar(bytes: []const u8, allow_suffix: bool) Result {
@@ -1137,7 +1146,13 @@ fn parseSlice(T: type, bytes: []const u8) union(enum) { overflow, invalid_charac
 
 fn testParse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool, expected: Result) !void {
     const result = parse(bytes, type_hint, allow_suffix);
-    try std.testing.expectEqual(expected, result);
+    switch (expected) {
+        inline .real, .float, .datetime => |float, t| if (std.math.isNan(float))
+            try std.testing.expect(std.math.isNan(@field(result, @tagName(t))))
+        else
+            try std.testing.expectEqual(expected, result),
+        else => try std.testing.expectEqual(expected, result),
+    }
 }
 
 const overflow: Result = .{ .failure = .overflow };
@@ -1437,32 +1452,32 @@ test "parse number literal - long" {
 }
 
 test "parse number literal - real" {
-    try testParse("0n", .real, false, .real);
-    try testParse("0N", .real, false, .real);
-    try testParse("0w", .real, false, .real);
-    try testParse("0W", .real, false, .real);
-    try testParse("0", .real, false, .real);
-    try testParse("1", .real, false, .real);
-    try testParse(".2", .real, false, .real);
-    try testParse("3.", .real, false, .real);
-    try testParse("3.4", .real, false, .real);
+    try testParse("0n", .real, false, .{ .real = null_real });
+    try testParse("0N", .real, false, .{ .real = null_real });
+    try testParse("0w", .real, false, .{ .real = inf_real });
+    try testParse("0W", .real, false, .{ .real = inf_real });
+    try testParse("0", .real, false, .{ .real = 0 });
+    try testParse("1", .real, false, .{ .real = 1 });
+    try testParse(".2", .real, false, .{ .real = 0.2 });
+    try testParse("3.", .real, false, .{ .real = 3 });
+    try testParse("3.4", .real, false, .{ .real = 3.4 });
     try testParse("3.4e", .real, false, invalidCharacter(3));
     try testParse("3.4e+", .real, false, trailingSpecial(4));
     try testParse("3.4e-", .real, false, trailingSpecial(4));
-    try testParse("3.4e0", .real, false, .real);
-    try testParse("3.4e1", .real, false, .real);
-    try testParse("3.4e+0", .real, false, .real);
-    try testParse("3.4e-0", .real, false, .real);
-    try testParse("3.4e00", .real, false, .real);
-    try testParse("3.4e10", .real, false, .real);
-    try testParse("3.4e+1", .real, false, .real);
-    try testParse("3.4e-1", .real, false, .real);
-    try testParse("3.4e01", .real, false, .real);
-    try testParse("3.4e11", .real, false, .real);
-    try testParse("3.4e+12", .real, false, .real);
-    try testParse("3.4e-12", .real, false, .real);
-    try testParse("3.4e012", .real, false, .real);
-    try testParse("3.4e112", .real, false, .real);
+    try testParse("3.4e0", .real, false, .{ .real = 3.4e0 });
+    try testParse("3.4e1", .real, false, .{ .real = 3.4e1 });
+    try testParse("3.4e+0", .real, false, .{ .real = 3.4e+0 });
+    try testParse("3.4e-0", .real, false, .{ .real = 3.4e-0 });
+    try testParse("3.4e00", .real, false, .{ .real = 3.4e00 });
+    try testParse("3.4e10", .real, false, .{ .real = 3.4e10 });
+    try testParse("3.4e+1", .real, false, .{ .real = 3.4e+1 });
+    try testParse("3.4e-1", .real, false, .{ .real = 3.4e-1 });
+    try testParse("3.4e01", .real, false, .{ .real = 3.4e01 });
+    try testParse("3.4e11", .real, false, .{ .real = 3.4e11 });
+    try testParse("3.4e+12", .real, false, .{ .real = 3.4e+12 });
+    try testParse("3.4e-12", .real, false, .{ .real = 3.4e-12 });
+    try testParse("3.4e012", .real, false, .{ .real = 3.4e012 });
+    try testParse("3.4e112", .real, false, .{ .real = 3.4e112 });
     try testParse("3.4e+12.", .real, false, periodAfterExponent(7));
     try testParse("3.4e-12.", .real, false, periodAfterExponent(7));
     try testParse("3.4e012.", .real, false, periodAfterExponent(7));
@@ -1471,32 +1486,32 @@ test "parse number literal - real" {
     try testParse("3.4e-12.3", .real, false, periodAfterExponent(7));
     try testParse("3.4e012.3", .real, false, periodAfterExponent(7));
     try testParse("3.4e112.3", .real, false, periodAfterExponent(7));
-    try testParse("0n", .real, true, .real);
-    try testParse("0N", .real, true, .real);
-    try testParse("0w", .real, true, .real);
-    try testParse("0W", .real, true, .real);
-    try testParse("0", .real, true, .real);
-    try testParse("1", .real, true, .real);
-    try testParse(".2", .real, true, .real);
-    try testParse("3.", .real, true, .real);
-    try testParse("3.4", .real, true, .real);
-    try testParse("3.4e", .real, true, .real);
+    try testParse("0n", .real, true, .{ .real = null_real });
+    try testParse("0N", .real, true, .{ .real = null_real });
+    try testParse("0w", .real, true, .{ .real = inf_real });
+    try testParse("0W", .real, true, .{ .real = inf_real });
+    try testParse("0", .real, true, .{ .real = 0 });
+    try testParse("1", .real, true, .{ .real = 1 });
+    try testParse(".2", .real, true, .{ .real = 0.2 });
+    try testParse("3.", .real, true, .{ .real = 3.0 });
+    try testParse("3.4", .real, true, .{ .real = 3.4 });
+    try testParse("3.4e", .real, true, .{ .real = 3.4 });
     try testParse("3.4e+", .real, true, trailingSpecial(4));
     try testParse("3.4e-", .real, true, trailingSpecial(4));
-    try testParse("3.4e0", .real, true, .real);
-    try testParse("3.4e1", .real, true, .real);
-    try testParse("3.4e+0", .real, true, .real);
-    try testParse("3.4e-0", .real, true, .real);
-    try testParse("3.4e00", .real, true, .real);
-    try testParse("3.4e10", .real, true, .real);
-    try testParse("3.4e+1", .real, true, .real);
-    try testParse("3.4e-1", .real, true, .real);
-    try testParse("3.4e01", .real, true, .real);
-    try testParse("3.4e11", .real, true, .real);
-    try testParse("3.4e+12", .real, true, .real);
-    try testParse("3.4e-12", .real, true, .real);
-    try testParse("3.4e012", .real, true, .real);
-    try testParse("3.4e112", .real, true, .real);
+    try testParse("3.4e0", .real, true, .{ .real = 3.4e0 });
+    try testParse("3.4e1", .real, true, .{ .real = 3.4e1 });
+    try testParse("3.4e+0", .real, true, .{ .real = 3.4e+0 });
+    try testParse("3.4e-0", .real, true, .{ .real = 3.4e-0 });
+    try testParse("3.4e00", .real, true, .{ .real = 3.4e00 });
+    try testParse("3.4e10", .real, true, .{ .real = 3.4e10 });
+    try testParse("3.4e+1", .real, true, .{ .real = 3.4e+1 });
+    try testParse("3.4e-1", .real, true, .{ .real = 3.4e-1 });
+    try testParse("3.4e01", .real, true, .{ .real = 3.4e01 });
+    try testParse("3.4e11", .real, true, .{ .real = 3.4e11 });
+    try testParse("3.4e+12", .real, true, .{ .real = 3.4e+12 });
+    try testParse("3.4e-12", .real, true, .{ .real = 3.4e-12 });
+    try testParse("3.4e012", .real, true, .{ .real = 3.4e012 });
+    try testParse("3.4e112", .real, true, .{ .real = 3.4e112 });
     try testParse("3.4e+12.", .real, true, periodAfterExponent(7));
     try testParse("3.4e-12.", .real, true, periodAfterExponent(7));
     try testParse("3.4e012.", .real, true, periodAfterExponent(7));
@@ -1540,32 +1555,32 @@ test "parse number literal - real" {
     try testParse("3.4e-12.3e", .real, false, periodAfterExponent(7));
     try testParse("3.4e012.3e", .real, false, periodAfterExponent(7));
     try testParse("3.4e112.3e", .real, false, periodAfterExponent(7));
-    try testParse("0ne", .real, true, .real);
-    try testParse("0Ne", .real, true, .real);
-    try testParse("0we", .real, true, .real);
-    try testParse("0We", .real, true, .real);
-    try testParse("0e", .real, true, .real);
-    try testParse("1e", .real, true, .real);
-    try testParse(".2e", .real, true, .real);
-    try testParse("3.e", .real, true, .real);
-    try testParse("3.4e", .real, true, .real);
+    try testParse("0ne", .real, true, .{ .real = null_real });
+    try testParse("0Ne", .real, true, .{ .real = null_real });
+    try testParse("0we", .real, true, .{ .real = inf_real });
+    try testParse("0We", .real, true, .{ .real = inf_real });
+    try testParse("0e", .real, true, .{ .real = 0 });
+    try testParse("1e", .real, true, .{ .real = 1 });
+    try testParse(".2e", .real, true, .{ .real = 0.2 });
+    try testParse("3.e", .real, true, .{ .real = 3 });
+    try testParse("3.4e", .real, true, .{ .real = 3.4 });
     try testParse("3.4ee", .real, true, trailingSpecial(3));
     try testParse("3.4e+e", .real, true, trailingSpecial(4));
     try testParse("3.4e-e", .real, true, trailingSpecial(4));
-    try testParse("3.4e0e", .real, true, .real);
-    try testParse("3.4e1e", .real, true, .real);
-    try testParse("3.4e+0e", .real, true, .real);
-    try testParse("3.4e-0e", .real, true, .real);
-    try testParse("3.4e00e", .real, true, .real);
-    try testParse("3.4e10e", .real, true, .real);
-    try testParse("3.4e+1e", .real, true, .real);
-    try testParse("3.4e-1e", .real, true, .real);
-    try testParse("3.4e01e", .real, true, .real);
-    try testParse("3.4e11e", .real, true, .real);
-    try testParse("3.4e+12e", .real, true, .real);
-    try testParse("3.4e-12e", .real, true, .real);
-    try testParse("3.4e012e", .real, true, .real);
-    try testParse("3.4e112e", .real, true, .real);
+    try testParse("3.4e0e", .real, true, .{ .real = 3.4e0 });
+    try testParse("3.4e1e", .real, true, .{ .real = 3.4e1 });
+    try testParse("3.4e+0e", .real, true, .{ .real = 3.4e+0 });
+    try testParse("3.4e-0e", .real, true, .{ .real = 3.4e-0 });
+    try testParse("3.4e00e", .real, true, .{ .real = 3.4e00 });
+    try testParse("3.4e10e", .real, true, .{ .real = 3.4e10 });
+    try testParse("3.4e+1e", .real, true, .{ .real = 3.4e+1 });
+    try testParse("3.4e-1e", .real, true, .{ .real = 3.4e-1 });
+    try testParse("3.4e01e", .real, true, .{ .real = 3.4e01 });
+    try testParse("3.4e11e", .real, true, .{ .real = 3.4e11 });
+    try testParse("3.4e+12e", .real, true, .{ .real = 3.4e+12 });
+    try testParse("3.4e-12e", .real, true, .{ .real = 3.4e-12 });
+    try testParse("3.4e012e", .real, true, .{ .real = 3.4e012 });
+    try testParse("3.4e112e", .real, true, .{ .real = 3.4e112 });
     try testParse("3.4e+12.e", .real, true, periodAfterExponent(7));
     try testParse("3.4e-12.e", .real, true, periodAfterExponent(7));
     try testParse("3.4e012.e", .real, true, periodAfterExponent(7));
@@ -1577,32 +1592,32 @@ test "parse number literal - real" {
 }
 
 test "parse number literal - float" {
-    try testParse("0n", .float, false, .float);
-    try testParse("0N", .float, false, .float);
-    try testParse("0w", .float, false, .float);
-    try testParse("0W", .float, false, .float);
-    try testParse("0", .float, false, .float);
-    try testParse("1", .float, false, .float);
-    try testParse(".2", .float, false, .float);
-    try testParse("3.", .float, false, .float);
-    try testParse("3.4", .float, false, .float);
+    try testParse("0n", .float, false, .{ .float = null_float });
+    try testParse("0N", .float, false, .{ .float = null_float });
+    try testParse("0w", .float, false, .{ .float = inf_float });
+    try testParse("0W", .float, false, .{ .float = inf_float });
+    try testParse("0", .float, false, .{ .float = 0 });
+    try testParse("1", .float, false, .{ .float = 1 });
+    try testParse(".2", .float, false, .{ .float = 0.2 });
+    try testParse("3.", .float, false, .{ .float = 3 });
+    try testParse("3.4", .float, false, .{ .float = 3.4 });
     try testParse("3.4e", .float, false, trailingSpecial(3));
     try testParse("3.4e+", .float, false, trailingSpecial(4));
     try testParse("3.4e-", .float, false, trailingSpecial(4));
-    try testParse("3.4e0", .float, false, .float);
-    try testParse("3.4e1", .float, false, .float);
-    try testParse("3.4e+0", .float, false, .float);
-    try testParse("3.4e-0", .float, false, .float);
-    try testParse("3.4e00", .float, false, .float);
-    try testParse("3.4e10", .float, false, .float);
-    try testParse("3.4e+1", .float, false, .float);
-    try testParse("3.4e-1", .float, false, .float);
-    try testParse("3.4e01", .float, false, .float);
-    try testParse("3.4e11", .float, false, .float);
-    try testParse("3.4e+12", .float, false, .float);
-    try testParse("3.4e-12", .float, false, .float);
-    try testParse("3.4e012", .float, false, .float);
-    try testParse("3.4e112", .float, false, .float);
+    try testParse("3.4e0", .float, false, .{ .float = 3.4e0 });
+    try testParse("3.4e1", .float, false, .{ .float = 3.4e1 });
+    try testParse("3.4e+0", .float, false, .{ .float = 3.4e+0 });
+    try testParse("3.4e-0", .float, false, .{ .float = 3.4e-0 });
+    try testParse("3.4e00", .float, false, .{ .float = 3.4e00 });
+    try testParse("3.4e10", .float, false, .{ .float = 3.4e10 });
+    try testParse("3.4e+1", .float, false, .{ .float = 3.4e+1 });
+    try testParse("3.4e-1", .float, false, .{ .float = 3.4e-1 });
+    try testParse("3.4e01", .float, false, .{ .float = 3.4e01 });
+    try testParse("3.4e11", .float, false, .{ .float = 3.4e11 });
+    try testParse("3.4e+12", .float, false, .{ .float = 3.4e+12 });
+    try testParse("3.4e-12", .float, false, .{ .float = 3.4e-12 });
+    try testParse("3.4e012", .float, false, .{ .float = 3.4e012 });
+    try testParse("3.4e112", .float, false, .{ .float = 3.4e112 });
     try testParse("3.4e+12.", .float, false, periodAfterExponent(7));
     try testParse("3.4e-12.", .float, false, periodAfterExponent(7));
     try testParse("3.4e012.", .float, false, periodAfterExponent(7));
@@ -1611,32 +1626,32 @@ test "parse number literal - float" {
     try testParse("3.4e-12.3", .float, false, periodAfterExponent(7));
     try testParse("3.4e012.3", .float, false, periodAfterExponent(7));
     try testParse("3.4e112.3", .float, false, periodAfterExponent(7));
-    try testParse("0n", .float, true, .float);
-    try testParse("0N", .float, true, .float);
-    try testParse("0w", .float, true, .float);
-    try testParse("0W", .float, true, .float);
-    try testParse("0", .float, true, .float);
-    try testParse("1", .float, true, .float);
-    try testParse(".2", .float, true, .float);
-    try testParse("3.", .float, true, .float);
-    try testParse("3.4", .float, true, .float);
+    try testParse("0n", .float, true, .{ .float = null_float });
+    try testParse("0N", .float, true, .{ .float = null_float });
+    try testParse("0w", .float, true, .{ .float = inf_float });
+    try testParse("0W", .float, true, .{ .float = inf_float });
+    try testParse("0", .float, true, .{ .float = 0 });
+    try testParse("1", .float, true, .{ .float = 1 });
+    try testParse(".2", .float, true, .{ .float = 0.2 });
+    try testParse("3.", .float, true, .{ .float = 3 });
+    try testParse("3.4", .float, true, .{ .float = 3.4 });
     try testParse("3.4e", .float, true, trailingSpecial(3));
     try testParse("3.4e+", .float, true, trailingSpecial(4));
     try testParse("3.4e-", .float, true, trailingSpecial(4));
-    try testParse("3.4e0", .float, true, .float);
-    try testParse("3.4e1", .float, true, .float);
-    try testParse("3.4e+0", .float, true, .float);
-    try testParse("3.4e-0", .float, true, .float);
-    try testParse("3.4e00", .float, true, .float);
-    try testParse("3.4e10", .float, true, .float);
-    try testParse("3.4e+1", .float, true, .float);
-    try testParse("3.4e-1", .float, true, .float);
-    try testParse("3.4e01", .float, true, .float);
-    try testParse("3.4e11", .float, true, .float);
-    try testParse("3.4e+12", .float, true, .float);
-    try testParse("3.4e-12", .float, true, .float);
-    try testParse("3.4e012", .float, true, .float);
-    try testParse("3.4e112", .float, true, .float);
+    try testParse("3.4e0", .float, true, .{ .float = 3.4e0 });
+    try testParse("3.4e1", .float, true, .{ .float = 3.4e1 });
+    try testParse("3.4e+0", .float, true, .{ .float = 3.4e+0 });
+    try testParse("3.4e-0", .float, true, .{ .float = 3.4e-0 });
+    try testParse("3.4e00", .float, true, .{ .float = 3.4e00 });
+    try testParse("3.4e10", .float, true, .{ .float = 3.4e10 });
+    try testParse("3.4e+1", .float, true, .{ .float = 3.4e+1 });
+    try testParse("3.4e-1", .float, true, .{ .float = 3.4e-1 });
+    try testParse("3.4e01", .float, true, .{ .float = 3.4e01 });
+    try testParse("3.4e11", .float, true, .{ .float = 3.4e11 });
+    try testParse("3.4e+12", .float, true, .{ .float = 3.4e+12 });
+    try testParse("3.4e-12", .float, true, .{ .float = 3.4e-12 });
+    try testParse("3.4e012", .float, true, .{ .float = 3.4e012 });
+    try testParse("3.4e112", .float, true, .{ .float = 3.4e112 });
     try testParse("3.4e+12.", .float, true, periodAfterExponent(7));
     try testParse("3.4e-12.", .float, true, periodAfterExponent(7));
     try testParse("3.4e012.", .float, true, periodAfterExponent(7));
@@ -1680,32 +1695,32 @@ test "parse number literal - float" {
     try testParse("3.4e-12.3f", .float, false, periodAfterExponent(7));
     try testParse("3.4e012.3f", .float, false, periodAfterExponent(7));
     try testParse("3.4e112.3f", .float, false, periodAfterExponent(7));
-    try testParse("0nf", .float, true, .float);
-    try testParse("0Nf", .float, true, .float);
-    try testParse("0wf", .float, true, .float);
-    try testParse("0Wf", .float, true, .float);
-    try testParse("0f", .float, true, .float);
-    try testParse("1f", .float, true, .float);
-    try testParse(".2f", .float, true, .float);
-    try testParse("3.f", .float, true, .float);
-    try testParse("3.4f", .float, true, .float);
+    try testParse("0nf", .float, true, .{ .float = null_float });
+    try testParse("0Nf", .float, true, .{ .float = null_float });
+    try testParse("0wf", .float, true, .{ .float = inf_float });
+    try testParse("0Wf", .float, true, .{ .float = inf_float });
+    try testParse("0f", .float, true, .{ .float = 0 });
+    try testParse("1f", .float, true, .{ .float = 1 });
+    try testParse(".2f", .float, true, .{ .float = 0.2 });
+    try testParse("3.f", .float, true, .{ .float = 3 });
+    try testParse("3.4f", .float, true, .{ .float = 3.4 });
     try testParse("3.4ef", .float, true, trailingSpecial(3));
     try testParse("3.4e+f", .float, true, trailingSpecial(4));
     try testParse("3.4e-f", .float, true, trailingSpecial(4));
-    try testParse("3.4e0f", .float, true, .float);
-    try testParse("3.4e1f", .float, true, .float);
-    try testParse("3.4e+0f", .float, true, .float);
-    try testParse("3.4e-0f", .float, true, .float);
-    try testParse("3.4e00f", .float, true, .float);
-    try testParse("3.4e10f", .float, true, .float);
-    try testParse("3.4e+1f", .float, true, .float);
-    try testParse("3.4e-1f", .float, true, .float);
-    try testParse("3.4e01f", .float, true, .float);
-    try testParse("3.4e11f", .float, true, .float);
-    try testParse("3.4e+12f", .float, true, .float);
-    try testParse("3.4e-12f", .float, true, .float);
-    try testParse("3.4e012f", .float, true, .float);
-    try testParse("3.4e112f", .float, true, .float);
+    try testParse("3.4e0f", .float, true, .{ .float = 3.4e0 });
+    try testParse("3.4e1f", .float, true, .{ .float = 3.4e1 });
+    try testParse("3.4e+0f", .float, true, .{ .float = 3.4e+0 });
+    try testParse("3.4e-0f", .float, true, .{ .float = 3.4e-0 });
+    try testParse("3.4e00f", .float, true, .{ .float = 3.4e00 });
+    try testParse("3.4e10f", .float, true, .{ .float = 3.4e10 });
+    try testParse("3.4e+1f", .float, true, .{ .float = 3.4e+1 });
+    try testParse("3.4e-1f", .float, true, .{ .float = 3.4e-1 });
+    try testParse("3.4e01f", .float, true, .{ .float = 3.4e01 });
+    try testParse("3.4e11f", .float, true, .{ .float = 3.4e11 });
+    try testParse("3.4e+12f", .float, true, .{ .float = 3.4e+12 });
+    try testParse("3.4e-12f", .float, true, .{ .float = 3.4e-12 });
+    try testParse("3.4e012f", .float, true, .{ .float = 3.4e012 });
+    try testParse("3.4e112f", .float, true, .{ .float = 3.4e112 });
     try testParse("3.4e+12.f", .float, true, periodAfterExponent(7));
     try testParse("3.4e-12.f", .float, true, periodAfterExponent(7));
     try testParse("3.4e012.f", .float, true, periodAfterExponent(7));
