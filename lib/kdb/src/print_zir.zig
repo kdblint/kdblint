@@ -193,17 +193,38 @@ const Writer = struct {
 
             .int,
             .month,
+            .date,
+            .minute,
+            .second,
+            .time,
             => try self.writeInt(stream, inst),
 
-            .long => try self.writeLong(stream, inst),
+            .long,
+            .timestamp,
+            .timespan,
+            => try self.writeLong(stream, inst),
+
+            .real => try self.writeReal(stream, inst),
+
+            .float, .datetime => try self.writeFloat(stream, inst),
 
             .bool_list,
+            .guid_list,
             .byte_list,
             .short_list,
             .int_list,
             .long_list,
+            .real_list,
+            .float_list,
             .char_list,
+            .timestamp_list,
             .month_list,
+            .date_list,
+            .datetime_list,
+            .timespan_list,
+            .minute_list,
+            .second_list,
+            .time_list,
             => try self.writePlNodeList(stream, inst),
 
             .str,
@@ -262,6 +283,16 @@ const Writer = struct {
 
     fn writeLong(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].long;
+        try stream.print("{d})", .{inst_data});
+    }
+
+    fn writeReal(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].real;
+        try stream.print("{d})", .{inst_data});
+    }
+
+    fn writeFloat(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].float;
         try stream.print("{d})", .{inst_data});
     }
 

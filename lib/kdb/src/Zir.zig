@@ -230,6 +230,9 @@ pub const Inst = struct {
         /// Boolean list literal.
         /// Uses the `pl_node` union field with payload `List`.
         bool_list,
+        /// Guid list literal.
+        /// Uses the `pl_node` union field with payload `List`.
+        guid_list,
         /// Integer literal that fits in a u8.
         /// Uses the `byte` union field.
         byte,
@@ -254,18 +257,72 @@ pub const Inst = struct {
         /// Integer list literal that fits in an i64.
         /// Uses the `pl_node` union field with payload `List`.
         long_list,
+        /// A float literal that fits in an f32.
+        /// Uses the `real` union field.
+        real,
+        /// A float list literal that fits in an f32.
+        /// Uses the `pl_node` union field with payload `List`.
+        real_list,
+        /// A float literal that fits in an f64.
+        /// Uses the `float` union field.
+        float,
+        /// A float list literal that fits in an f64.
+        /// Uses the `pl_node` union field with payload `List`.
+        float_list,
         /// Integer literal that fits in a u8.
         /// Uses the `byte` union field.
         char,
         /// Integer list literal that fits in a u8.
         /// Uses the `pl_node` union field with payload `List`.
         char_list,
+        /// Integer literal that fits in an i64.
+        /// Uses the `long` union field.
+        timestamp,
+        /// Integer list literal that fits in an i64.
+        /// Uses the `pl_node` union field with payload `List`.
+        timestamp_list,
         /// Integer literal that fits in an i32.
         /// Uses the `int` union field.
         month,
         /// Integer list literal that fits in an i32.
         /// Uses the `pl_node` union field with payload `List`.
         month_list,
+        /// Integer literal that fits in an i32.
+        /// Uses the `int` union field.
+        date,
+        /// Integer list literal that fits in an i32.
+        /// Uses the `pl_node` union field with payload `List`.
+        date_list,
+        /// A float literal that fits in an f64.
+        /// Uses the `float` union field.
+        datetime,
+        /// A float list literal that fits in an f64.
+        /// Uses the `pl_node` union field with payload `List`.
+        datetime_list,
+        /// Integer literal that fits in an i64.
+        /// Uses the `long` union field.
+        timespan,
+        /// Integer list literal that fits in an i64.
+        /// Uses the `pl_node` union field with payload `List`.
+        timespan_list,
+        /// Integer literal that fits in an i32.
+        /// Uses the `int` union field.
+        minute,
+        /// Integer list literal that fits in an i32.
+        /// Uses the `pl_node` union field with payload `List`.
+        minute_list,
+        /// Integer literal that fits in an i32.
+        /// Uses the `int` union field.
+        second,
+        /// Integer list literal that fits in an i32.
+        /// Uses the `pl_node` union field with payload `List`.
+        second_list,
+        /// Integer literal that fits in an i32.
+        /// Uses the `int` union field.
+        time,
+        /// Integer list literal that fits in an i32.
+        /// Uses the `pl_node` union field with payload `List`.
+        time_list,
 
         /// String literal
         /// Uses the `str_tok` union field. Token is the string literal. String is the string content.
@@ -335,6 +392,7 @@ pub const Inst = struct {
                 .@"if",
                 .@"while",
                 .bool_list,
+                .guid_list,
                 .byte,
                 .byte_list,
                 .short,
@@ -343,10 +401,28 @@ pub const Inst = struct {
                 .int_list,
                 .long,
                 .long_list,
+                .real,
+                .real_list,
+                .float,
+                .float_list,
                 .char,
                 .char_list,
+                .timestamp,
+                .timestamp_list,
                 .month,
                 .month_list,
+                .date,
+                .date_list,
+                .datetime,
+                .datetime_list,
+                .timespan,
+                .timespan_list,
+                .minute,
+                .minute_list,
+                .second,
+                .second_list,
+                .time,
+                .time_list,
                 .str,
                 .sym,
                 .sym_list,
@@ -438,8 +514,17 @@ pub const Inst = struct {
         null_short,
         null_int,
         null_long,
+        null_real,
+        null_float,
         null_char,
+        null_timestamp,
         null_month,
+        null_date,
+        null_datetime,
+        null_timespan,
+        null_minute,
+        null_second,
+        null_time,
 
         inf_short,
         negative_inf_short,
@@ -447,8 +532,26 @@ pub const Inst = struct {
         negative_inf_int,
         inf_long,
         negative_inf_long,
+        inf_real,
+        negative_inf_real,
+        inf_float,
+        negative_inf_float,
+        inf_timestamp,
+        negative_inf_timestamp,
         inf_month,
         negative_inf_month,
+        inf_date,
+        negative_inf_date,
+        inf_datetime,
+        negative_inf_datetime,
+        inf_timespan,
+        negative_inf_timespan,
+        inf_minute,
+        negative_inf_minute,
+        inf_second,
+        negative_inf_second,
+        inf_time,
+        negative_inf_time,
 
         nyi,
 
@@ -526,6 +629,8 @@ pub const Inst = struct {
         short: i16,
         int: i32,
         long: i64,
+        real: f32,
+        float: f64,
         lambda: struct {
             /// This node provides a new absolute baseline node for all instructions within this struct.
             src_node: Ast.Node.Index,

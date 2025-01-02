@@ -38,7 +38,7 @@ pub const Result = union(Type) {
     timestamp: i64,
     month: i32,
     date: i32,
-    datetime,
+    datetime: f64,
     timespan: i64,
     minute: i32,
     second: i32,
@@ -150,6 +150,12 @@ pub const inf_int = 2147483647;
 pub const null_long = -9223372036854775808;
 pub const inf_long = 9223372036854775807;
 
+pub const null_real = std.math.nan(f32);
+pub const inf_real = std.math.inf(f32);
+
+pub const null_float = std.math.nan(f64);
+pub const inf_float = std.math.inf(f64);
+
 pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result {
     switch (type_hint) {
         .none => return parseNone(bytes, allow_suffix),
@@ -162,14 +168,14 @@ pub fn parse(bytes: []const u8, type_hint: TypeHint, allow_suffix: bool) Result 
         .real => return parseReal(bytes, allow_suffix),
         .float => return parseFloat(bytes, allow_suffix),
         .char => return parseChar(bytes, allow_suffix),
-        .timestamp => return .{ .failure = .nyi },
+        .timestamp => return parseTimestamp(bytes, allow_suffix),
         .month => return parseMonth(bytes, allow_suffix),
         .date => return parseDate(bytes, allow_suffix),
-        .datetime => return .{ .failure = .nyi },
-        .timespan => return .{ .failure = .nyi },
-        .minute => return .{ .failure = .nyi },
-        .second => return .{ .failure = .nyi },
-        .time => return .{ .failure = .nyi },
+        .datetime => return parseDatetime(bytes, allow_suffix),
+        .timespan => return parseTimespan(bytes, allow_suffix),
+        .minute => return parseMinute(bytes, allow_suffix),
+        .second => return parseSecond(bytes, allow_suffix),
+        .time => return parseTime(bytes, allow_suffix),
     }
 }
 
@@ -197,7 +203,7 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
             't' => .{ .time = null_int },
             'u' => .{ .minute = null_int },
             'v' => .{ .second = null_int },
-            'z' => .datetime,
+            'z' => .{ .datetime = null_float },
             else => .{ .failure = .{ .invalid_character = 2 } },
         } else .{ .failure = .{ .invalid_character = 2 } },
         'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
@@ -215,7 +221,7 @@ fn parseNone(bytes: []const u8, allow_suffix: bool) Result {
             't' => .{ .time = inf_int },
             'u' => .{ .minute = inf_int },
             'v' => .{ .second = inf_int },
-            'z' => .datetime,
+            'z' => .{ .datetime = inf_float },
             else => .{ .failure = .{ .invalid_character = 2 } },
         } else .{ .failure = .{ .invalid_character = 2 } },
         else => {},
@@ -783,6 +789,27 @@ fn parseChar(bytes: []const u8, allow_suffix: bool) Result {
     };
 }
 
+fn parseTimestamp(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .timestamp = null_long },
+        'W', 'w' => return .{ .timestamp = inf_long },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'p' => .{ .timestamp = null_long },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'p' => .{ .timestamp = inf_long },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    return .{ .failure = .nyi };
+}
+
 fn parseMonth(bytes: []const u8, allow_suffix: bool) Result {
     if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
         'N', 'n' => return .{ .month = null_int },
@@ -944,6 +971,111 @@ fn parseDate(bytes: []const u8, allow_suffix: bool) Result {
         },
         else => return .{ .failure = .{ .invalid_character = slice.len - 1 } },
     }
+}
+
+fn parseDatetime(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .datetime = null_float },
+        'W', 'w' => return .{ .datetime = inf_float },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'z' => .{ .datetime = null_float },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'z' => .{ .datetime = inf_float },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    return .{ .failure = .nyi };
+}
+
+fn parseTimespan(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .timespan = null_long },
+        'W', 'w' => return .{ .timespan = inf_long },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'n' => .{ .timespan = null_long },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'n' => .{ .timespan = inf_long },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    return .{ .failure = .nyi };
+}
+
+fn parseMinute(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .minute = null_int },
+        'W', 'w' => return .{ .minute = inf_int },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'u' => .{ .minute = null_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'u' => .{ .minute = inf_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    return .{ .failure = .nyi };
+}
+
+fn parseSecond(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .second = null_int },
+        'W', 'w' => return .{ .second = inf_int },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            'v' => .{ .second = null_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            'v' => .{ .second = inf_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    return .{ .failure = .nyi };
+}
+
+fn parseTime(bytes: []const u8, allow_suffix: bool) Result {
+    if (bytes.len == 2 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return .{ .time = null_int },
+        'W', 'w' => return .{ .time = inf_int },
+        else => {},
+    };
+    if (bytes.len == 3 and bytes[0] == '0') switch (bytes[1]) {
+        'N', 'n' => return if (allow_suffix) switch (bytes[2]) {
+            't' => .{ .time = null_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        'W', 'w' => return if (allow_suffix) switch (bytes[2]) {
+            't' => .{ .time = inf_int },
+            else => .{ .failure = .{ .invalid_character = 2 } },
+        } else .{ .failure = .{ .invalid_character = 2 } },
+        else => {},
+    };
+
+    return .{ .failure = .nyi };
 }
 
 /// https://howardhinnant.github.io/date_algorithms.html#days_from_civil
