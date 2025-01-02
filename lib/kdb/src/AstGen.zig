@@ -1740,6 +1740,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                 .{ .invalid_character = 0 },
                 num_token,
                 slice,
+                0,
             );
 
             const scratch_top = astgen.scratch.items.len;
@@ -1756,18 +1757,12 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                     false,
                 )) {
                     .bool => |value| if (value) .true else .false,
-                    .failure => |err| switch (err) {
-                        .invalid_digit => |info| return astgen.failWithNumberError(.{
-                            .invalid_digit = .{
-                                .i = i + info.i,
-                                .base = info.base,
-                            },
-                        }, num_token, slice),
-                        .invalid_character => |j| return astgen.failWithNumberError(.{
-                            .invalid_character = i + j,
-                        }, num_token, slice),
-                        else => return astgen.failWithNumberError(err, num_token, bytes),
-                    },
+                    .failure => |err| return astgen.failWithNumberError(
+                        err,
+                        num_token,
+                        bytes,
+                        i,
+                    ),
                     else => unreachable,
                 };
                 astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
@@ -1787,6 +1782,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                 .{ .invalid_character = 0 },
                 num_token,
                 slice,
+                0,
             );
 
             const scratch_top = astgen.scratch.items.len;
@@ -1804,18 +1800,12 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                         false,
                     )) {
                         .byte => |value| try gz.addByte(value),
-                        .failure => |err| switch (err) {
-                            .invalid_digit => |info| return astgen.failWithNumberError(.{
-                                .invalid_digit = .{
-                                    .i = 2 + i * 2 + info.i,
-                                    .base = info.base,
-                                },
-                            }, num_token, slice),
-                            .invalid_character => |j| return astgen.failWithNumberError(.{
-                                .invalid_character = 2 + i * 2 + j,
-                            }, num_token, slice),
-                            else => return astgen.failWithNumberError(err, num_token, bytes),
-                        },
+                        .failure => |err| return astgen.failWithNumberError(
+                            err,
+                            num_token,
+                            bytes,
+                            2 + i * 2,
+                        ),
                         else => unreachable,
                     };
                     astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
@@ -1829,18 +1819,12 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                         false,
                     )) {
                         .byte => |value| try gz.addByte(value),
-                        .failure => |err| switch (err) {
-                            .invalid_digit => |info| return astgen.failWithNumberError(.{
-                                .invalid_digit = .{
-                                    .i = 2 + info.i,
-                                    .base = info.base,
-                                },
-                            }, num_token, slice),
-                            .invalid_character => |j| return astgen.failWithNumberError(.{
-                                .invalid_character = 2 + j,
-                            }, num_token, slice),
-                            else => return astgen.failWithNumberError(err, num_token, bytes),
-                        },
+                        .failure => |err| return astgen.failWithNumberError(
+                            err,
+                            num_token,
+                            bytes,
+                            2,
+                        ),
                         else => unreachable,
                     };
                     astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
@@ -1854,18 +1838,12 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                         false,
                     )) {
                         .byte => |value| try gz.addByte(value),
-                        .failure => |err| switch (err) {
-                            .invalid_digit => |info| return astgen.failWithNumberError(.{
-                                .invalid_digit = .{
-                                    .i = 1 + i * 2 + info.i,
-                                    .base = info.base,
-                                },
-                            }, num_token, slice),
-                            .invalid_character => |j| return astgen.failWithNumberError(.{
-                                .invalid_character = 1 + i * 2 + j,
-                            }, num_token, slice),
-                            else => return astgen.failWithNumberError(err, num_token, bytes),
-                        },
+                        .failure => |err| return astgen.failWithNumberError(
+                            err,
+                            num_token,
+                            bytes,
+                            1 + i * 2,
+                        ),
                         else => unreachable,
                     };
                     astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
@@ -1897,60 +1875,134 @@ fn parseNumberLiteral(
     return switch (bytes[0]) {
         '-' => switch (NumberLiteral.parse(bytes[1..], type_hint, allow_suffix)) {
             .bool => unreachable,
-            .guid => return astgen.failWithNumberError(
+            .guid => astgen.failWithNumberError(
                 .{ .invalid_character = 0 },
                 token,
                 bytes,
+                0,
             ),
             .byte => unreachable,
             .short => |num| switch (num) {
-                NumberLiteral.null_short => return astgen.failWithNumberError(
+                NumberLiteral.null_short => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
+                    0,
                 ),
                 NumberLiteral.inf_short => .negative_inf_short,
                 else => gz.addShort(-num),
             },
             .int => |num| switch (num) {
-                NumberLiteral.null_int => return astgen.failWithNumberError(
+                NumberLiteral.null_int => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
+                    0,
                 ),
                 NumberLiteral.inf_int => .negative_inf_int,
                 else => gz.addInt(-num),
             },
             .long => |num| switch (num) {
                 1 => .negative_one,
-                NumberLiteral.null_long => return astgen.failWithNumberError(
+                NumberLiteral.null_long => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
+                    0,
                 ),
                 NumberLiteral.inf_long => .negative_inf_long,
                 else => gz.addLong(-num),
             },
-            .real => return astgen.failWithNumberError(.nyi, token, bytes),
-            .float => return astgen.failWithNumberError(.nyi, token, bytes),
-            .char => return .null_char,
-            .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
-            .month => |num| switch (num) {
-                NumberLiteral.null_int => return astgen.failWithNumberError(
+            .real => |num| if (std.math.isNan(num))
+                astgen.failWithNumberError(.{ .invalid_character = 0 }, token, bytes, 0)
+            else if (std.math.isInf(num))
+                .negative_inf_real
+            else
+                gz.addReal(-num),
+            .float => |num| if (std.math.isNan(num))
+                astgen.failWithNumberError(.{ .invalid_character = 0 }, token, bytes, 0)
+            else if (std.math.isInf(num))
+                .negative_inf_float
+            else
+                gz.addFloat(-num),
+            .char => .null_char,
+            .timestamp => |num| switch (num) {
+                NumberLiteral.null_long => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
+                    0,
+                ),
+                NumberLiteral.inf_long => .negative_inf_timestamp,
+                else => gz.addTimestamp(-num),
+            },
+            .month => |num| switch (num) {
+                NumberLiteral.null_int => astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                    0,
                 ),
                 NumberLiteral.inf_int => .negative_inf_month,
                 else => gz.addMonth(-num),
             },
-            .date => return astgen.failWithNumberError(.nyi, token, bytes),
-            .datetime => return astgen.failWithNumberError(.nyi, token, bytes),
-            .timespan => return astgen.failWithNumberError(.nyi, token, bytes),
-            .minute => return astgen.failWithNumberError(.nyi, token, bytes),
-            .second => return astgen.failWithNumberError(.nyi, token, bytes),
-            .time => return astgen.failWithNumberError(.nyi, token, bytes),
-            .failure => |err| return astgen.failWithNumberError(err, token, bytes),
+            .date => |num| switch (num) {
+                NumberLiteral.null_int => astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                    0,
+                ),
+                NumberLiteral.inf_int => .negative_inf_date,
+                else => gz.addDate(-num),
+            },
+            .datetime => |num| if (std.math.isNan(num))
+                astgen.failWithNumberError(.{ .invalid_character = 0 }, token, bytes, 0)
+            else if (std.math.isInf(num))
+                .negative_inf_datetime
+            else
+                gz.addDatetime(-num),
+            .timespan => |num| switch (num) {
+                NumberLiteral.null_long => astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                    0,
+                ),
+                NumberLiteral.inf_long => .negative_inf_timespan,
+                else => gz.addTimespan(-num),
+            },
+            .minute => |num| switch (num) {
+                NumberLiteral.null_int => astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                    0,
+                ),
+                NumberLiteral.inf_int => .negative_inf_minute,
+                else => gz.addMinute(-num),
+            },
+            .second => |num| switch (num) {
+                NumberLiteral.null_int => astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                    0,
+                ),
+                NumberLiteral.inf_int => .negative_inf_second,
+                else => gz.addSecond(-num),
+            },
+            .time => |num| switch (num) {
+                NumberLiteral.null_int => astgen.failWithNumberError(
+                    .{ .invalid_character = 0 },
+                    token,
+                    bytes,
+                    0,
+                ),
+                NumberLiteral.inf_int => .negative_inf_time,
+                else => gz.addTime(-num),
+            },
+            .failure => |err| astgen.failWithNumberError(err, token, bytes, 1),
         },
         else => switch (NumberLiteral.parse(bytes, type_hint, allow_suffix)) {
             .bool => unreachable,
@@ -1973,25 +2025,49 @@ fn parseNumberLiteral(
                 NumberLiteral.inf_long => .inf_long,
                 else => gz.addLong(num),
             },
-            .real => return astgen.failWithNumberError(.nyi, token, bytes),
-            .float => return astgen.failWithNumberError(.nyi, token, bytes),
+            .real => astgen.failWithNumberError(.nyi, token, bytes, 0),
+            .float => astgen.failWithNumberError(.nyi, token, bytes, 0),
             .char => |num| switch (num) {
                 '0'...'9' => gz.addChar(num),
                 else => .null_char,
             },
-            .timestamp => return astgen.failWithNumberError(.nyi, token, bytes),
+            .timestamp => |num| switch (num) {
+                NumberLiteral.null_long => .null_timestamp,
+                NumberLiteral.inf_long => .inf_timestamp,
+                else => gz.addTimestamp(num),
+            },
             .month => |num| switch (num) {
                 NumberLiteral.null_int => .null_month,
                 NumberLiteral.inf_int => .inf_month,
                 else => gz.addMonth(num),
             },
-            .date => return astgen.failWithNumberError(.nyi, token, bytes),
-            .datetime => return astgen.failWithNumberError(.nyi, token, bytes),
-            .timespan => return astgen.failWithNumberError(.nyi, token, bytes),
-            .minute => return astgen.failWithNumberError(.nyi, token, bytes),
-            .second => return astgen.failWithNumberError(.nyi, token, bytes),
-            .time => return astgen.failWithNumberError(.nyi, token, bytes),
-            .failure => |err| return astgen.failWithNumberError(err, token, bytes),
+            .date => |num| switch (num) {
+                NumberLiteral.null_int => .null_date,
+                NumberLiteral.inf_int => .inf_date,
+                else => gz.addDate(num),
+            },
+            .datetime => astgen.failWithNumberError(.nyi, token, bytes, 0),
+            .timespan => |num| switch (num) {
+                NumberLiteral.null_long => .null_timespan,
+                NumberLiteral.inf_long => .inf_timespan,
+                else => gz.addTimespan(num),
+            },
+            .minute => |num| switch (num) {
+                NumberLiteral.null_int => .null_minute,
+                NumberLiteral.inf_int => .inf_minute,
+                else => gz.addMinute(num),
+            },
+            .second => |num| switch (num) {
+                NumberLiteral.null_int => .null_second,
+                NumberLiteral.inf_int => .inf_second,
+                else => gz.addSecond(num),
+            },
+            .time => |num| switch (num) {
+                NumberLiteral.null_int => .null_time,
+                NumberLiteral.inf_int => .inf_time,
+                else => gz.addTime(num),
+            },
+            .failure => |err| astgen.failWithNumberError(err, token, bytes, 0),
         },
     };
 }
@@ -2001,6 +2077,7 @@ fn failWithNumberError(
     err: NumberLiteral.Error,
     token: Ast.Token.Index,
     bytes: []const u8,
+    offset: usize,
 ) InnerError {
     switch (err) {
         .nyi => return astgen.failTok(token, "nyi: {s}", .{bytes}),
@@ -2012,7 +2089,7 @@ fn failWithNumberError(
         .invalid_underscore_after_special => return astgen.failTok(token, "invalid_underscore_after_special", .{}),
         .invalid_digit => |info| return astgen.failOff(
             token,
-            @intCast(info.i),
+            @intCast(info.i + offset),
             "invalid digit '{c}' for {s} base",
             .{ bytes[info.i], @tagName(info.base) },
         ),
@@ -2025,7 +2102,7 @@ fn failWithNumberError(
         .trailing_underscore => return astgen.failTok(token, "trailing_underscore", .{}),
         .invalid_character => |i| return astgen.failOff(
             token,
-            @intCast(i),
+            @intCast(i + offset),
             "invalid character '{c}'",
             .{bytes[i]},
         ),
@@ -3050,6 +3127,20 @@ const GenZir = struct {
         });
     }
 
+    fn addReal(gz: *GenZir, value: f32) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .real,
+            .data = .{ .real = value },
+        });
+    }
+
+    fn addFloat(gz: *GenZir, value: f64) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .float,
+            .data = .{ .float = value },
+        });
+    }
+
     fn addChar(gz: *GenZir, value: u8) !Zir.Inst.Ref {
         return gz.add(.{
             .tag = .char,
@@ -3057,9 +3148,58 @@ const GenZir = struct {
         });
     }
 
+    fn addTimestamp(gz: *GenZir, value: i64) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .timestamp,
+            .data = .{ .long = value },
+        });
+    }
+
     fn addMonth(gz: *GenZir, value: i32) !Zir.Inst.Ref {
         return gz.add(.{
             .tag = .month,
+            .data = .{ .int = value },
+        });
+    }
+
+    fn addDate(gz: *GenZir, value: i32) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .date,
+            .data = .{ .int = value },
+        });
+    }
+
+    fn addDatetime(gz: *GenZir, value: f64) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .datetime,
+            .data = .{ .float = value },
+        });
+    }
+
+    fn addTimespan(gz: *GenZir, value: i64) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .timespan,
+            .data = .{ .long = value },
+        });
+    }
+
+    fn addMinute(gz: *GenZir, value: i32) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .minute,
+            .data = .{ .int = value },
+        });
+    }
+
+    fn addSecond(gz: *GenZir, value: i32) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .second,
+            .data = .{ .int = value },
+        });
+    }
+
+    fn addTime(gz: *GenZir, value: i32) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = .time,
             .data = .{ .int = value },
         });
     }
