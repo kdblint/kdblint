@@ -9,7 +9,7 @@ const kdb = @import("root.zig");
 const Ast = kdb.Ast;
 const Zir = kdb.Zir;
 const DocumentScope = kdb.DocumentScope;
-const NumberLiteral = kdb.NumberLiteral;
+const number_parser = kdb.number_parser;
 
 const AstGen = @This();
 
@@ -1728,7 +1728,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
     assert(node_tags[node] == .number_literal);
 
-    const type_hint = NumberLiteral.TypeHint.get(tree.tokenSlice(num_token)) catch return astgen.failNode(
+    const type_hint = number_parser.TypeHint.get(tree.tokenSlice(num_token)) catch return astgen.failNode(
         node,
         "Invalid number suffix",
         .{},
@@ -1751,11 +1751,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
             for (0..len) |i| {
                 const bytes = slice[i .. i + 1];
-                const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
-                    bytes,
-                    .bool,
-                    false,
-                )) {
+                const ref: Zir.Inst.Ref = switch (number_parser.parseBool(bytes)) {
                     .bool => |value| if (value) .true else .false,
                     .failure => |err| return astgen.failWithNumberError(
                         err,
@@ -1794,11 +1790,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
             if ((slice.len - 2) % 2 == 0) {
                 for (0..len) |i| {
                     const bytes = slice[2..][(i * 2) .. (i * 2) + 2];
-                    const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
-                        bytes,
-                        .byte,
-                        false,
-                    )) {
+                    const ref: Zir.Inst.Ref = switch (number_parser.parseByte(bytes)) {
                         .byte => |value| try gz.addByte(value),
                         .failure => |err| return astgen.failWithNumberError(
                             err,
@@ -1813,11 +1805,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
             } else {
                 {
                     const bytes = slice[2..][0..1];
-                    const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
-                        bytes,
-                        .byte,
-                        false,
-                    )) {
+                    const ref: Zir.Inst.Ref = switch (number_parser.parseByte(bytes)) {
                         .byte => |value| try gz.addByte(value),
                         .failure => |err| return astgen.failWithNumberError(
                             err,
@@ -1832,11 +1820,7 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 
                 for (1..len) |i| {
                     const bytes = slice[1..][(i * 2) .. (i * 2) + 2];
-                    const ref: Zir.Inst.Ref = switch (NumberLiteral.parse(
-                        bytes,
-                        .byte,
-                        false,
-                    )) {
+                    const ref: Zir.Inst.Ref = switch (number_parser.parseByte(bytes)) {
                         .byte => |value| try gz.addByte(value),
                         .failure => |err| return astgen.failWithNumberError(
                             err,
@@ -1865,15 +1849,17 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 fn parseNumberLiteral(
     gz: *GenZir,
     token: Ast.Token.Index,
-    type_hint: NumberLiteral.TypeHint,
+    type_hint: number_parser.TypeHint,
     allow_suffix: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.context.tree;
     const bytes = tree.tokenSlice(token);
 
+    assert(type_hint != .bool);
+    assert(type_hint != .byte);
     return switch (bytes[0]) {
-        '-' => switch (NumberLiteral.parse(bytes[1..], type_hint, allow_suffix)) {
+        '-' => switch (number_parser.parse(bytes[1..], type_hint, allow_suffix)) {
             .bool => unreachable,
             .guid => astgen.failWithNumberError(
                 .{ .invalid_character = 0 },
@@ -1883,34 +1869,34 @@ fn parseNumberLiteral(
             ),
             .byte => unreachable,
             .short => |num| switch (num) {
-                NumberLiteral.null_short => astgen.failWithNumberError(
+                number_parser.null_short => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_short => .negative_inf_short,
+                number_parser.inf_short => .negative_inf_short,
                 else => gz.addShort(-num),
             },
             .int => |num| switch (num) {
-                NumberLiteral.null_int => astgen.failWithNumberError(
+                number_parser.null_int => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_int => .negative_inf_int,
+                number_parser.inf_int => .negative_inf_int,
                 else => gz.addInt(-num),
             },
             .long => |num| switch (num) {
                 1 => .negative_one,
-                NumberLiteral.null_long => astgen.failWithNumberError(
+                number_parser.null_long => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_long => .negative_inf_long,
+                number_parser.inf_long => .negative_inf_long,
                 else => gz.addLong(-num),
             },
             .real => |num| if (std.math.isNan(num))
@@ -1927,33 +1913,33 @@ fn parseNumberLiteral(
                 gz.addFloat(-num),
             .char => .null_char,
             .timestamp => |num| switch (num) {
-                NumberLiteral.null_long => astgen.failWithNumberError(
+                number_parser.null_long => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_long => .negative_inf_timestamp,
+                number_parser.inf_long => .negative_inf_timestamp,
                 else => gz.addTimestamp(-num),
             },
             .month => |num| switch (num) {
-                NumberLiteral.null_int => astgen.failWithNumberError(
+                number_parser.null_int => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_int => .negative_inf_month,
+                number_parser.inf_int => .negative_inf_month,
                 else => gz.addMonth(-num),
             },
             .date => |num| switch (num) {
-                NumberLiteral.null_int => astgen.failWithNumberError(
+                number_parser.null_int => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_int => .negative_inf_date,
+                number_parser.inf_int => .negative_inf_date,
                 else => gz.addDate(-num),
             },
             .datetime => |num| if (std.math.isNan(num))
@@ -1963,66 +1949,69 @@ fn parseNumberLiteral(
             else
                 gz.addDatetime(-num),
             .timespan => |num| switch (num) {
-                NumberLiteral.null_long => astgen.failWithNumberError(
-                    .{ .invalid_character = 0 },
-                    token,
-                    bytes,
-                    0,
-                ),
-                NumberLiteral.inf_long => .negative_inf_timespan,
+                number_parser.null_long => if (std.mem.eql(u8, bytes[1..], "0n"))
+                    gz.addTimespan(0)
+                else
+                    astgen.failWithNumberError(
+                        .{ .invalid_character = 0 },
+                        token,
+                        bytes,
+                        0,
+                    ), // TODO: Test
+                number_parser.inf_long => .negative_inf_timespan,
                 else => gz.addTimespan(-num),
             },
             .minute => |num| switch (num) {
-                NumberLiteral.null_int => astgen.failWithNumberError(
+                number_parser.null_int => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_int => .negative_inf_minute,
+                number_parser.inf_int => .negative_inf_minute,
                 else => gz.addMinute(-num),
             },
             .second => |num| switch (num) {
-                NumberLiteral.null_int => astgen.failWithNumberError(
+                number_parser.null_int => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_int => .negative_inf_second,
+                number_parser.inf_int => .negative_inf_second,
                 else => gz.addSecond(-num),
             },
             .time => |num| switch (num) {
-                NumberLiteral.null_int => astgen.failWithNumberError(
+                number_parser.null_int => astgen.failWithNumberError(
                     .{ .invalid_character = 0 },
                     token,
                     bytes,
                     0,
                 ),
-                NumberLiteral.inf_int => .negative_inf_time,
+                number_parser.inf_int => .negative_inf_time,
                 else => gz.addTime(-num),
             },
             .failure => |err| astgen.failWithNumberError(err, token, bytes, 1),
         },
-        else => switch (NumberLiteral.parse(bytes, type_hint, allow_suffix)) {
+        else => switch (number_parser.parse(bytes, type_hint, allow_suffix)) {
             .bool => unreachable,
             .guid => .null_guid,
             .byte => unreachable,
             .short => |num| switch (num) {
-                NumberLiteral.null_short => .null_short,
-                NumberLiteral.inf_short => .inf_short,
+                number_parser.null_short => .null_short,
+                number_parser.inf_short => .inf_short,
                 else => gz.addShort(num),
             },
             .int => |num| switch (num) {
-                NumberLiteral.null_int => .null_int,
-                NumberLiteral.inf_int => .inf_int,
+                number_parser.null_int => .null_int,
+                number_parser.inf_int => .inf_int,
                 else => gz.addInt(num),
             },
             .long => |num| switch (num) {
                 0 => .zero,
                 1 => .one,
-                NumberLiteral.null_long => .null_long,
-                NumberLiteral.inf_long => .inf_long,
+                number_parser.null_long => .null_long,
+                number_parser.inf_long => .inf_long,
                 else => gz.addLong(num),
             },
             .real => astgen.failWithNumberError(.nyi, token, bytes, 0),
@@ -2032,39 +2021,39 @@ fn parseNumberLiteral(
                 else => .null_char,
             },
             .timestamp => |num| switch (num) {
-                NumberLiteral.null_long => .null_timestamp,
-                NumberLiteral.inf_long => .inf_timestamp,
+                number_parser.null_long => .null_timestamp,
+                number_parser.inf_long => .inf_timestamp,
                 else => gz.addTimestamp(num),
             },
             .month => |num| switch (num) {
-                NumberLiteral.null_int => .null_month,
-                NumberLiteral.inf_int => .inf_month,
+                number_parser.null_int => .null_month,
+                number_parser.inf_int => .inf_month,
                 else => gz.addMonth(num),
             },
             .date => |num| switch (num) {
-                NumberLiteral.null_int => .null_date,
-                NumberLiteral.inf_int => .inf_date,
+                number_parser.null_int => .null_date,
+                number_parser.inf_int => .inf_date,
                 else => gz.addDate(num),
             },
             .datetime => astgen.failWithNumberError(.nyi, token, bytes, 0),
             .timespan => |num| switch (num) {
-                NumberLiteral.null_long => .null_timespan,
-                NumberLiteral.inf_long => .inf_timespan,
+                number_parser.null_long => .null_timespan,
+                number_parser.inf_long => .inf_timespan,
                 else => gz.addTimespan(num),
             },
             .minute => |num| switch (num) {
-                NumberLiteral.null_int => .null_minute,
-                NumberLiteral.inf_int => .inf_minute,
+                number_parser.null_int => .null_minute,
+                number_parser.inf_int => .inf_minute,
                 else => gz.addMinute(num),
             },
             .second => |num| switch (num) {
-                NumberLiteral.null_int => .null_second,
-                NumberLiteral.inf_int => .inf_second,
+                number_parser.null_int => .null_second,
+                number_parser.inf_int => .inf_second,
                 else => gz.addSecond(num),
             },
             .time => |num| switch (num) {
-                NumberLiteral.null_int => .null_time,
-                NumberLiteral.inf_int => .inf_time,
+                number_parser.null_int => .null_time,
+                number_parser.inf_int => .inf_time,
                 else => gz.addTime(num),
             },
             .failure => |err| astgen.failWithNumberError(err, token, bytes, 0),
@@ -2074,7 +2063,7 @@ fn parseNumberLiteral(
 
 fn failWithNumberError(
     astgen: *AstGen,
-    err: NumberLiteral.Error,
+    err: number_parser.Error,
     token: Ast.Token.Index,
     bytes: []const u8,
     offset: usize,
@@ -2135,7 +2124,7 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
     const len = last_token - first_token + 1;
     try astgen.scratch.ensureUnusedCapacity(gpa, len);
 
-    const type_hint = NumberLiteral.TypeHint.get(tree.tokenSlice(last_token)) catch return astgen.failNode(
+    const type_hint = number_parser.TypeHint.get(tree.tokenSlice(last_token)) catch return astgen.failNode(
         node,
         "Invalid number suffix",
         .{},
