@@ -1371,7 +1371,7 @@ fn doStatement(
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
 
-    assert(full_call.args.len > 1);
+    assert(full_call.args.len > 0);
 
     const prev_offset = astgen.source_offset;
     const prev_line = astgen.source_line;
@@ -1441,7 +1441,7 @@ fn ifStatement(
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
 
-    assert(full_call.args.len > 1);
+    assert(full_call.args.len > 0);
 
     const prev_offset = astgen.source_offset;
     const prev_line = astgen.source_line;
@@ -1511,7 +1511,7 @@ fn whileStatement(
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     var scope = parent_scope;
 
-    assert(full_call.args.len > 1);
+    assert(full_call.args.len > 0);
 
     const prev_offset = astgen.source_offset;
     const prev_line = astgen.source_line;
@@ -1602,6 +1602,7 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
 
         .call => {},
 
+        .number_literal,
         .symbol_list_literal,
         .identifier,
         .builtin, // TODO: https://kdblint.atlassian.net/browse/KLS-311
@@ -2014,8 +2015,18 @@ fn parseNumberLiteral(
                 number_parser.inf_long => .inf_long,
                 else => gz.addLong(num),
             },
-            .real => astgen.failWithNumberError(.nyi, token, bytes, 0),
-            .float => astgen.failWithNumberError(.nyi, token, bytes, 0),
+            .real => |num| if (std.math.isNan(num))
+                .null_real
+            else if (std.math.isInf(num))
+                .inf_real
+            else
+                gz.addReal(num),
+            .float => |num| if (std.math.isNan(num))
+                .null_float
+            else if (std.math.isInf(num))
+                .inf_float
+            else
+                gz.addFloat(num),
             .char => |num| switch (num) {
                 '0'...'9' => gz.addChar(num),
                 else => .null_char,
