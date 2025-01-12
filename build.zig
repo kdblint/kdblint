@@ -19,11 +19,15 @@ pub fn build(b: *std.Build) !void {
     const known_folders = zls.builder.dependency("known_folders", .{});
     const known_folders_module = known_folders.module("known-folders");
 
-    const exe = b.addExecutable(.{
-        .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
+    const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
+        .root_module = exe_mod,
     });
     exe.root_module.addImport("kdb", kdb_module);
     exe.root_module.addImport("zls", zls_module);
@@ -62,9 +66,7 @@ pub fn build(b: *std.Build) !void {
 
     const unit_tests = b.addTest(.{
         .name = "lsp",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = exe_mod,
         .filters = test_filters,
     });
     unit_tests.root_module.addImport("kdb", kdb_module);
@@ -77,6 +79,7 @@ pub fn build(b: *std.Build) !void {
 
     const kdb_unit_tests = @import("kdb").addTest(
         kdb.builder,
+        kdb_module,
         target,
         optimize,
         test_filters,
@@ -94,11 +97,6 @@ pub fn build(b: *std.Build) !void {
     const test_kdb_step = b.step("test-kdb", "Run kdb unit tests");
     test_kdb_step.dependOn(&run_kdb_unit_tests.step);
 }
-
-const AddCompilerStepOptions = struct {
-    optimize: std.builtin.OptimizeMode,
-    target: std.Build.ResolvedTarget,
-};
 
 fn getOptions(b: *std.Build) !*std.Build.Step.Options {
     const options = b.addOptions();
@@ -131,7 +129,7 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
             0 => {
                 // Tagged release version (e.g. 0.10.0).
                 if (!std.mem.eql(u8, git_describe, version_string)) {
-                    std.debug.print("kdbLint version '{s}' does not match git tag '{s}'\n", .{
+                    std.debug.print("kdblint version '{s}' does not match git tag '{s}'\n", .{
                         version_string, git_describe,
                     });
                     std.process.exit(1);
@@ -147,7 +145,7 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
 
                 const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
                 if (kdblint_version.order(ancestor_ver) != .gt) {
-                    std.debug.print("kdbLint version '{}' must be greater than tagged ancestor '{}'\n", .{
+                    std.debug.print("kdblint version '{}' must be greater than tagged ancestor '{}'\n", .{
                         kdblint_version, ancestor_ver,
                     });
                     std.process.exit(1);
