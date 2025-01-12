@@ -7,7 +7,10 @@
     "name": "David Strachan",
     "email": "david@kdblint.com"
   },
-  "repository": "git+https://github.com/kdblint/kdblint.git",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kdblint/kdblint.git"
+  },
   "license": "MIT",
   "files": [
     "dist",
