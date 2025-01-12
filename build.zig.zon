@@ -6,8 +6,8 @@
             .path = "lib/kdb",
         },
         .zls = .{
-            .url = "git+https://github.com/zigtools/zls.git#383aedf34e6ac2ce41dada1926eb04c28a8af4f9",
-            .hash = "1220c25c95df6f21906d63e776468fa86539d334cf0e38b54e53f7c2ba2efb4bf440",
+            .url = "git+https://github.com/zigtools/zls#c942ce73b2fa1e6b8f5f66a3bfe0b4179cb46d15",
+            .hash = "12204f13b249e1e9a3a5c07dfcf2bfc2a30b21d6c4a28f0ee4d0e492d76973b1783b",
         },
     },
     .paths = .{
