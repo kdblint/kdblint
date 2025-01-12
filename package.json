@@ -7,9 +7,14 @@
     "name": "David Strachan",
     "email": "david@kdblint.com"
   },
-  "license": "SEE LICENSE IN EULA.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kdblint/kdblint.git"
+  },
+  "license": "MIT",
   "files": [
-    "EULA.md",
-    "dist"
+    "dist",
+    "LICENSE",
+    "README.md"
   ]
 }

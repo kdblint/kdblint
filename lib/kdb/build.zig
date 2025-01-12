@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("kdb", .{
+    const lib_mod = b.addModule("kdb", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) void {
 
     const lib_unit_tests = addTest(
         b,
+        lib_mod,
         target,
         optimize,
         test_filters,
@@ -30,13 +31,14 @@ pub fn build(b: *std.Build) void {
 
 pub fn addTest(
     b: *std.Build,
+    root_module: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     test_filters: []const []const u8,
 ) *std.Build.Step.Compile {
     const lib_unit_tests = b.addTest(.{
         .name = "kdb",
-        .root_source_file = b.path("src/root.zig"),
+        .root_module = root_module,
         .target = target,
         .optimize = optimize,
         .filters = test_filters,
