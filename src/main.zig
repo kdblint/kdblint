@@ -7,6 +7,7 @@ const process = std.process;
 const assert = std.debug.assert;
 const zls = @import("zls");
 const Color = std.zig.Color;
+const known_folders = @import("known_folders");
 
 const kdb = @import("kdb");
 const DocumentScope = kdb.DocumentScope;
@@ -14,9 +15,74 @@ const build_options = @import("build_options");
 
 const Server = @import("lsp/Server.zig");
 
+const log = std.log.scoped(.main);
+
 pub const std_options: std.Options = .{
-    .log_level = if (builtin.mode == .Debug) .debug else .info,
+    // Always set this to debug to make std.log call into our handler, then control the runtime
+    // value in logFn itself
+    .log_level = .debug,
+    .logFn = logFn,
 };
+
+var log_transport: ?zls.lsp.AnyTransport = null;
+var log_stderr: bool = false;
+var log_level: std.log.Level = if (builtin.mode == .Debug) .debug else .info;
+var log_file: ?std.fs.File = null;
+
+fn logFn(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    var buffer: [4096]u8 = undefined;
+    comptime std.debug.assert(buffer.len >= zls.lsp.minimum_logging_buffer_size);
+
+    if (log_transport) |transport| {
+        const lsp_message_type: zls.lsp.types.MessageType = switch (level) {
+            .err => .Error,
+            .warn => .Warning,
+            .info => .Info,
+            .debug => .Debug,
+        };
+        const json_message = zls.lsp.bufPrintLogMessage(&buffer, lsp_message_type, format, args);
+        transport.writeJsonMessage(json_message) catch {};
+    }
+
+    if (@intFromEnum(level) > @intFromEnum(log_level)) return;
+    if (!log_stderr and log_file == null) return;
+
+    const level_txt: []const u8 = switch (level) {
+        .err => "error",
+        .warn => "warn ",
+        .info => "info ",
+        .debug => "debug",
+    };
+    const scope_txt: []const u8 = comptime @tagName(scope);
+
+    var fbs = std.io.fixedBufferStream(&buffer);
+    const no_space_left = blk: {
+        fbs.writer().print("{s} ({s:^6}): ", .{ level_txt, scope_txt }) catch break :blk true;
+        fbs.writer().print(format, args) catch break :blk true;
+        fbs.writer().writeByte('\n') catch break :blk true;
+        break :blk false;
+    };
+    if (no_space_left) {
+        buffer[buffer.len - 4 ..][0..4].* = "...\n".*;
+    }
+
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
+
+    if (log_stderr) {
+        std.io.getStdErr().writeAll(fbs.getWritten()) catch {};
+    }
+
+    if (log_file) |file| {
+        file.seekFromEnd(0) catch {};
+        file.writeAll(fbs.getWritten()) catch {};
+    }
+}
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.err(format, args);
@@ -69,13 +135,13 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const cmd = args[1];
     const cmd_args = args[2..];
     if (mem.eql(u8, cmd, "lsp")) {
-        return cmdLsp(gpa, cmd_args);
+        return cmdLsp(gpa, args[0], cmd_args);
     } else if (mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return @import("fmt.zig").run(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "version")) {
-        return io.getStdOut().writeAll(build_options.version ++ "\n");
+        return io.getStdOut().writeAll(build_options.version_string ++ "\n");
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
         return io.getStdOut().writeAll(usage);
     } else {
@@ -254,13 +320,10 @@ const usage_lsp =
     \\Options:
     \\
     \\  -h, --help                  Print this help and exit
-    \\  --enable-message-tracing    Enable message tracing
     \\
 ;
 
-fn cmdLsp(gpa: Allocator, args: []const []const u8) !void {
-    var enable_message_tracing = false;
-
+fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -268,8 +331,6 @@ fn cmdLsp(gpa: Allocator, args: []const []const u8) !void {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 try std.io.getStdOut().writeAll(usage_lsp);
                 return process.cleanExit();
-            } else if (std.mem.eql(u8, arg, "--enable-message-tracing")) {
-                enable_message_tracing = true;
             } else {
                 fatal("unrecognized parameter: '{s}'", .{arg});
             }
@@ -282,16 +343,28 @@ fn cmdLsp(gpa: Allocator, args: []const []const u8) !void {
         std.log.warn("Running kdblint in LSP mode is not a CLI tool, it communicates over the Language Server Protocol.", .{});
     }
 
+    log_file, const log_file_path = createLogFile(gpa, null) orelse .{ null, null };
+    defer if (log_file_path) |path| gpa.free(path);
+    defer if (log_file) |file| {
+        file.close();
+        log_file = null;
+    };
+
     var transport: zls.lsp.ThreadSafeTransport(.{
         .ChildTransport = zls.lsp.TransportOverStdio,
         .thread_safe_read = false,
         .thread_safe_write = true,
     }) = .{ .child_transport = .init(std.io.getStdIn(), std.io.getStdOut()) };
 
+    log_transport = transport.any();
+
+    log.info("Starting kdblint {s} @ '{s}'", .{ build_options.version_string, binary });
+    log.info("Log file: {?s} ({s})", .{ log_file_path, @tagName(log_level) });
+
     const server = try Server.create(gpa);
     defer server.destroy();
-    server.transport = transport.any();
-    server.message_tracing = enable_message_tracing;
+    server.setTransport(transport.any());
+    // server.config_path = result.config_path;
 
     try server.loop();
 
@@ -300,4 +373,33 @@ fn cmdLsp(gpa: Allocator, args: []const []const u8) !void {
         .exiting_success => return process.cleanExit(),
         else => unreachable,
     }
+}
+
+fn defaultLogFilePath(allocator: std.mem.Allocator) std.mem.Allocator.Error!?[]const u8 {
+    const cache_path = known_folders.getPath(allocator, .cache) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseError => return null,
+    } orelse return null;
+    defer allocator.free(cache_path);
+    return try std.fs.path.join(allocator, &.{ cache_path, "kdblint", "kdblint.log" });
+}
+
+fn createLogFile(allocator: std.mem.Allocator, override_log_file_path: ?[]const u8) ?struct { std.fs.File, []const u8 } {
+    const log_file_path = if (override_log_file_path) |log_file_path|
+        allocator.dupe(u8, log_file_path) catch return null
+    else
+        defaultLogFilePath(allocator) catch null orelse return null;
+    errdefer allocator.free(log_file_path);
+
+    if (std.fs.path.dirname(log_file_path)) |dirname| {
+        std.fs.cwd().makePath(dirname) catch {};
+    }
+
+    const file = std.fs.cwd().createFile(log_file_path, .{ .truncate = false }) catch {
+        allocator.free(log_file_path);
+        return null;
+    };
+    errdefer file.close();
+
+    return .{ file, log_file_path };
 }

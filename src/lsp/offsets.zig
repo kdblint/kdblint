@@ -106,6 +106,10 @@ pub fn lineLocAtIndex(text: []const u8, index: usize) Loc {
     };
 }
 
+pub fn lineSliceAtIndex(text: []const u8, index: usize) []const u8 {
+    return locToSlice(text, lineLocAtIndex(text, index));
+}
+
 pub fn locLength(text: []const u8, loc: Loc, encoding: Encoding) usize {
     return countCodeUnits(text[loc.start..loc.end], encoding);
 }

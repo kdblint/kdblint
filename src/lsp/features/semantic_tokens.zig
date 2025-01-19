@@ -538,10 +538,10 @@ pub fn writeSemanticTokens(
         .limited = limited,
     };
 
-    const nodes = if (loc) |l|
-        try ast.nodesAtLoc(arena, handle.tree, l)
-    else
-        handle.tree.getBlocks();
+    var nodes = if (loc) |l| try ast.nodesAtLoc(arena, handle.tree, l) else handle.tree.getBlocks();
+    if (nodes.len == 1 and nodes[0] == 0) {
+        nodes = handle.tree.getBlocks();
+    }
 
     // reverse the ast from the root declarations
     for (nodes) |child| {

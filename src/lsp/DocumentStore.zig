@@ -13,17 +13,18 @@ const offsets = @import("offsets.zig");
 const Config = @import("Config.zig");
 const analysis = @import("analysis.zig");
 const DocumentScope = kdb.DocumentScope;
+const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
 
 const log = std.log.scoped(.kdblint_store);
 
 const DocumentStore = @This();
 
 allocator: Allocator,
-/// the DocumentStore ussumes that `config` is not modified while calling one of its functions.
 config: Config,
 lock: std.Thread.RwLock = .{},
 thread_pool: if (builtin.single_threaded) void else *std.Thread.Pool,
 handles: std.StringArrayHashMapUnmanaged(*Handle) = .{},
+diagnostics_collection: *DiagnosticsCollection,
 
 pub const Uri = []const u8;
 

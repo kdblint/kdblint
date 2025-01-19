@@ -1,3 +1,9 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
+const InternPool = @This();
+
 /// Represents an index into `map`. It represents the canonical index
 /// of a `Value` within this `InternPool`. The values are typed.
 /// Two values which have the same type can be equality compared simply
@@ -57,3 +63,15 @@ pub const Index = enum(u32) {
     scan,
     each_left,
 };
+
+pub fn init(gpa: Allocator) Allocator.Error!InternPool {
+    var ip: InternPool = .{};
+    errdefer ip.deinit(gpa);
+
+    return ip;
+}
+
+pub fn deinit(ip: *InternPool, gpa: Allocator) void {
+    _ = gpa; // autofix
+    _ = ip; // autofix
+}

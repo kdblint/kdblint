@@ -169,11 +169,11 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
         break :v "";
     };
 
-    const version = try b.allocator.dupeZ(u8, version_slice);
-    options.addOption([:0]const u8, "version", version);
+    const version = try std.SemanticVersion.parse(version_slice);
+    options.addOption(std.SemanticVersion, "version", version);
 
-    const semver = try std.SemanticVersion.parse(version);
-    options.addOption(std.SemanticVersion, "semver", semver);
+    const version_string = try b.allocator.dupeZ(u8, version_slice);
+    options.addOption([:0]const u8, "version_string", version_string);
 
     return options;
 }
