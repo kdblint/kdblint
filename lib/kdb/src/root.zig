@@ -15,6 +15,7 @@ pub const Zir = @import("Zir.zig");
 pub const number_literal = @import("number_literal.zig");
 pub const print_zir = @import("print_zir.zig");
 pub const DocumentScope = @import("DocumentScope.zig");
+pub const InternPool = @import("InternPool.zig");
 
 // Character literal parsing
 pub const parseNumberLiteral = number_literal.parseNumberLiteral;

@@ -86,6 +86,11 @@ pub fn deinit(eb: *ErrorBundle, gpa: Allocator) void {
     eb.* = undefined;
 }
 
+pub fn errorMessageCount(eb: ErrorBundle) u32 {
+    if (eb.extra.len == 0) return 0;
+    return eb.getErrorMessageList().len;
+}
+
 pub fn getErrorMessageList(eb: ErrorBundle) ErrorMessageList {
     return eb.extraData(ErrorMessageList, 0).data;
 }

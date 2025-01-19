@@ -23,7 +23,7 @@ const Tokenizer = kdb.Tokenizer;
 const DocumentStore = @import("DocumentStore.zig");
 const offsets = @import("offsets.zig");
 const ast = @import("ast.zig");
-const InternPool = @import("analyser/InternPool.zig");
+const InternPool = kdb.InternPool;
 
 const references = @import("features/references.zig");
 
