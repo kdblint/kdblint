@@ -360,7 +360,7 @@ fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
     const list_nodes = tree.extra_data[sub_range.start..sub_range.end];
 
     const list = try gpa.alloc(Zir.Inst.Ref, list_nodes.len);
-    gpa.free(list);
+    defer gpa.free(list);
 
     var i: usize = 1;
     var it = std.mem.reverseIterator(list_nodes);

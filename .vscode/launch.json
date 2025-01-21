@@ -10,6 +10,14 @@
       "cwd": "${workspaceRoot}"
     },
     {
+      "name": "(Linux) Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceRoot}/zig-out/bin/kdblint.Debug",
+      "args": ["ast-check", "-t", "temp.q"],
+      "cwd": "${workspaceRoot}"
+    },
+    {
       "name": "(lldb) Attach",
       "type": "cppdbg",
       "request": "attach",
