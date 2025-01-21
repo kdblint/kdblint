@@ -818,6 +818,14 @@ test "list" {
         \\  %5 = list(@one, %4, %3, %2, %1) node_offset:1:1 to :1:12
         \\})
     );
+    try testZir("(a;b;c)",
+        \\%0 = file({
+        \\  %1 = identifier("c") token_offset:1:6 to :1:7
+        \\  %2 = identifier("b") token_offset:1:4 to :1:5
+        \\  %3 = identifier("a") token_offset:1:2 to :1:3
+        \\  %4 = list(%3, %2, %1) node_offset:1:1 to :1:8
+        \\})
+    );
 }
 
 test "table literal" {
