@@ -1430,7 +1430,10 @@ pub const Tokenizer = struct {
                     0 => if (self.index != self.buffer.len) {
                         result.tag = .invalid;
                     },
-                    'a'...'z', 'A'...'Z', '0'...'9', '.', '/' => continue :state .file_handle,
+                    '_' => if (self.mode == .q) {
+                        continue :state .file_handle;
+                    },
+                    'a'...'z', 'A'...'Z', '0'...'9', '.', '/', ':' => continue :state .file_handle,
                     else => {},
                 }
             },
@@ -1985,6 +1988,21 @@ test "number literals" {
     try testTokenize("123e45", &.{.number_literal});
     try testTokenize("123e+45", &.{.number_literal});
     try testTokenize("123e-45", &.{.number_literal});
+}
+
+test "symbol literals" {
+    try testTokenize("`symbol", &.{.symbol_literal});
+    try testTokenize("`symbol:colon", &.{.symbol_literal});
+    try testTokenize("`symbol:colon:colon", &.{.symbol_literal});
+    try testTokenize("`symbol:colon/slash", &.{.symbol_literal});
+    try testTokenize("`symbol/slash:slash", &.{ .symbol_literal, .slash, .identifier, .colon, .identifier });
+    try testTokenize("`symbol/slash/slash", &.{ .symbol_literal, .slash, .identifier, .slash, .identifier });
+
+    try testTokenizeMode(.k, "`symbol_underscore", &.{ .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "`symbol_underscore", &.{.symbol_literal});
+    try testTokenize("`_symbol", &.{ .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.k, "`symbol:colon_underscore", &.{ .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "`symbol:colon_underscore", &.{.symbol_literal});
 }
 
 fn testTokenize(
