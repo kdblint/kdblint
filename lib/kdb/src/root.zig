@@ -36,7 +36,12 @@ pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(color.renderOptions());
+    const ttyconf = color.get_tty_conf();
+    error_bundle.renderToStdErr(.{
+        .ttyconf = ttyconf,
+        .include_source_line = true,
+        .include_reference_trace = true,
+    });
 }
 
 pub fn putAstErrorsIntoBundle(
@@ -68,7 +73,12 @@ pub fn printZirErrorsToStderr(gpa: Allocator, tree: Ast, zir: Zir, path: []const
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(color.renderOptions());
+    const ttyconf = color.get_tty_conf();
+    error_bundle.renderToStdErr(.{
+        .ttyconf = ttyconf,
+        .include_source_line = true,
+        .include_reference_trace = true,
+    });
 }
 
 test {

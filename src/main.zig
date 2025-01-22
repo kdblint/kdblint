@@ -115,7 +115,10 @@ var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{
 }) = .{};
 
 pub fn main() !void {
-    const gpa = general_purpose_allocator.allocator();
+    const gpa = gpa: {
+        if (builtin.os.tag == .wasi) break :gpa std.heap.wasm_allocator;
+        break :gpa general_purpose_allocator.allocator();
+    };
     defer _ = general_purpose_allocator.deinit();
     var arena_instance: std.heap.ArenaAllocator = .init(gpa);
     defer arena_instance.deinit();
