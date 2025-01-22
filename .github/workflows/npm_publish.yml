@@ -19,19 +19,17 @@ jobs:
       - name: Run tests
         run: zig build test --summary new
       - name: Build x86_64-linux debug
-        run: zig build --summary new -Dtarget=x86_64-linux
-      - name: Build x86_64-linux
-        run: zig build --summary new --release=small -Dtarget=x86_64-linux
+        run: zig build --summary new --release=small -Dtarget=x86_64-linux-musl
       - name: Build aarch64-linux
-        run: zig build --summary new --release=small -Dtarget=aarch64-linux
+        run: zig build --summary new --release=small -Dtarget=aarch64-linux-musl
       - name: Build x86_64-macos
-        run: zig build --summary new --release=small -Dtarget=x86_64-macos
+        run: zig build --summary new --release=small -Dtarget=x86_64-macos-none
       - name: Build aarch64-macos
-        run: zig build --summary new --release=small -Dtarget=aarch64-macos
+        run: zig build --summary new --release=small -Dtarget=aarch64-macos-none
       - name: Build x86_64-windows
-        run: zig build --summary new --release=small -Dtarget=x86_64-windows
+        run: zig build --summary new --release=small -Dtarget=x86_64-windows-gnu
       - name: Build aarch64-windows
-        run: zig build --summary new --release=small -Dtarget=aarch64-windows
+        run: zig build --summary new --release=small -Dtarget=aarch64-windows-gnu
       - name: Get version
         id: version
         run: echo "version=$(./zig-out/bin/kdblint version)" >> "$GITHUB_OUTPUT"
