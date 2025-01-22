@@ -3322,6 +3322,38 @@ test "call" {
         \\  %4 = apply(%3, @one, %2, %1) node_offset:1:1 to :1:9
         \\})
     );
+
+    try testZir("()[]",
+        \\%0 = file({
+        \\  %1 = apply(@empty_list, @null) node_offset:1:1 to :1:5
+        \\})
+    );
+    try testZir("(first x)[]",
+        \\%0 = file({
+        \\  %1 = identifier("x") token_offset:1:8 to :1:9
+        \\  %2 = builtin("first") token_offset:1:2 to :1:7
+        \\  %3 = apply(%2, %1) node_offset:1:2 to :1:9
+        \\  %4 = apply(%3, @null) node_offset:1:1 to :1:12
+        \\})
+    );
+    try testZir("(` sv`.test`func)[]",
+        \\%0 = file({
+        \\  %1 = sym_list(".test", "func") node_offset:1:6 to :1:17
+        \\  %2 = builtin("sv") token_offset:1:4 to :1:6
+        \\  %3 = sym("") token_offset:1:2 to :1:3
+        \\  %4 = apply(%2, %3, %1) node_offset:1:2 to :1:17
+        \\  %5 = apply(%4, @null) node_offset:1:1 to :1:20
+        \\})
+    );
+
+    try testZir("[f;f;f][]",
+        \\%0 = file({
+        \\  %1 = identifier("f") token_offset:1:2 to :1:3
+        \\  %2 = identifier("f") token_offset:1:4 to :1:5
+        \\  %3 = identifier("f") token_offset:1:6 to :1:7
+        \\  %4 = apply(%3, @null) node_offset:1:1 to :1:10
+        \\})
+    );
 }
 
 test "apply unary" {

@@ -1163,9 +1163,21 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
     const full_call = tree.fullCall(src_node);
     switch (node_tags[full_call.func]) {
+        .root,
+        .empty,
+        => unreachable,
+
+        .grouped_expression => unreachable,
+        .empty_list,
+        .list,
+        .table_literal,
+        => {},
+
         .lambda,
         .lambda_semicolon,
         => {},
+
+        .expr_block => {},
 
         inline .colon, .colon_colon => |t| {
             switch (full_call.args.len) {
@@ -1255,7 +1267,17 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
             ),
         },
 
-        .call => {},
+        .call,
+        .apply_unary,
+        .apply_binary,
+        => {},
+
+        .number_literal,
+        .number_list_literal,
+        .string_literal,
+        .symbol_literal,
+        .symbol_list_literal,
+        => {},
 
         .identifier,
         => {
@@ -1270,6 +1292,13 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
         },
 
         .builtin,
+        => {},
+
+        .select,
+        .exec,
+        .update,
+        .delete_rows,
+        .delete_cols,
         => {},
 
         else => |t| {
