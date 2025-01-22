@@ -324,26 +324,15 @@ fn initializeHandler(server: *Server, arena: std.mem.Allocator, request: types.I
     }
 
     if (request.capabilities.general) |general| {
-        var supports_utf8 = false;
-        var supports_utf16 = false;
-        var supports_utf32 = false;
         if (general.positionEncodings) |position_encodings| {
-            for (position_encodings) |encoding| {
+            server.offset_encoding = outer: for (position_encodings) |encoding| {
                 switch (encoding) {
-                    .@"utf-8" => supports_utf8 = true,
-                    .@"utf-16" => supports_utf16 = true,
-                    .@"utf-32" => supports_utf32 = true,
+                    .@"utf-8" => break :outer .@"utf-8",
+                    .@"utf-16" => break :outer .@"utf-16",
+                    .@"utf-32" => break :outer .@"utf-32",
                     .custom_value => {},
                 }
-            }
-        }
-
-        if (supports_utf8) {
-            server.offset_encoding = .@"utf-8";
-        } else if (supports_utf32) {
-            server.offset_encoding = .@"utf-32";
-        } else {
-            server.offset_encoding = .@"utf-16";
+            } else server.offset_encoding;
         }
     }
     server.diagnostics_collection.offset_encoding = server.offset_encoding;
@@ -824,12 +813,23 @@ pub fn updateConfiguration(
     }
 
     if (server.status == .initialized) {
-        const json_message = try server.sendToClientRequest(
-            .{ .string = "semantic_tokens_refresh" },
-            "workspace/semanticTokens/refresh",
-            {},
-        );
-        server.allocator.free(json_message);
+        {
+            const json_message = try server.sendToClientRequest(
+                .{ .string = "semantic_tokens_refresh" },
+                "workspace/semanticTokens/refresh",
+                {},
+            );
+            server.allocator.free(json_message);
+        }
+
+        {
+            const json_message = try server.sendToClientRequest(
+                .{ .string = "inlay_hints_refresh" },
+                "workspace/inlayHint/refresh",
+                {},
+            );
+            server.allocator.free(json_message);
+        }
     }
 
     // <---------------------------------------------------------->
@@ -1561,6 +1561,10 @@ fn handleResponse(server: *Server, response: lsp.JsonRPCMessage.Response) Error!
     };
 
     if (std.mem.eql(u8, id, "semantic_tokens_refresh")) {
+        //
+    } else if (std.mem.eql(u8, id, "inlay_hints_refresh")) {
+        //
+    } else if (std.mem.eql(u8, id, "progress")) {
         //
     } else if (std.mem.startsWith(u8, id, "register")) {
         //

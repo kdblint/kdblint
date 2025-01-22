@@ -352,8 +352,12 @@ fn convertErrorBundleToLSPDiangostics(
 
         try diagnostics.append(arena, .{
             .range = src_range,
-            .severity = .Error,
-            .source = "zls",
+            .severity = switch (err.kind) {
+                .@"error" => .Error,
+                .warn => .Warning,
+                else => unreachable,
+            },
+            .source = "kdblint",
             .message = eb.nullTerminatedString(err.msg),
             .relatedInformation = relatedInformation,
         });
