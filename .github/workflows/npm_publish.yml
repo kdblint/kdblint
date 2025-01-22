@@ -18,6 +18,8 @@ jobs:
           cache: false
       - name: Run tests
         run: zig build test --summary new
+      - name: Build x86_64-linux debug
+        run: zig build --summary new -Dtarget=x86_64-linux
       - name: Build x86_64-linux
         run: zig build --summary new --release=small -Dtarget=x86_64-linux
       - name: Build aarch64-linux
