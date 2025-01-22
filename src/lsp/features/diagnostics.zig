@@ -16,7 +16,7 @@ const offsets = @import("../offsets.zig");
 
 const log = std.log.scoped(.kdblint_diagnostics);
 
-const zero_instant = std.time.Instant{
+const zero_instant: std.time.Instant = .{
     .timestamp = if (switch (builtin.os.tag) {
         .wasi => builtin.link_libc,
         .windows, .uefi => false,
