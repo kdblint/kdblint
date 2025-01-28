@@ -573,6 +573,7 @@ pub const Tokenizer = struct {
         negative,
         negative_period,
         int,
+        time,
         string_literal,
         string_literal_backslash,
         octal_char_start,
@@ -1299,7 +1300,19 @@ pub const Tokenizer = struct {
                         };
                         continue :state .int;
                     },
+                    ':' => continue :state .time,
                     '0'...'9', 'a'...'d', 'f'...'z', 'A'...'Z', '.' => continue :state .int,
+                    else => {},
+                }
+            },
+
+            .time => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index != self.buffer.len) {
+                        continue :state .invalid;
+                    },
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.', ':' => continue :state .time,
                     else => {},
                 }
             },
@@ -1988,6 +2001,8 @@ test "number literals" {
     try testTokenize("123e45", &.{.number_literal});
     try testTokenize("123e+45", &.{.number_literal});
     try testTokenize("123e-45", &.{.number_literal});
+
+    try testTokenize("10:00", &.{.number_literal});
 }
 
 test "symbol literals" {
