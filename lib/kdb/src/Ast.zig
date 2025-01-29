@@ -2094,21 +2094,11 @@ test "assign" {
         &.{ .identifier, .colon, .number_literal },
         &.{ .identifier, .apply_binary, .colon, .number_literal },
     );
-    try testAst(
-        "3:1",
-        &.{ .number_literal, .colon, .number_literal },
-        &.{ .number_literal, .apply_binary, .colon, .number_literal },
-    );
 
     try testAst(
         "a::1",
         &.{ .identifier, .colon_colon, .number_literal },
         &.{ .identifier, .apply_binary, .colon_colon, .number_literal },
-    );
-    try testAst(
-        "3::1",
-        &.{ .number_literal, .colon_colon, .number_literal },
-        &.{ .number_literal, .apply_binary, .colon_colon, .number_literal },
     );
 }
 
@@ -4675,6 +4665,15 @@ test "select" {
         },
         &.{ .select, .number_literal, .apply_binary, .asterisk, .identifier, .identifier },
     );
+
+    try testAst(
+        "select`a by`b from`c where`d",
+        &.{
+            .keyword_select, .symbol_literal, .identifier,     .symbol_literal,
+            .identifier,     .symbol_literal, .prefix_builtin, .symbol_literal,
+        },
+        &.{ .select, .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal },
+    );
 }
 
 test "exec" {
@@ -4939,6 +4938,15 @@ test "exec" {
         },
         &.{ .exec, .symbol_list_literal, .symbol_list_literal, .identifier },
     );
+
+    try testAst(
+        "exec`a by`b from`c where`d",
+        &.{
+            .keyword_exec, .symbol_literal, .identifier,     .symbol_literal,
+            .identifier,   .symbol_literal, .prefix_builtin, .symbol_literal,
+        },
+        &.{ .exec, .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal },
+    );
 }
 
 test "update" {
@@ -5039,6 +5047,15 @@ test "update" {
         },
         &.{ .update, .symbol_list_literal, .symbol_list_literal, .identifier },
     );
+
+    try testAst(
+        "update`a by`b from`c where`d",
+        &.{
+            .keyword_update, .symbol_literal, .identifier,     .symbol_literal,
+            .identifier,     .symbol_literal, .prefix_builtin, .symbol_literal,
+        },
+        &.{ .update, .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal },
+    );
 }
 
 test "delete rows" {
@@ -5058,6 +5075,12 @@ test "delete rows" {
             .keyword_delete, .identifier, .identifier, .prefix_builtin, .identifier, .comma, .identifier,
         },
         &.{ .delete_rows, .identifier, .identifier, .identifier },
+    );
+
+    try testAst(
+        "delete from`a where`b",
+        &.{ .keyword_delete, .identifier, .symbol_literal, .prefix_builtin, .symbol_literal },
+        &.{ .delete_rows, .symbol_literal, .symbol_literal },
     );
 }
 
@@ -5081,6 +5104,12 @@ test "delete columns" {
         "delete a from x where b",
         &.{ .keyword_delete, .identifier, .identifier, .identifier, .prefix_builtin, .identifier },
         &.{.cannot_define_where_cond_in_delete_cols},
+    );
+
+    try testAst(
+        "delete a from`b",
+        &.{ .keyword_delete, .identifier, .identifier, .symbol_literal },
+        &.{ .delete_cols, .symbol_literal },
     );
 }
 

@@ -739,7 +739,7 @@ fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
         }
     }
 
-    try renderToken(r, data.from_token, .space); // from
+    try renderTokenSpace(r, data.from_token); // from
 
     if (@hasField(@TypeOf(data), "where")) {
         if (data.where) |where| {
