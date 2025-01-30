@@ -67,3 +67,36 @@ f2:{[]  /comment19
 
 
 /comment31
+
+
+/////
+
+
+f  /comment
+
+
+ :  /comment
+
+
+ {  /comment
+
+
+ [  /comment
+
+
+ ]  /comment
+
+
+ 1  /comment
+
+
+ +  /comment
+
+
+ 2  /comment
+
+
+ ;  /comment
+
+
+ }  /comment
