@@ -583,9 +583,9 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
         tree.lastToken(lambda.body[lambda.body.len - 1]),
     );
 
-    try renderToken(r, lambda.l_brace, .none); // {
-
     if (lambda.params) |params| {
+        try renderToken(r, lambda.l_brace, .none); // {
+
         const single_line_params = node_tags[params.params[0]] == .empty or tree.tokensOnSameLine(
             params.l_bracket,
             params.r_bracket,
@@ -609,6 +609,8 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
         } else {
             try renderToken(r, params.r_bracket, .newline); // ]
         }
+    } else {
+        try renderToken(r, lambda.l_brace, if (single_line_lambda) .none else .newline); // {
     }
 
     for (lambda.body, 0..) |block, i| {
