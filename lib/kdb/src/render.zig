@@ -7,32 +7,32 @@ const kdb = @import("root.zig");
 const Ast = kdb.Ast;
 const Token = kdb.Token;
 
-const indent_delta = 2;
-
 pub const Error = Ast.RenderError;
 
 const Ais = AutoIndentingStream(std.ArrayList(u8).Writer);
 
-pub const Fixups = struct {};
+pub const RenderSettings = struct {
+    indent_char: u8,
+    indent_delta: usize,
+};
 
 const Render = struct {
     gpa: Allocator,
     ais: *Ais,
     tree: Ast,
-    fixups: Fixups,
 };
 
-pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!void {
+pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSettings) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
     var auto_indenting_stream = Ais{
-        .indent_delta = indent_delta,
+        .indent_char = settings.indent_char,
+        .indent_delta = settings.indent_delta,
         .underlying_writer = buffer.writer(),
     };
     var r: Render = .{
         .gpa = buffer.allocator,
         .ais = &auto_indenting_stream,
         .tree = tree,
-        .fixups = fixups,
     };
 
     const blocks = tree.getBlocks();
@@ -412,14 +412,14 @@ fn renderList(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         defer gpa.free(sub_expr_buffer_starts);
 
         var auto_indenting_stream = Ais{
-            .indent_delta = indent_delta,
+            .indent_char = ais.indent_char,
+            .indent_delta = ais.indent_delta,
             .underlying_writer = sub_expr_buffer.writer(),
         };
         var sub_render: Render = .{
             .gpa = r.gpa,
             .ais = &auto_indenting_stream,
             .tree = r.tree,
-            .fixups = r.fixups,
         };
 
         // Calculate size of columns in current section
@@ -1240,7 +1240,6 @@ fn hasSameLineComment(tree: Ast, token_index: Ast.Token.Index) bool {
 
 fn writeFixingWhitespace(writer: std.ArrayList(u8).Writer, slice: []const u8) Error!void {
     for (slice) |byte| switch (byte) {
-        '\t' => try writer.writeAll(" " ** indent_delta),
         '\r' => {},
         else => try writer.writeByte(byte),
     };
@@ -1287,6 +1286,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         disabled_offset: ?usize = null,
 
         indent_count: usize = 0,
+        indent_char: u8,
         indent_delta: usize,
         current_line_empty: bool = true,
         /// automatically popped when applied
@@ -1388,7 +1388,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             const current_indent = self.currentIndent();
             if (self.current_line_empty and current_indent > 0) {
                 if (self.disabled_offset == null) {
-                    try self.underlying_writer.writeByteNTimes(' ', current_indent);
+                    try self.underlying_writer.writeByteNTimes(self.indent_char, current_indent);
                 }
                 self.applied_indent = current_indent;
             }

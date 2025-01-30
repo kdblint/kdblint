@@ -29,6 +29,11 @@ const usage_fmt =
     \\  --ast-check            Run zig ast-check on every file
     \\  --exclude [file]       Exclude file or directory from formatting
     \\
+    \\Format options:
+    \\
+    \\  --prefer-tabs          Prefer tabs for indentation
+    \\  --indent-size          Number of characters to use per indentation level
+    \\
 ;
 
 const Fmt = struct {
@@ -39,6 +44,8 @@ const Fmt = struct {
     gpa: Allocator,
     arena: Allocator,
     out_buffer: std.ArrayList(u8),
+    indent_char: u8,
+    indent_delta: usize,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
@@ -52,6 +59,8 @@ pub fn run(
     var stdin_flag: bool = false;
     var check_flag: bool = false;
     var check_ast_flag: bool = false;
+    var prefer_tabs: bool = false;
+    var indent_size: usize = 2;
     var input_files = std.ArrayList([]const u8).init(gpa);
     defer input_files.deinit();
     var excluded_files = std.ArrayList([]const u8).init(gpa);
@@ -88,6 +97,15 @@ pub fn run(
                     i += 1;
                     const next_arg = args[i];
                     try excluded_files.append(next_arg);
+                } else if (mem.eql(u8, arg, "--prefer-tabs")) {
+                    prefer_tabs = true;
+                    if (indent_size == 2) indent_size = 1; // Default to 1 tab
+                } else if (mem.eql(u8, arg, "--indent-size")) {
+                    if (i + 1 >= args.len) {
+                        fatal("expected parameter after --indent-size", .{});
+                    }
+                    i += 1;
+                    indent_size = try std.fmt.parseUnsigned(usize, args[i], 10);
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -140,7 +158,10 @@ pub fn run(
             try kdb.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        const formatted = try tree.render(gpa);
+        const formatted = try tree.render(gpa, .{
+            .indent_char = if (prefer_tabs) '\t' else ' ',
+            .indent_delta = indent_size,
+        });
         defer gpa.free(formatted);
 
         if (check_flag) {
@@ -163,6 +184,8 @@ pub fn run(
         .check_ast = check_ast_flag,
         .color = color,
         .out_buffer = std.ArrayList(u8).init(gpa),
+        .indent_char = if (prefer_tabs) '\t' else ' ',
+        .indent_delta = indent_size,
     };
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit();
@@ -364,7 +387,10 @@ fn fmtPathFile(
     fmt.out_buffer.shrinkRetainingCapacity(0);
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer, .{});
+    try tree.renderToArrayList(&fmt.out_buffer, .{
+        .indent_char = fmt.indent_char,
+        .indent_delta = fmt.indent_delta,
+    });
     if (mem.eql(u8, fmt.out_buffer.items, source_code))
         return;
 
