@@ -212,7 +212,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) Token.Index {
         => return main_tokens[n] - end_offset,
 
         .lambda,
-        .lambda_semicolon,
         => return main_tokens[n] - end_offset,
 
         .expr_block,
@@ -328,15 +327,13 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .table_literal,
         => return datas[n].rhs + end_offset,
 
-        inline .lambda,
-        .lambda_semicolon,
-        => |t| {
+        .lambda,
+        => {
             const body = blk: {
                 const sub_range = tree.extraData(datas[n].rhs, Node.SubRange);
                 break :blk tree.extra_data[sub_range.start..sub_range.end];
             };
 
-            if (t == .lambda_semicolon) end_offset += 1;
             if (tags[body[body.len - 1]] != .empty) end_offset += 1;
             n = body[body.len - 1];
         },
@@ -515,10 +512,9 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: anytype) !void {
 
 pub fn fullLambda(tree: Ast, node: Node.Index) full.Lambda {
     const tags: []Node.Tag = tree.nodes.items(.tag);
-    assert(tags[node] == .lambda or tags[node] == .lambda_semicolon);
+    assert(tags[node] == .lambda);
 
     const data: Node.Data = tree.nodes.items(.data)[node];
-    const has_trailing = tags[node] == .lambda_semicolon;
 
     const params = blk: {
         const sub_range = tree.extraData(data.lhs, Node.SubRange);
@@ -528,25 +524,15 @@ pub fn fullLambda(tree: Ast, node: Node.Index) full.Lambda {
         const sub_range = tree.extraData(data.rhs, Node.SubRange);
         break :blk tree.extra_data[sub_range.start..sub_range.end];
     };
+    assert(body.len > 0);
 
     const l_brace = tree.nodes.items(.main_token)[node];
-    const r_bracket: ?Token.Index = if (params.len > 0)
-        if (tags[params[params.len - 1]] == .empty)
-            tree.lastToken(params[params.len - 1])
-        else
-            tree.lastToken(params[params.len - 1]) + 1
-    else
-        null;
-    const offset: u32 = if (has_trailing) 1 else 0;
-    const r_brace = if (tags[body[body.len - 1]] == .empty)
-        tree.lastToken(body[body.len - 1]) + offset
-    else
-        tree.lastToken(body[body.len - 1]) + 1 + offset;
+    const r_brace = tree.lastToken(body[body.len - 1]) + @intFromBool(tags[body[body.len - 1]] != .empty);
 
-    const full_params: ?full.Lambda.Params = if (r_bracket) |rb| .{
+    const full_params: ?full.Lambda.Params = if (params.len > 0) .{
         .l_bracket = tree.firstToken(params[0]) - 1,
         .params = params,
-        .r_bracket = rb,
+        .r_bracket = tree.lastToken(params[params.len - 1]) + @intFromBool(tags[params[params.len - 1]] != .empty),
     } else null;
 
     return .{
@@ -554,7 +540,6 @@ pub fn fullLambda(tree: Ast, node: Node.Index) full.Lambda {
         .params = full_params,
         .body = body,
         .r_brace = r_brace,
-        .has_trailing = has_trailing,
     };
 }
 
@@ -762,7 +747,6 @@ pub const full = struct {
         params: ?Params,
         body: []Node.Index,
         r_brace: Token.Index,
-        has_trailing: bool,
 
         pub const Params = struct {
             l_bracket: Token.Index,
@@ -928,8 +912,6 @@ pub const Node = struct {
 
         /// `{[lhs]rhs}`. main_token is the `{`.
         lambda,
-        /// Same as lambda but there is known to be a semicolon before the `}`.
-        lambda_semicolon,
 
         /// `[lhs]`. main_token is the `[`. lhs can be omitted. rhs is the token index of the `]`. `SubRange[lhs]`.
         expr_block,
@@ -1098,7 +1080,6 @@ pub const Node = struct {
                 => .other,
 
                 .lambda,
-                .lambda_semicolon,
                 => .other,
 
                 .expr_block,
@@ -1769,7 +1750,7 @@ test "lambda renders on same line" {
     try testAst(
         "{1;}",
         &.{ .l_brace, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .number_literal },
+        &.{ .lambda, .number_literal, .empty },
     );
     try testAst(
         "{1;2}",
@@ -1779,7 +1760,7 @@ test "lambda renders on same line" {
     try testAst(
         "{1;2;}",
         &.{ .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .number_literal, .number_literal },
+        &.{ .lambda, .number_literal, .number_literal, .empty },
     );
     try testAst(
         "{[]}",
@@ -1811,13 +1792,13 @@ test "lambda renders on same line" {
     try testAst(
         "{[]1;}",
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty, .number_literal },
+        &.{ .lambda, .empty, .number_literal, .empty },
     );
     try testAstMode(
         .k,
         "{[]-1;}",
         &.{ .l_brace, .l_bracket, .r_bracket, .minus, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty, .minus, .apply_unary, .number_literal },
+        &.{ .lambda, .empty, .minus, .apply_unary, .number_literal, .empty },
     );
     try failAstMode(
         .q,
@@ -1828,7 +1809,7 @@ test "lambda renders on same line" {
     try testAst(
         "{[] -1;}",
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty, .number_literal },
+        &.{ .lambda, .empty, .number_literal, .empty },
     );
     try testAst(
         "{[]1;2}",
@@ -1841,7 +1822,7 @@ test "lambda renders on same line" {
             .l_brace,   .l_bracket,      .r_bracket, .number_literal,
             .semicolon, .number_literal, .semicolon, .r_brace,
         },
-        &.{ .lambda_semicolon, .empty, .number_literal, .number_literal },
+        &.{ .lambda, .empty, .number_literal, .number_literal, .empty },
     );
     try testAst(
         "{[x]}",
@@ -1856,7 +1837,7 @@ test "lambda renders on same line" {
     try testAst(
         "{[x]1;}",
         &.{ .l_brace, .l_bracket, .identifier, .r_bracket, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .identifier, .number_literal },
+        &.{ .lambda, .identifier, .number_literal, .empty },
     );
     try testAst(
         "{[x]1;2}",
@@ -1871,7 +1852,7 @@ test "lambda renders on same line" {
             .l_brace,   .l_bracket,      .identifier, .r_bracket, .number_literal,
             .semicolon, .number_literal, .semicolon,  .r_brace,
         },
-        &.{ .lambda_semicolon, .identifier, .number_literal, .number_literal },
+        &.{ .lambda, .identifier, .number_literal, .number_literal, .empty },
     );
     try testAst(
         "{[x;y]}",
@@ -1891,7 +1872,7 @@ test "lambda renders on same line" {
             .l_brace,   .l_bracket,      .identifier, .semicolon, .identifier,
             .r_bracket, .number_literal, .semicolon,  .r_brace,
         },
-        &.{ .lambda_semicolon, .identifier, .identifier, .number_literal },
+        &.{ .lambda, .identifier, .identifier, .number_literal, .empty },
     );
     try testAst(
         "{[x;y]1;2}",
@@ -1907,7 +1888,7 @@ test "lambda renders on same line" {
             .l_brace,        .l_bracket, .identifier,     .semicolon, .identifier, .r_bracket,
             .number_literal, .semicolon, .number_literal, .semicolon, .r_brace,
         },
-        &.{ .lambda_semicolon, .identifier, .identifier, .number_literal, .number_literal },
+        &.{ .lambda, .identifier, .identifier, .number_literal, .number_literal, .empty },
     );
 }
 
@@ -1919,7 +1900,6 @@ test "lambda renders on multiple lines" {
         &.{ .l_brace, .l_bracket, .r_bracket, .r_brace },
         &.{ .lambda, .empty, .empty },
     );
-    if (true) return error.SkipZigTest;
     try testAstRender(
         \\{[]
         \\  ;}
@@ -1929,7 +1909,7 @@ test "lambda renders on multiple lines" {
         \\  }
     ,
         &.{ .l_brace, .l_bracket, .r_bracket, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty, .empty },
+        &.{ .lambda, .empty, .empty, .empty },
     );
     try testAst(
         \\{[]
@@ -1937,7 +1917,7 @@ test "lambda renders on multiple lines" {
         \\  }
     ,
         &.{ .l_brace, .l_bracket, .r_bracket, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty, .empty },
+        &.{ .lambda, .empty, .empty, .empty },
     );
     try testAst(
         \\{[]
@@ -1955,7 +1935,7 @@ test "lambda renders on multiple lines" {
         \\  }
     ,
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty, .number_literal },
+        &.{ .lambda, .empty, .number_literal, .empty },
     );
     try testAst(
         \\{[]
@@ -1963,7 +1943,7 @@ test "lambda renders on multiple lines" {
         \\  }
     ,
         &.{ .l_brace, .l_bracket, .r_bracket, .number_literal, .semicolon, .r_brace },
-        &.{ .lambda_semicolon, .empty, .number_literal },
+        &.{ .lambda, .empty, .number_literal, .empty },
     );
 
     try testAst(
@@ -1997,10 +1977,7 @@ test "lambda renders on multiple lines" {
             .r_bracket, .number_literal, .semicolon,  .number_literal, .semicolon,  .number_literal, .semicolon,
             .r_brace,
         },
-        &.{
-            .lambda_semicolon, .identifier,     .identifier,     .identifier,
-            .number_literal,   .number_literal, .number_literal,
-        },
+        &.{ .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal, .empty },
     );
     try testAst(
         \\{[x;y;z]
@@ -2028,10 +2005,7 @@ test "lambda renders on multiple lines" {
             .r_bracket, .number_literal, .semicolon,  .number_literal, .semicolon,  .number_literal, .semicolon,
             .r_brace,
         },
-        &.{
-            .lambda_semicolon, .identifier,     .identifier,     .identifier,
-            .number_literal,   .number_literal, .number_literal,
-        },
+        &.{ .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal, .empty },
     );
     try testAst(
         \\{[x;
@@ -2063,10 +2037,7 @@ test "lambda renders on multiple lines" {
             .r_bracket, .number_literal, .semicolon,  .number_literal, .semicolon,  .number_literal, .semicolon,
             .r_brace,
         },
-        &.{
-            .lambda_semicolon, .identifier,     .identifier,     .identifier,
-            .number_literal,   .number_literal, .number_literal,
-        },
+        &.{ .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal, .empty },
     );
 }
 
@@ -3883,11 +3854,11 @@ test "render indentation" {
             .l_bracket,  .identifier, .semicolon,  .identifier, .r_bracket,  .r_brace,
         },
         &.{
-            .identifier,   .apply_binary, .colon,            .lambda,     .identifier, .identifier,   .identifier,
-            .apply_binary, .colon,        .lambda_semicolon, .identifier, .identifier, .identifier,   .apply_binary,
-            .colon,        .lambda,       .identifier,       .identifier, .identifier, .apply_binary, .plus,
-            .identifier,   .colon,        .apply_unary,      .identifier, .call,       .identifier,   .identifier,
-            .identifier,   .call,         .identifier,       .identifier,
+            .identifier,   .apply_binary, .colon,       .lambda,     .identifier, .identifier,   .identifier,
+            .apply_binary, .colon,        .lambda,      .identifier, .identifier, .identifier,   .apply_binary,
+            .colon,        .lambda,       .identifier,  .identifier, .identifier, .apply_binary, .plus,
+            .identifier,   .colon,        .apply_unary, .identifier, .call,       .identifier,   .identifier,
+            .empty,        .identifier,   .call,        .identifier, .identifier,
         },
     );
 }

@@ -173,7 +173,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .table_literal => return renderTable(r, node, space),
 
         .lambda,
-        .lambda_semicolon,
         => return renderLambda(r, tree.fullLambda(node), space),
 
         .expr_block,
@@ -578,18 +577,19 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
+    const single_line_lambda = tree.tokensOnSameLine(lambda.l_brace, lambda.r_brace);
+    const single_line_body = tree.tokensOnSameLine(
+        tree.firstToken(lambda.body[0]),
+        tree.lastToken(lambda.body[lambda.body.len - 1]),
+    );
+
+    try renderToken(r, lambda.l_brace, .none); // {
+
     if (lambda.params) |params| {
-        const single_line_lambda = tree.tokensOnSameLine(lambda.l_brace, lambda.r_brace);
         const single_line_params = node_tags[params.params[0]] == .empty or tree.tokensOnSameLine(
             params.l_bracket,
             params.r_bracket,
         );
-        const single_line_body = lambda.body.len > 0 and tree.tokensOnSameLine(
-            tree.firstToken(lambda.body[0]),
-            tree.lastToken(lambda.body[lambda.body.len - 1]),
-        );
-
-        try renderToken(r, lambda.l_brace, .none); // {
 
         try renderToken(r, params.l_bracket, .none); // [
 
@@ -609,67 +609,45 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
         } else {
             try renderToken(r, params.r_bracket, .newline); // ]
         }
+    }
 
-        for (lambda.body, 0..) |block, i| {
-            try renderExpression(r, block, .skip);
+    for (lambda.body, 0..) |block, i| {
+        try renderExtraNewline(r, block);
+        try renderExpression(r, block, .skip);
 
-            var last_token = tree.lastToken(block);
-            if (node_tags[block] != .empty and token_tags[last_token + 1] == .semicolon) {
+        const s: Space = if (i + 1 < lambda.body.len)
+            if (single_line_body) .semicolon else .semicolon_newline
+        else if (node_tags[block] == .empty)
+            if (i > 0 and single_line_body and !single_line_lambda) .newline else .none
+        else
+            .semicolon;
+
+        var last_token = tree.lastToken(block) - @intFromBool(node_tags[block] == .empty);
+
+        switch (s) {
+            .none => {},
+            .newline => {},
+            .semicolon, .semicolon_newline => if (token_tags[last_token + 1] == .semicolon) {
                 try renderToken(r, last_token + 1, .skip);
                 last_token += 1;
-            }
-
-            const start = token_locs[last_token].end;
-            const end = token_locs[last_token + 1].start;
-            if (!try renderComments(r, start, end)) {
-                if (i + 1 < lambda.body.len and mem.containsAtLeast(u8, tree.source[start..end], 2, "\n")) {
-                    // Leave up to one empty line before the next expression
-                    try ais.insertNewline();
-                }
-                if (i + 1 == lambda.body.len) {
-                    if (!single_line_lambda and lambda.has_trailing) {
-                        try ais.insertNewline();
-                    }
-                } else if (!single_line_body) {
-                    try ais.insertNewline();
-                }
-            }
+            },
+            .space, .comma, .skip => unreachable,
         }
 
-        return renderToken(r, lambda.r_brace, space); // }
-    } else {
-        return renderLambdaNoParams(r, lambda, space);
-    }
-}
-
-fn renderLambdaNoParams(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
-    const tree = r.tree;
-
-    const single_line_body = if (lambda.body.len > 0)
-        tree.tokensOnSameLine(
-            tree.firstToken(lambda.body[0]),
-            tree.lastToken(lambda.body[lambda.body.len - 1]),
-        )
-    else
-        false;
-
-    try renderToken(r, lambda.l_brace, .none); // {
-
-    for (lambda.body, 0..) |expr, i| {
-        try renderExpression(
-            r,
-            expr,
-            if (single_line_body)
-                .semicolon
-            else if (i + 1 < lambda.body.len)
-                .semicolon_newline
-            else if (lambda.has_trailing)
-                .semicolon_newline
-            else
-                .semicolon,
-        );
+        const start = token_locs[last_token].end;
+        const end = token_locs[last_token + 1].start;
+        const comment = if (i + 1 == lambda.body.len and node_tags[block] == .empty)
+            false
+        else
+            try renderComments(r, start, end);
+        if (!comment) switch (s) {
+            .none, .semicolon => {},
+            .newline, .semicolon_newline => try ais.insertNewline(),
+            .space, .comma, .skip => unreachable,
+        };
     }
 
+    try renderExtraNewlineToken(r, lambda.r_brace);
     return renderToken(r, lambda.r_brace, space); // }
 }
 

@@ -286,7 +286,6 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .table_literal => return tableLiteral(gz, scope, node),
 
         .lambda,
-        .lambda_semicolon,
         => return lambda(gz, scope, node),
 
         .expr_block => return exprBlock(gz, scope, node),
@@ -740,17 +739,13 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
             }, .warn);
         }
 
-        if (i < full_lambda.body.len - 1) {
+        if (i + 1 < full_lambda.body.len) {
             _, params_scope = try expr(&fn_gz, params_scope, body_node);
         } else if (node_tags[body_node] == .empty) {
             _ = try fn_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
         } else {
             const ref, params_scope = try expr(&fn_gz, params_scope, body_node);
-            if (node_tags[node] == .lambda) {
-                _ = try fn_gz.addUnNode(.ret_node, ref, body_node);
-            } else {
-                _ = try fn_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
-            }
+            _ = try fn_gz.addUnNode(.ret_node, ref, body_node);
         }
     }
 
@@ -1174,7 +1169,6 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
         => {},
 
         .lambda,
-        .lambda_semicolon,
         => {},
 
         .expr_block => {},
@@ -1614,7 +1608,6 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
         .table_literal => {},
 
         .lambda,
-        .lambda_semicolon,
         => {},
 
         .colon => {

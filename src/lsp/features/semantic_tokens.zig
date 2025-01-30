@@ -240,7 +240,6 @@ const Builder = struct {
             },
 
             .lambda,
-            .lambda_semicolon,
             => {
                 const lambda = tree.fullLambda(node);
                 if (lambda.params) |p| {
