@@ -1894,6 +1894,116 @@ test "lambda renders on same line" {
 
 test "lambda renders on multiple lines" {
     try testAst(
+        \\{
+        \\  }
+    ,
+        &.{ .l_brace, .r_brace },
+        &.{ .lambda, .empty },
+    );
+    try testAstRender(
+        \\{
+        \\  ;}
+    ,
+        \\{
+        \\  ;
+        \\  }
+    ,
+        &.{ .l_brace, .semicolon, .r_brace },
+        &.{ .lambda, .empty, .empty },
+    );
+    try testAst(
+        \\{
+        \\  ;
+        \\  }
+    ,
+        &.{ .l_brace, .semicolon, .r_brace },
+        &.{ .lambda, .empty, .empty },
+    );
+    try testAst(
+        \\{
+        \\  -1}
+    ,
+        &.{ .l_brace, .number_literal, .r_brace },
+        &.{ .lambda, .number_literal },
+    );
+    try testAstRender(
+        \\{
+        \\  -1;}
+    ,
+        \\{
+        \\  -1;
+        \\  }
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .r_brace },
+        &.{ .lambda, .number_literal, .empty },
+    );
+    try testAst(
+        \\{
+        \\  -1;
+        \\  }
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .r_brace },
+        &.{ .lambda, .number_literal, .empty },
+    );
+
+    try testAst(
+        \\{
+        \\  1;2;3}
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_brace },
+        &.{ .lambda, .number_literal, .number_literal, .number_literal },
+    );
+    try testAstRender(
+        \\{
+        \\  1;2;3;}
+    ,
+        \\{
+        \\  1;2;3;
+        \\  }
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .semicolon, .r_brace },
+        &.{ .lambda, .number_literal, .number_literal, .number_literal, .empty },
+    );
+    try testAst(
+        \\{
+        \\  1;
+        \\  2;
+        \\  3}
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_brace },
+        &.{ .lambda, .number_literal, .number_literal, .number_literal },
+    );
+    try testAst(
+        \\{
+        \\  1;
+        \\  2;
+        \\  3;
+        \\  }
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .semicolon, .r_brace },
+        &.{ .lambda, .number_literal, .number_literal, .number_literal, .empty },
+    );
+    try testAst(
+        \\{
+        \\  1;
+        \\  2;
+        \\  3}
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .r_brace },
+        &.{ .lambda, .number_literal, .number_literal, .number_literal },
+    );
+    try testAst(
+        \\{
+        \\  1;
+        \\  2;
+        \\  3;
+        \\  }
+    ,
+        &.{ .l_brace, .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .semicolon, .r_brace },
+        &.{ .lambda, .number_literal, .number_literal, .number_literal, .empty },
+    );
+
+    try testAst(
         \\{[]
         \\  }
     ,
@@ -1956,9 +2066,7 @@ test "lambda renders on multiple lines" {
             .l_brace,   .l_bracket,      .identifier, .semicolon,      .identifier, .semicolon,      .identifier,
             .r_bracket, .number_literal, .semicolon,  .number_literal, .semicolon,  .number_literal, .r_brace,
         },
-        &.{
-            .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal,
-        },
+        &.{ .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal },
     );
     try testAstRender(
         \\{[x;
@@ -1989,9 +2097,7 @@ test "lambda renders on multiple lines" {
             .l_brace,   .l_bracket,      .identifier, .semicolon,      .identifier, .semicolon,      .identifier,
             .r_bracket, .number_literal, .semicolon,  .number_literal, .semicolon,  .number_literal, .r_brace,
         },
-        &.{
-            .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal,
-        },
+        &.{ .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal },
     );
     try testAst(
         \\{[x;y;z]
@@ -2019,9 +2125,7 @@ test "lambda renders on multiple lines" {
             .l_brace,   .l_bracket,      .identifier, .semicolon,      .identifier, .semicolon,      .identifier,
             .r_bracket, .number_literal, .semicolon,  .number_literal, .semicolon,  .number_literal, .r_brace,
         },
-        &.{
-            .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal,
-        },
+        &.{ .lambda, .identifier, .identifier, .identifier, .number_literal, .number_literal, .number_literal },
     );
     try testAst(
         \\{[x;
