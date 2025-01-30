@@ -1070,7 +1070,10 @@ fn formattingHandler(server: *Server, arena: std.mem.Allocator, request: types.D
 
     if (handle.tree.errors.len != 0) return null;
 
-    const formatted = try handle.tree.render(arena);
+    const formatted = try handle.tree.render(arena, .{
+        .indent_char = if (request.options.insertSpaces) ' ' else '\t',
+        .indent_delta = if (request.options.insertSpaces) request.options.tabSize else 1,
+    });
 
     if (std.mem.eql(u8, handle.tree.source, formatted)) return null;
 

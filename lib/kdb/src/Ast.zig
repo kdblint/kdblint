@@ -8,7 +8,7 @@ const kdb = @import("root.zig");
 pub const Token = kdb.Token;
 const Tokenizer = kdb.Tokenizer;
 const Parse = kdb.Parse;
-
+const RenderSettings = @import("render.zig").RenderSettings;
 const Ast = @This();
 
 /// Reference to externally-owned data.
@@ -124,18 +124,16 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast
 
 /// `gpa` is used for allocating the resulting formatted source code.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
-pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
+pub fn render(tree: Ast, gpa: Allocator, render_settings: RenderSettings) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    try tree.renderToArrayList(&buffer, .{});
+    try tree.renderToArrayList(&buffer, render_settings);
     return buffer.toOwnedSlice();
 }
 
-pub const Fixups = kdb.render.Fixups;
-
-pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
-    return kdb.render.renderTree(buffer, tree, fixups);
+pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), render_settings: RenderSettings) RenderError!void {
+    return kdb.render.renderTree(buffer, tree, render_settings);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
@@ -1461,7 +1459,10 @@ fn testAstModeRender(
     try std.testing.expectEqual(.root, tree.nodes.items(.tag)[0]);
 
     // Render
-    const actual_source = try render(tree, gpa);
+    const actual_source = try render(tree, gpa, .{
+        .indent_char = ' ',
+        .indent_delta = 2,
+    });
     defer gpa.free(actual_source);
     const expected_source = expected_source: {
         const expected = expected_code orelse source_code;
@@ -5770,7 +5771,10 @@ fn testRender(file_path: []const u8) !void {
     try std.testing.expectEqualSlices(Error.Tag, &.{}, actual_errors);
 
     // Render
-    const actual_source = try render(tree, gpa);
+    const actual_source = try render(tree, gpa, .{
+        .indent_char = ' ',
+        .indent_delta = 2,
+    });
     defer gpa.free(actual_source);
     try std.testing.expectEqualStrings(expected_source, actual_source);
 }
