@@ -255,7 +255,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .call,
-        => return renderCall(r, node, space),
+        => return renderCall(r, tree.fullCall(node), space),
 
         .apply_unary,
         => {
@@ -586,16 +586,9 @@ fn renderTable(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
 fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
     const tree = r.tree;
-    const ais = r.ais;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
-    const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
-    const single_line_lambda = tree.tokensOnSameLine(lambda.l_brace, lambda.r_brace);
-    const single_line_body = tree.tokensOnSameLine(
-        tree.firstToken(lambda.body[0]),
-        tree.lastToken(lambda.body[lambda.body.len - 1]),
-    );
+    const single_line_expr = tree.tokensOnSameLine(lambda.l_brace, lambda.r_brace);
 
     if (lambda.params) |params| {
         try renderToken(r, lambda.l_brace, .none); // {
@@ -618,56 +611,16 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
             );
         }
 
-        if (single_line_lambda) {
+        if (single_line_expr) {
             try renderTokenSpace(r, params.r_bracket); // ]
         } else {
             try renderToken(r, params.r_bracket, .newline); // ]
         }
     } else {
-        try renderToken(r, lambda.l_brace, if (single_line_lambda) .none else .newline); // {
+        try renderToken(r, lambda.l_brace, if (single_line_expr) .none else .newline); // {
     }
 
-    for (lambda.body, 0..) |node, i| {
-        ais.pushIndentNextLine();
-
-        const node_space: Space = if (i + 1 < lambda.body.len)
-            if (single_line_body) .semicolon else .semicolon_newline
-        else if (node_tags[node] == .empty)
-            if (i > 0 and single_line_body and !single_line_lambda) .newline else .none
-        else
-            .semicolon;
-
-        var last_token = tree.lastToken(node);
-        const offset = @intFromBool(node_tags[node] != .empty);
-        const punctuation = switch (node_space) {
-            .none, .newline => false,
-            .semicolon, .semicolon_newline => token_tags[last_token + offset] == .semicolon,
-            .space, .comma, .skip => unreachable,
-        };
-
-        try renderExtraNewline(r, node);
-        try renderExpression(r, node, if (punctuation) .none else .skip);
-
-        switch (node_space) {
-            .none, .newline => {},
-            .semicolon, .semicolon_newline => if (punctuation) {
-                try renderToken(r, last_token + offset, .skip);
-                last_token += offset;
-            },
-            .space, .comma, .skip => unreachable,
-        }
-
-        ais.popIndent();
-
-        const comment_start = token_locs[last_token].end;
-        const comment_end = token_locs[last_token + offset].start;
-        const comment = try renderComments(r, comment_start, comment_end);
-        if (!comment) switch (node_space) {
-            .none, .semicolon => {},
-            .newline, .semicolon_newline => try ais.insertNewline(),
-            .space, .comma, .skip => unreachable,
-        };
-    }
+    try renderBody(r, lambda.body, single_line_expr);
 
     try renderExtraNewlineToken(r, lambda.r_brace);
     return renderToken(r, lambda.r_brace, space); // }
@@ -708,20 +661,69 @@ fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     return renderToken(r, r_bracket, space);
 }
 
-fn renderCall(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
-    const tree = r.tree;
-
-    const call = tree.fullCall(node);
-
+fn renderCall(r: *Render, call: Ast.full.Call, space: Space) Error!void {
     try renderExpression(r, call.func, .none);
 
     try renderToken(r, call.l_bracket, .none); // [
 
-    for (call.args) |arg_node| {
-        try renderExpression(r, arg_node, .semicolon);
-    }
+    try renderBody(r, call.args, true);
 
-    return renderToken(r, call.r_bracket, space); // ]
+    try renderToken(r, call.r_bracket, space); // ]
+}
+
+// TODO: Stop lambda/call from indenting each other.
+fn renderBody(r: *Render, body: []const Ast.Node.Index, single_line_expr: bool) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
+
+    const single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1]));
+
+    for (body, 0..) |node, i| {
+        ais.pushIndentNextLine();
+
+        const node_space: Space = if (i + 1 < body.len)
+            if (single_line_body) .semicolon else .semicolon_newline
+        else if (node_tags[node] == .empty)
+            if (i > 0 and single_line_body and !single_line_expr) .newline else .none
+        else
+            .semicolon;
+
+        var last_token = tree.lastToken(node);
+        const offset = @intFromBool(node_tags[node] != .empty);
+        const punctuation = switch (node_space) {
+            .none, .newline => false,
+            .semicolon, .semicolon_newline => token_tags[last_token + offset] == .semicolon,
+            .space, .comma, .skip => unreachable,
+        };
+
+        if (i + 1 < body.len) {
+            try renderExtraNewline(r, node);
+        } else if (node_tags[node] != .empty) try renderExtraNewline(r, node);
+        try renderExpression(r, node, if (punctuation) .none else .skip);
+
+        switch (node_space) {
+            .none, .newline => {},
+            .semicolon, .semicolon_newline => if (punctuation) {
+                try renderToken(r, last_token + offset, .skip);
+                last_token += offset;
+            },
+            .space, .comma, .skip => unreachable,
+        }
+
+        ais.popIndent();
+
+        const comment_start = token_locs[last_token].end;
+        const comment_end = token_locs[last_token + offset].start;
+        const comment = try renderComments(r, comment_start, comment_end);
+        if (!comment) switch (node_space) {
+            .none, .semicolon => {},
+            .newline, .semicolon_newline => try ais.insertNewline(),
+            .space, .comma, .skip => unreachable,
+        };
+    }
 }
 
 fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {

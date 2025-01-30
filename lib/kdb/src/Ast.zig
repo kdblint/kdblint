@@ -5888,6 +5888,30 @@ fn testRender(file_path: []const u8) !void {
     });
     defer gpa.free(actual_source);
     try std.testing.expectEqualStrings(expected_source, actual_source);
+
+    // Re-render to check determinism
+    const duped_actual_source = try gpa.dupeZ(u8, actual_source);
+    defer gpa.free(duped_actual_source);
+
+    var det_tree = try Ast.parse(gpa, duped_actual_source, .{
+        .mode = .q,
+        .version = .@"4.0",
+    });
+    defer det_tree.deinit(gpa);
+
+    // Errors
+    const det_errors = try gpa.alloc(Error.Tag, det_tree.errors.len);
+    defer gpa.free(det_errors);
+    for (det_tree.errors, 0..) |err, i| det_errors[i] = err.tag;
+    try std.testing.expectEqualSlices(Error.Tag, &.{}, det_errors);
+
+    // Render
+    const det_source = try render(det_tree, gpa, .{
+        .indent_char = ' ',
+        .indent_delta = 2,
+    });
+    defer gpa.free(det_source);
+    try std.testing.expectEqualStrings(expected_source, det_source);
 }
 
 test "render lambda.q" {
@@ -5905,6 +5929,11 @@ test "render call.q" {
     try testRender("call_2.q");
 }
 
-test "render nested_lambdas_with_comments_with_newlines.q" {
-    try testRender("nested_lambdas_with_comments_with_newlines.q");
+test "render nested_lambdas_with_comments_and_newlines.q" {
+    try testRender("nested_lambdas_with_comments_and_newlines.q");
 }
+
+test "render nested_if_with_comments_and_newlines.q" {
+    try testRender("nested_if_with_comments_and_newlines.q");
+}
+
