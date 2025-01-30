@@ -735,17 +735,19 @@ fn parseLambda(p: *Parse) !Node.Index {
         const expr = try p.parseExpr(null);
         try p.scratch.append(p.gpa, if (expr == null_node) try p.parseEmpty() else expr);
         _ = p.eatToken(.semicolon) orelse break;
-        if (p.peekTag() == .r_brace) break;
+        if (p.peekTag() == .r_brace) {
+            try p.scratch.append(p.gpa, try p.parseEmpty());
+            break;
+        }
     }
 
-    const tag: Node.Tag = if (p.prevTag() == .semicolon) .lambda_semicolon else .lambda;
     _ = try p.expectToken(.r_brace);
     assert(p.ends_expr.pop() == .r_brace);
 
     const params = try p.listToSpan(p.scratch.items[params_top..body_top]);
     const body = try p.listToSpan(p.scratch.items[body_top..]);
     return p.setNode(lambda_index, .{
-        .tag = tag,
+        .tag = .lambda,
         .main_token = l_brace,
         .data = .{
             .lhs = try p.addExtra(params),

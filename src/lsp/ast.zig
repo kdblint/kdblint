@@ -1475,7 +1475,6 @@ fn iterateChildrenTypeErased(
         },
 
         .lambda,
-        .lambda_semicolon,
         => {
             const lambda = tree.fullLambda(node);
 
