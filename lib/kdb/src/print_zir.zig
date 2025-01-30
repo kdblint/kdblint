@@ -3402,7 +3402,12 @@ test "apply binary" {
 }
 
 test "number literal" {
-    return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
+    try testZir("10:00",
+        \\%0 = file({
+        \\  %1 = minute(600)
+        \\})
+    );
 }
 
 test "number list literal" {
