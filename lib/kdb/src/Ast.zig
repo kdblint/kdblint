@@ -2518,7 +2518,6 @@ test "return" {
         &.{ .l_brace, .semicolon, .colon, .number_literal, .r_brace },
         &.{ .lambda, .empty, .colon, .apply_unary, .number_literal },
     );
-    if (true) return error.SkipZigTest;
     try testAst(
         "{[];:1}",
         &.{ .l_brace, .l_bracket, .r_bracket, .semicolon, .colon, .number_literal, .r_brace },
@@ -2847,8 +2846,45 @@ test "identifier whitespace" {
     );
 }
 
+test "comment after block expression with semicolon" {
+    try testAstRender(
+        \\1 + 2  /comment
+        \\ ;
+    ,
+        \\1+2 /comment
+        \\  ;
+    ,
+        &.{ .number_literal, .plus, .number_literal, .semicolon },
+        &.{ .number_literal, .apply_binary, .plus, .number_literal },
+    );
+
+    try testAstRender(
+        \\f : { [ ]
+        \\ 1 + 2  /comment
+        \\ ;
+        \\ 1 + 2  /comment
+        \\ ;
+        \\ }
+    ,
+        \\f:{[]
+        \\  1+2 /comment
+        \\    ;
+        \\  1+2 /comment
+        \\    ;
+        \\  }
+    ,
+        &.{
+            .identifier,     .colon,     .l_brace,        .l_bracket, .r_bracket,      .number_literal, .plus,
+            .number_literal, .semicolon, .number_literal, .plus,      .number_literal, .semicolon,      .r_brace,
+        },
+        &.{
+            .identifier, .apply_binary,   .colon,          .lambda,       .empty, .number_literal, .apply_binary,
+            .plus,       .number_literal, .number_literal, .apply_binary, .plus,  .number_literal, .empty,
+        },
+    );
+}
+
 test "multiple blocks" {
-    if (true) return error.SkipZigTest;
     try testAstRender(
         "1;;;;;2",
         "1;2",

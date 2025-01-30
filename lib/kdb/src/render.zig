@@ -82,26 +82,40 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, settings: RenderSetting
 fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
     const tree = r.tree;
     const ais = r.ais;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
-    for (blocks) |block| {
-        try renderExpression(r, block, .skip);
+    for (blocks, 0..) |block, i| {
+        ais.pushIndentNextLine();
 
         var last_token = tree.lastToken(block);
-        if (token_tags[last_token + 1] == .semicolon) {
-            try renderToken(r, last_token + 1, .skip);
-            last_token += 1;
+        const offset = @intFromBool(node_tags[block] != .empty);
+        const punctuation = token_tags[last_token + offset] == .semicolon;
+
+        try renderExpression(r, block, if (punctuation) .none else .skip);
+
+        if (punctuation) {
+            try renderToken(r, last_token + offset, .skip);
+            last_token += offset;
         }
 
-        const start = token_locs[last_token].end;
-        const end = token_locs[last_token + 1].start;
-        if (!try renderComments(r, start, end)) {
-            if (mem.containsAtLeast(u8, tree.source[start..end], 2, "\n")) {
+        ais.popIndent();
+
+        const comment_start = token_locs[last_token].end;
+        const comment_end = token_locs[last_token + 1].start;
+        const comment = try renderComments(r, comment_start, comment_end);
+        if (!comment) {
+            if (mem.containsAtLeast(u8, tree.source[comment_start..comment_end], 2, "\n")) {
                 // Leave up to one empty line before the next block
                 try ais.insertNewline();
             }
-            try ais.insertNewline();
+
+            if (i + 1 < blocks.len) {
+                if (!tree.tokensOnSameLine(tree.firstToken(block), tree.firstToken(blocks[i + 1]))) {
+                    try ais.insertNewline();
+                }
+            } else try ais.insertNewline();
         }
     }
 }
@@ -613,36 +627,42 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
         try renderToken(r, lambda.l_brace, if (single_line_lambda) .none else .newline); // {
     }
 
-    for (lambda.body, 0..) |block, i| {
-        try renderExtraNewline(r, block);
-        try renderExpression(r, block, .skip);
+    for (lambda.body, 0..) |node, i| {
+        ais.pushIndentNextLine();
 
-        const s: Space = if (i + 1 < lambda.body.len)
+        const node_space: Space = if (i + 1 < lambda.body.len)
             if (single_line_body) .semicolon else .semicolon_newline
-        else if (node_tags[block] == .empty)
+        else if (node_tags[node] == .empty)
             if (i > 0 and single_line_body and !single_line_lambda) .newline else .none
         else
             .semicolon;
 
-        var last_token = tree.lastToken(block) - @intFromBool(node_tags[block] == .empty);
+        var last_token = tree.lastToken(node);
+        const offset = @intFromBool(node_tags[node] != .empty);
+        const punctuation = switch (node_space) {
+            .none, .newline => false,
+            .semicolon, .semicolon_newline => token_tags[last_token + offset] == .semicolon,
+            .space, .comma, .skip => unreachable,
+        };
 
-        switch (s) {
-            .none => {},
-            .newline => {},
-            .semicolon, .semicolon_newline => if (token_tags[last_token + 1] == .semicolon) {
-                try renderToken(r, last_token + 1, .skip);
-                last_token += 1;
+        try renderExtraNewline(r, node);
+        try renderExpression(r, node, if (punctuation) .none else .skip);
+
+        switch (node_space) {
+            .none, .newline => {},
+            .semicolon, .semicolon_newline => if (punctuation) {
+                try renderToken(r, last_token + offset, .skip);
+                last_token += offset;
             },
             .space, .comma, .skip => unreachable,
         }
 
-        const start = token_locs[last_token].end;
-        const end = token_locs[last_token + 1].start;
-        const comment = if (i + 1 == lambda.body.len and node_tags[block] == .empty)
-            false
-        else
-            try renderComments(r, start, end);
-        if (!comment) switch (s) {
+        ais.popIndent();
+
+        const comment_start = token_locs[last_token].end;
+        const comment_end = token_locs[last_token + offset].start;
+        const comment = try renderComments(r, comment_start, comment_end);
+        if (!comment) switch (node_space) {
             .none, .semicolon => {},
             .newline, .semicolon_newline => try ais.insertNewline(),
             .space, .comma, .skip => unreachable,
