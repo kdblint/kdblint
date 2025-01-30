@@ -37,9 +37,33 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
 
     const blocks = tree.getBlocks();
 
-    // Render everything up until the first token
+    // Find index of first line which contains non-whitespace characters
     const end = r.tree.tokens.items(.loc)[0].start;
-    const untrimmed_comment = r.tree.source[0..end];
+    var index: usize = 0;
+    var line_index = index;
+    state: switch (State.start) {
+        .start => if (index < end) switch (r.tree.source[index]) {
+            '\n' => {
+                index += 1;
+                line_index = index;
+                continue :state .start;
+            },
+            ' ', '\t', '\r', std.ascii.control_code.vt, std.ascii.control_code.ff => {
+                index += 1;
+                continue :state .start;
+            },
+            else => {},
+        },
+
+        .line_comment,
+        .block_comment_start,
+        .block_comment,
+        .block_comment_end,
+        => unreachable,
+    }
+
+    // Render everything up until the first token
+    const untrimmed_comment = r.tree.source[0..end][line_index..];
     const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.whitespace);
     if (trimmed_comment.len > 0) {
         try r.ais.writer().print("{s}\n", .{trimmed_comment});
@@ -55,32 +79,34 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
     }
 }
 
-/// Render all expressions in the slice, keeping empty lines where appropriate
 fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
-    if (blocks.len == 0) return;
-    if (blocks.len == 1) return renderExpression(r, blocks[0], .semicolon_newline);
+    const tree = r.tree;
+    const ais = r.ais;
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
-    if (r.tree.tokensOnSameLine(r.tree.lastToken(blocks[0]), r.tree.firstToken(blocks[1]))) {
-        try renderExpression(r, blocks[0], .semicolon);
-    } else {
-        try renderExpression(r, blocks[0], .semicolon_newline);
-    }
+    for (blocks) |block| {
+        try renderExpression(r, block, .skip);
 
-    for (blocks[1..], 1..) |block, i| {
-        if (i + 1 < blocks.len and
-            r.tree.tokensOnSameLine(r.tree.lastToken(block), r.tree.firstToken(blocks[i + 1])))
-        {
-            try renderExpression(r, block, .semicolon);
-        } else {
-            try renderExtraNewline(r, block);
-            try renderExpression(r, block, .semicolon_newline);
+        var last_token = tree.lastToken(block);
+        if (token_tags[last_token + 1] == .semicolon) {
+            try renderToken(r, last_token + 1, .skip);
+            last_token += 1;
+        }
+
+        const start = token_locs[last_token].end;
+        const end = token_locs[last_token + 1].start;
+        if (!try renderComments(r, start, end)) {
+            if (mem.containsAtLeast(u8, tree.source[start..end], 2, "\n")) {
+                // Leave up to one empty line before the next block
+                try ais.insertNewline();
+            }
+            try ais.insertNewline();
         }
     }
 }
 
 fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
-    assert(node > 0);
-
     const tree = r.tree;
     const ais = r.ais;
     const main_tokens: []Token.Index = tree.nodes.items(.main_token);
@@ -88,7 +114,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const datas: []Ast.Node.Data = tree.nodes.items(.data);
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
 
-    const needs_indent = ais.indent_next_line == 0 and ais.indent_count == 0;
+    assert(node > 0);
+
+    const needs_indent = ais.indent_next_line == 0;
     if (needs_indent) ais.pushIndentNextLine();
     defer if (needs_indent) ais.popIndent();
 
@@ -124,6 +152,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                     }
                     return renderOnlySpace(r, .newline);
                 },
+                .skip => {},
             }
         },
 
@@ -546,10 +575,8 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-
-    const needs_indent = ais.indent_next_line == 0;
-    if (needs_indent) ais.pushIndentNextLine();
-    defer if (needs_indent) ais.popIndent();
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
     if (lambda.params) |params| {
         const single_line_lambda = tree.tokensOnSameLine(lambda.l_brace, lambda.r_brace);
@@ -583,27 +610,29 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
             try renderToken(r, params.r_bracket, .newline); // ]
         }
 
-        for (lambda.body, 0..) |expr, i| {
-            if (i + 1 == lambda.body.len) {
-                try renderExpression(
-                    r,
-                    expr,
-                    if (single_line_lambda)
-                        .semicolon
-                    else if (lambda.has_trailing)
-                        .semicolon_newline
-                    else
-                        .semicolon,
-                );
-            } else {
-                try renderExpression(
-                    r,
-                    expr,
-                    if (single_line_body)
-                        .semicolon
-                    else
-                        .semicolon_newline,
-                );
+        for (lambda.body, 0..) |block, i| {
+            try renderExpression(r, block, .skip);
+
+            var last_token = tree.lastToken(block);
+            if (node_tags[block] != .empty and token_tags[last_token + 1] == .semicolon) {
+                try renderToken(r, last_token + 1, .skip);
+                last_token += 1;
+            }
+
+            const start = token_locs[last_token].end;
+            const end = token_locs[last_token + 1].start;
+            if (!try renderComments(r, start, end)) {
+                if (i + 1 < lambda.body.len and mem.containsAtLeast(u8, tree.source[start..end], 2, "\n")) {
+                    // Leave up to one empty line before the next expression
+                    try ais.insertNewline();
+                }
+                if (i + 1 == lambda.body.len) {
+                    if (!single_line_lambda and lambda.has_trailing) {
+                        try ais.insertNewline();
+                    }
+                } else if (!single_line_body) {
+                    try ais.insertNewline();
+                }
             }
         }
 
@@ -681,13 +710,8 @@ fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
 fn renderCall(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
-    const ais = r.ais;
 
     const call = tree.fullCall(node);
-
-    const needs_indent = ais.indent_next_line == 0 and ais.indent_count > 0;
-    if (needs_indent) ais.pushIndentNextLine();
-    defer if (needs_indent) ais.popIndent();
 
     try renderExpression(r, call.func, .none);
 
@@ -792,6 +816,9 @@ const Space = enum {
     /// Additionally consume the next token if it is a semicolon.
     /// In either case, a newline will be inserted afterwards.
     semicolon_newline,
+    /// Skip rendering whitespace and comments. If this is used, the caller
+    /// *must* handle whitespace and comments manually.
+    skip,
 };
 
 fn renderToken(r: *Render, token_index: Token.Index, space: Space) Error!void {
@@ -799,23 +826,18 @@ fn renderToken(r: *Render, token_index: Token.Index, space: Space) Error!void {
     const ais = r.ais;
     const lexeme = tree.tokenSlice(token_index);
     try ais.writer().writeAll(lexeme);
-    try renderSpace(r, token_index, lexeme.len, space);
+    try renderSpace(r, token_index, space);
 }
 
-fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: Space) Error!void {
+fn renderSpace(r: *Render, token_index: Token.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const token_tags = tree.tokens.items(.tag);
-    const token_locs = tree.tokens.items(.loc);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
-    const token_start = token_locs[token_index].start;
+    if (space == .skip) return;
 
-    const comment = try renderComments(
-        r,
-        token_start + lexeme_len,
-        token_locs[token_index + 1].start,
-        tree.endsBlock(token_index),
-    );
+    const comment = try renderComments(r, token_locs[token_index].end, token_locs[token_index + 1].start);
     switch (space) {
         .none => {},
         .space => if (!comment) try ais.writer().writeByte(' '),
@@ -836,16 +858,18 @@ fn renderSpace(r: *Render, token_index: Token.Index, lexeme_len: usize, space: S
         } else if (!comment) {
             try ais.insertNewline();
         },
+
+        .skip => unreachable,
     }
 }
 
 fn renderOnlySpace(r: *Render, space: Space) Error!void {
     const ais = r.ais;
     switch (space) {
-        .none => {},
+        .none, .skip => {},
         .space => try ais.writer().writeByte(' '),
         .newline => try ais.insertNewline(),
-        .comma => try ais.writer().writeAll(","),
+        .comma => try ais.writer().writeByte(','),
         .semicolon => try ais.writer().writeByte(';'),
         .semicolon_newline => try ais.writer().writeAll(";\n"),
     }
@@ -879,12 +903,12 @@ const State = enum {
 const Comment = struct {
     start: usize,
     end: usize,
-    is_line: bool,
+    kind: enum { line, block, trailing },
 };
 
 /// Assumes that start is the first byte past the previous token and
 /// that end is the last byte before the next token.
-fn renderComments(r: *Render, start: usize, end: usize, ends_block: bool) Error!bool {
+fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
     if (start == end) return false;
 
     const tree = r.tree;
@@ -909,7 +933,7 @@ fn renderComments(r: *Render, start: usize, end: usize, ends_block: bool) Error!
                     try comments.append(.{
                         .start = index,
                         .end = tree.source.len,
-                        .is_line = false,
+                        .kind = .trailing,
                     });
                 },
                 else => if (index < end) {
@@ -927,7 +951,7 @@ fn renderComments(r: *Render, start: usize, end: usize, ends_block: bool) Error!
                         try comments.append(.{
                             .start = comment_start,
                             .end = index,
-                            .is_line = true,
+                            .kind = .line,
                         });
                         continue :state .start;
                     },
@@ -968,7 +992,7 @@ fn renderComments(r: *Render, start: usize, end: usize, ends_block: bool) Error!
                         try comments.append(.{
                             .start = comment_start,
                             .end = index,
-                            .is_line = false,
+                            .kind = .block,
                         });
                         continue :state .start;
                     },
@@ -980,56 +1004,43 @@ fn renderComments(r: *Render, start: usize, end: usize, ends_block: bool) Error!
 
     if (comments.items.len == 0) return false;
 
-    if (mem.containsAtLeast(
-        u8,
-        tree.source[start..comments.items[0].start],
-        2,
-        "\n",
-    )) {
-        // Leave up to one empty line before the first comment
-        try ais.insertNewline();
-        if (ends_block) try ais.insertNewline();
-    } else if (mem.indexOfScalar(u8, tree.source[start..comments.items[0].start], '\n') != null) {
-        // Respect the newline directly before the comment.
-        // Note: This allows an empty line between comments
-        try ais.insertNewline();
-    } else {
-        // Otherwise if the first comment is on the same line as
-        // the token before it, prefix it with a single space.
-        try ais.writer().writeByte(' ');
-    }
+    index = start;
+    for (comments.items) |comment| {
+        const untrimmed_comment = tree.source[comment.start..comment.end];
+        const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.whitespace);
 
-    for (comments.items, 0..) |comment, i| {
-        if (ends_block and i > 0 and mem.indexOfScalar(
-            u8,
-            tree.source[comments.items[i - 1].end + 1 .. comment.start],
-            '\n',
-        ) != null) {
+        if (index == start and mem.containsAtLeast(u8, tree.source[index..comment.start], 2, "\n")) {
+            // Leave up to one empty line before the first comment
+            try ais.insertNewline();
+            try ais.insertNewline();
+        } else if (mem.indexOfScalar(u8, tree.source[index..comment.start], '\n') != null) {
             // Respect the newline directly before the comment.
             // Note: This allows an empty line between comments
             try ais.insertNewline();
+        } else if (index == start) {
+            // Otherwise if the first comment is on the same line as
+            // the token before it, prefix it with a single space.
+            try ais.writer().writeByte(' ');
         }
 
-        // Write the comment minus any trailing whitespace.
-        const trimmed_comment = mem.trimRight(
-            u8,
-            tree.source[comment.start..comment.end],
-            &std.ascii.whitespace,
-        );
-        if (comment.is_line) {
-            try ais.writer().print("{s}\n", .{trimmed_comment});
-        } else {
-            _ = try ais.writeNoIndent(trimmed_comment);
-            _ = try ais.writeNoIndent("\n");
+        index = comment.end + 1;
+
+        // Write the comment minus trailing whitespace.
+        switch (comment.kind) {
+            .line => try ais.writer().print("{s}\n", .{trimmed_comment}),
+            .block => {
+                var it = std.mem.splitScalar(u8, trimmed_comment, '\n');
+                while (it.next()) |line| {
+                    const trimmed_line = mem.trimRight(u8, line, &std.ascii.whitespace);
+                    _ = try ais.writeNoIndent(trimmed_line);
+                    try ais.insertNewline();
+                }
+            },
+            .trailing => try ais.writer().print("{s}\n", .{trimmed_comment}),
         }
     }
 
-    if (ends_block and mem.containsAtLeast(
-        u8,
-        tree.source[comments.items[comments.items.len - 1].end..end],
-        2,
-        "\n",
-    )) {
+    if (mem.containsAtLeast(u8, tree.source[index - 1 .. end], 2, "\n")) {
         // Don't leave any whitespace at the end of the file
         if (end != tree.source.len) {
             try ais.insertNewline();

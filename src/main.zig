@@ -25,7 +25,7 @@ pub const std_options: std.Options = .{
 };
 
 var log_transport: ?zls.lsp.AnyTransport = null;
-var log_stderr: bool = false;
+var log_stderr: bool = true;
 var log_level: std.log.Level = if (builtin.mode == .Debug) .debug else .info;
 var log_file: ?std.fs.File = null;
 
@@ -352,6 +352,7 @@ fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
         file.close();
         log_file = null;
     };
+    log_stderr = false;
 
     var transport: zls.lsp.ThreadSafeTransport(.{
         .ChildTransport = zls.lsp.TransportOverStdio,
