@@ -427,32 +427,21 @@ pub fn lastToken(tree: Ast, node: Node.Index) Token.Index {
         .symbol_list_literal,
         => return datas[n].lhs + end_offset,
 
-        .select,
-        => {
-            const select = tree.extraData(datas[n].lhs, Node.Select);
-            const where_exprs = tree.extra_data[select.where_start..select.where_end];
-            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else select.from;
-        },
-
+        inline .select,
         .exec,
-        => {
-            const exec = tree.extraData(datas[n].lhs, Node.Exec);
-            const where_exprs = tree.extra_data[exec.where_start..exec.where_end];
-            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else exec.from;
-        },
-
         .update,
-        => {
-            const update = tree.extraData(datas[n].lhs, Node.Update);
-            const where_exprs = tree.extra_data[update.by_start..update.where_start];
-            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else update.from;
-        },
-
         .delete_rows,
-        => {
-            const delete = tree.extraData(datas[n].lhs, Node.DeleteRows);
-            const where_exprs = tree.extra_data[delete.where_start..delete.where_end];
-            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else delete.from;
+        => |t| {
+            const T = switch (t) {
+                .select => Node.Select,
+                .exec => Node.Exec,
+                .update => Node.Update,
+                .delete_rows => Node.DeleteRows,
+                else => unreachable,
+            };
+            const data = tree.extraData(datas[n].lhs, T);
+            const where_exprs = tree.extra_data[data.where_start..data.where_end];
+            n = if (where_exprs.len > 0) where_exprs[where_exprs.len - 1] else data.from;
         },
 
         .delete_cols,
