@@ -1061,13 +1061,13 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
 }
 
 // TODO: Add unit tests.
-fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
-    const tags: []Token.Tag = r.tree.tokens.items(.tag);
-    return switch (tags[token1]) {
+fn needsSpace(r: *Render, lhs: Token.Index, rhs: Token.Index) bool {
+    const token_tags: []Token.Tag = r.tree.tokens.items(.tag);
+    return switch (token_tags[lhs]) {
         .r_paren,
         .r_brace,
         .r_bracket,
-        => tags[token2] == .number_literal and r.tree.tokenSlice(token2)[0] == '-',
+        => token_tags[rhs] == .number_literal and r.tree.tokenSlice(rhs)[0] == '-',
 
         .colon,
         .colon_colon,
@@ -1110,17 +1110,29 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
         .question_mark_colon,
         .at,
         .at_colon,
-        .period,
         .period_colon,
         .zero_colon,
         .zero_colon_colon,
         .one_colon,
         .one_colon_colon,
         .two_colon,
-        => tags[token2] == .colon,
+        => token_tags[rhs] == .colon or token_tags[rhs] == .colon_colon,
+
+        .period,
+        => switch (token_tags[rhs]) {
+            .colon,
+            .colon_colon,
+            .identifier,
+            .prefix_builtin,
+            .infix_builtin,
+            .number_literal,
+            => true,
+
+            else => false,
+        },
 
         .number_literal,
-        => switch (tags[token2]) {
+        => switch (token_tags[rhs]) {
             .period,
             .period_colon,
             .zero_colon,
@@ -1132,13 +1144,17 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
             .identifier,
             .prefix_builtin,
             .infix_builtin,
+            .keyword_select,
+            .keyword_exec,
+            .keyword_update,
+            .keyword_delete,
             => true,
 
-            else => tags[token2].isKeyword(),
+            else => false,
         },
 
         .symbol_literal,
-        => switch (tags[token2]) {
+        => switch (token_tags[rhs]) {
             .colon,
             .colon_colon,
             .period,
@@ -1153,18 +1169,22 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
             .identifier,
             .prefix_builtin,
             .infix_builtin,
+            .keyword_select,
+            .keyword_exec,
+            .keyword_update,
+            .keyword_delete,
             => true,
 
             // Depends on language.
-            .underscore, .underscore_colon => r.tree.mode == .q and r.tree.tokenLen(token1) > 1,
+            .underscore, .underscore_colon => r.tree.mode == .q and r.tree.tokenLen(lhs) > 1,
 
-            else => tags[token2].isKeyword(),
+            else => false,
         },
 
         .identifier,
         .prefix_builtin,
         .infix_builtin,
-        => switch (tags[token2]) {
+        => switch (token_tags[rhs]) {
             .period,
             .period_colon,
             .zero_colon,
@@ -1176,15 +1196,23 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
             .identifier,
             .prefix_builtin,
             .infix_builtin,
+            .keyword_select,
+            .keyword_exec,
+            .keyword_update,
+            .keyword_delete,
             => true,
 
             // Depends on language.
             .underscore, .underscore_colon => r.tree.mode == .q,
 
-            else => tags[token2].isKeyword(),
+            else => false,
         },
 
-        inline else => |t| t.isKeyword() and switch (tags[token2]) {
+        .keyword_select,
+        .keyword_exec,
+        .keyword_update,
+        .keyword_delete,
+        => switch (token_tags[rhs]) {
             .period,
             .period_colon,
             .zero_colon,
@@ -1196,13 +1224,19 @@ fn needsSpace(r: *Render, token1: Token.Index, token2: Token.Index) bool {
             .identifier,
             .prefix_builtin,
             .infix_builtin,
+            .keyword_select,
+            .keyword_exec,
+            .keyword_update,
+            .keyword_delete,
             => true,
 
             // Depends on language.
             .underscore, .underscore_colon => r.tree.mode == .q,
 
-            else => tags[token2].isKeyword(),
+            else => false,
         },
+
+        else => false,
     };
 }
 
