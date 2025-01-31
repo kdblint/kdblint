@@ -620,7 +620,12 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
         try renderToken(r, lambda.l_brace, if (single_line_expr) .none else .newline); // {
     }
 
-    try renderBody(r, lambda.body, single_line_expr);
+    const body = lambda.body;
+    try renderBody(r, body, .{
+        .should_indent = true,
+        .single_line_expr = single_line_expr,
+        .single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1])),
+    });
 
     return renderToken(r, lambda.r_brace, space); // }
 }
@@ -661,34 +666,52 @@ fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 }
 
 fn renderCall(r: *Render, call: Ast.full.Call, space: Space) Error!void {
+    const tree = r.tree;
+    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
+    const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
+
     try renderExpression(r, call.func, .none);
 
     try renderToken(r, call.l_bracket, .none); // [
 
-    try renderBody(r, call.args, true);
+    const body = call.args;
+    const should_indent, const single_line_body = if (node_tags[call.func] == .identifier) blk: {
+        const slice = tree.tokenSlice(main_tokens[call.func]);
+        break :blk if (mem.eql(u8, slice, "do") or mem.eql(u8, slice, "if") or mem.eql(u8, slice, "while")) .{
+            true,
+            tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1])),
+        } else .{ false, true };
+    } else .{ false, true };
 
-    try renderToken(r, call.r_bracket, space); // ]
+    try renderBody(r, body, .{
+        .should_indent = should_indent,
+        .single_line_expr = true,
+        .single_line_body = single_line_body,
+    });
+
+    return renderToken(r, call.r_bracket, space); // ]
 }
 
-// TODO: Stop lambda/call from indenting each other.
-fn renderBody(r: *Render, body: []const Ast.Node.Index, single_line_expr: bool) Error!void {
+fn renderBody(r: *Render, body: []const Ast.Node.Index, args: struct {
+    should_indent: bool,
+    single_line_expr: bool,
+    single_line_body: bool,
+}) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
-    const single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1]));
-
     for (body, 0..) |node, i| {
         try renderExtraNewline(r, node);
 
-        ais.pushIndentNextLine();
+        if (args.should_indent) ais.pushIndentNextLine();
 
         const node_space: Space = if (i + 1 < body.len)
-            if (single_line_body) .semicolon else .semicolon_newline
+            if (args.single_line_body) .semicolon else .semicolon_newline
         else if (node_tags[node] == .empty)
-            if (i > 0 and single_line_body and !single_line_expr) .newline else .none
+            if (i > 0 and args.single_line_body and !args.single_line_expr) .newline else .none
         else
             .semicolon;
 
@@ -711,7 +734,7 @@ fn renderBody(r: *Render, body: []const Ast.Node.Index, single_line_expr: bool) 
             .space, .comma, .skip => unreachable,
         }
 
-        ais.popIndent();
+        if (args.should_indent) ais.popIndent();
 
         const comment_start = token_locs[last_token].end;
         const comment_end = token_locs[last_token + offset].start;
