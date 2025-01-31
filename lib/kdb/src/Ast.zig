@@ -5937,3 +5937,6 @@ test "render nested_if_with_comments_and_newlines.q" {
     try testRender("nested_if_with_comments_and_newlines.q");
 }
 
+test "render if_do_while.q" {
+    try testRender("if_do_while.q");
+}
