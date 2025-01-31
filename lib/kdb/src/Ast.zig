@@ -3603,6 +3603,38 @@ test "call" {
         &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
         &.{ .identifier, .call, .identifier, .identifier },
     );
+
+    try testAst(
+        \\f[1;
+        \\  2;3;
+        \\  4;5;6]
+    ,
+        &.{
+            .identifier,     .l_bracket, .number_literal, .semicolon, .number_literal, .semicolon,
+            .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .semicolon,
+            .number_literal, .r_bracket,
+        },
+        &.{
+            .identifier,     .call,           .number_literal, .number_literal,
+            .number_literal, .number_literal, .number_literal, .number_literal,
+        },
+    );
+
+    try testAst(
+        \\f[1;2;
+        \\  3;4;5;
+        \\  6]
+    ,
+        &.{
+            .identifier,     .l_bracket, .number_literal, .semicolon, .number_literal, .semicolon,
+            .number_literal, .semicolon, .number_literal, .semicolon, .number_literal, .semicolon,
+            .number_literal, .r_bracket,
+        },
+        &.{
+            .identifier,     .call,           .number_literal, .number_literal,
+            .number_literal, .number_literal, .number_literal, .number_literal,
+        },
+    );
 }
 
 test "projection" {

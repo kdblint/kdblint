@@ -620,10 +620,8 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
         try renderToken(r, lambda.l_brace, if (single_line_expr) .none else .newline); // {
     }
 
-    const body = lambda.body;
-    try renderBody(r, body, .{
+    try renderBody(r, lambda.body, .{
         .single_line_expr = single_line_expr,
-        .single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1])),
         .respect_empty_lines = true,
     });
 
@@ -678,10 +676,8 @@ fn renderCall(r: *Render, call: Ast.full.Call, space: Space) Error!void {
         break :blk mem.eql(u8, slice, "do") or mem.eql(u8, slice, "if") or mem.eql(u8, slice, "while");
     } else false;
 
-    const body = call.args;
-    try renderBody(r, body, .{
+    try renderBody(r, call.args, .{
         .single_line_expr = true,
-        .single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1])),
         .respect_empty_lines = respect_empty_lines,
     });
 
@@ -690,7 +686,6 @@ fn renderCall(r: *Render, call: Ast.full.Call, space: Space) Error!void {
 
 fn renderBody(r: *Render, body: []const Ast.Node.Index, args: struct {
     single_line_expr: bool,
-    single_line_body: bool,
     respect_empty_lines: bool,
 }) Error!void {
     const tree = r.tree;
@@ -699,34 +694,40 @@ fn renderBody(r: *Render, body: []const Ast.Node.Index, args: struct {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
+    const single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1]));
+
     for (body, 0..) |node, i| {
         if (args.respect_empty_lines) try renderExtraNewline(r, node);
         ais.pushIndentNextLine();
 
-        const node_space: Space = if (i + 1 < body.len)
-            if (args.single_line_body) .semicolon else .semicolon_newline
-        else if (node_tags[node] == .empty)
-            if (i > 0 and args.single_line_body and !args.single_line_expr) .newline else .none
-        else
-            .semicolon;
-
         var last_token = tree.lastToken(node);
         const offset = @intFromBool(node_tags[node] != .empty);
+
+        // TODO: Can this be simplified?
+        const node_space: Space = if (!args.respect_empty_lines)
+            if (i + 1 == body.len or tree.tokensOnSameLine(last_token, tree.firstToken(body[i + 1])))
+                .semicolon
+            else
+                .semicolon_newline
+        else if (i + 1 < body.len)
+            if (single_line_body) .semicolon else .semicolon_newline
+        else if (node_tags[node] == .empty and i > 0 and single_line_body and !args.single_line_expr)
+            .semicolon_newline
+        else
+            .semicolon;
         const punctuation = switch (node_space) {
-            .none, .newline => false,
             .semicolon, .semicolon_newline => token_tags[last_token + offset] == .semicolon,
-            .space, .comma, .skip => unreachable,
+            .none, .space, .newline, .comma, .skip => unreachable,
         };
 
         try renderExpression(r, node, if (punctuation) .none else .skip);
 
         if (punctuation) switch (node_space) {
-            .none, .newline => {},
             .semicolon, .semicolon_newline => {
                 try renderToken(r, last_token + offset, .skip);
                 last_token += offset;
             },
-            .space, .comma, .skip => unreachable,
+            .none, .space, .newline, .comma, .skip => unreachable,
         };
 
         ais.popIndent();
@@ -735,9 +736,9 @@ fn renderBody(r: *Render, body: []const Ast.Node.Index, args: struct {
         const comment_end = token_locs[last_token + offset].start;
         const comment = try renderComments(r, comment_start, comment_end);
         if (!comment) switch (node_space) {
-            .none, .semicolon => {},
-            .newline, .semicolon_newline => try ais.insertNewline(),
-            .space, .comma, .skip => unreachable,
+            .semicolon => {},
+            .semicolon_newline => try ais.insertNewline(),
+            .none, .space, .newline, .comma, .skip => unreachable,
         };
     }
 }
