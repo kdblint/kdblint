@@ -745,38 +745,48 @@ fn renderSelect(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
 fn renderSqlCommon(r: *Render, data: anytype, space: Space) Error!void {
     if (@hasField(@TypeOf(data), "select")) {
-        for (data.select) |expr| {
-            try renderExpression(r, expr, .comma);
+        for (data.select, 0..) |expr, i| {
+            if (i + 1 < data.select.len) {
+                try renderExpression(r, expr, .comma);
+            } else {
+                try renderExpressionSpace(r, expr);
+            }
         }
     } else if (@hasField(@TypeOf(data), "select_tokens")) {
-        for (data.select_tokens) |token| {
-            try renderToken(r, token, .comma);
-        }
-    }
-
-    if (@hasField(@TypeOf(data), "by")) {
-        if (data.by) |by| {
-            try renderTokenSpace(r, by.by_token); // by
-            for (by.exprs) |expr| {
-                try renderExpression(r, expr, .comma);
+        for (data.select_tokens, 0..) |token, i| {
+            if (i + 1 < data.select_tokens.len) {
+                try renderToken(r, token, .comma);
+            } else {
+                try renderTokenSpace(r, token);
             }
         }
     }
+
+    if (@hasField(@TypeOf(data), "by")) if (data.by) |by| {
+        try renderTokenSpace(r, by.by_token); // by
+        for (by.exprs, 0..) |expr, i| {
+            if (i + 1 < by.exprs.len) {
+                try renderExpression(r, expr, .comma);
+            } else {
+                try renderExpressionSpace(r, expr);
+            }
+        }
+    };
 
     try renderTokenSpace(r, data.from_token); // from
 
-    if (@hasField(@TypeOf(data), "where")) {
-        if (data.where) |where| {
-            try renderExpression(r, data.from, .space);
+    if (@hasField(@TypeOf(data), "where")) if (data.where) |where| {
+        try renderExpressionSpace(r, data.from);
 
-            try renderTokenSpace(r, where.where_token); // where
-            for (where.exprs[0 .. where.exprs.len - 1]) |expr| {
+        try renderTokenSpace(r, where.where_token); // where
+        for (where.exprs, 0..) |expr, i| {
+            if (i + 1 < where.exprs.len) {
                 try renderExpression(r, expr, .comma);
+            } else {
+                return renderExpression(r, expr, space);
             }
-
-            return renderExpression(r, where.exprs[where.exprs.len - 1], space);
         }
-    }
+    };
 
     return renderExpression(r, data.from, space);
 }
