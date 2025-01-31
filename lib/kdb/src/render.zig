@@ -268,7 +268,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => {
             const op_node: Ast.Node.Index = main_tokens[node];
             const args = datas[node];
-            try renderExpressionSpace(r, args.lhs);
+            try renderExpressionNoNewline(r, args.lhs);
             if (args.rhs == 0) {
                 return renderExpression(r, op_node, space);
             } else {
@@ -622,7 +622,6 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
 
     try renderBody(r, lambda.body, single_line_expr);
 
-    try renderExtraNewlineToken(r, lambda.r_brace);
     return renderToken(r, lambda.r_brace, space); // }
 }
 
@@ -682,6 +681,8 @@ fn renderBody(r: *Render, body: []const Ast.Node.Index, single_line_expr: bool) 
     const single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1]));
 
     for (body, 0..) |node, i| {
+        try renderExtraNewline(r, node);
+
         ais.pushIndentNextLine();
 
         const node_space: Space = if (i + 1 < body.len)
@@ -699,9 +700,6 @@ fn renderBody(r: *Render, body: []const Ast.Node.Index, single_line_expr: bool) 
             .space, .comma, .skip => unreachable,
         };
 
-        if (i + 1 < body.len) {
-            try renderExtraNewline(r, node);
-        } else if (node_tags[node] != .empty) try renderExtraNewline(r, node);
         try renderExpression(r, node, if (punctuation) .none else .skip);
 
         switch (node_space) {
@@ -788,6 +786,12 @@ fn renderTokenSpace(r: *Render, token: Token.Index) Error!void {
     return renderToken(r, token, space);
 }
 
+fn renderExpressionNoNewline(r: *Render, node: Ast.Node.Index) Error!void {
+    const token = r.tree.lastToken(node);
+    const space = getSpaceNoNewline(r, token, token + 1);
+    return renderExpression(r, node, space);
+}
+
 fn renderExpressionSpace(r: *Render, node: Ast.Node.Index) Error!void {
     const token = r.tree.lastToken(node);
     const space = getSpace(r, token, token + 1);
@@ -802,6 +806,10 @@ fn getSpace(r: *Render, token1: Token.Index, token2: Token.Index) Space {
         },
         false => .newline,
     };
+}
+
+fn getSpaceNoNewline(r: *Render, token1: Token.Index, token2: Token.Index) Space {
+    return if (needsSpace(r, token1, token2)) .space else .none;
 }
 
 const Space = enum {

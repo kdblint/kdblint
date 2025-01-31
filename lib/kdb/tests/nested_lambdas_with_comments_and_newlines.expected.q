@@ -51,22 +51,76 @@ f2:{[] /comment19
 
 /////
 
-f /comment
+f /comment32
 
-  : /comment
+  : /comment33
 
-  { /comment
+  { /comment34
 
-    [ /comment
+    [ /comment35
 
-    ] /comment
+    ] /comment36
 
-    1 /comment
+    1 /comment37
 
-      + /comment
+      + /comment38
 
-      2 /comment
+      2 /comment39
 
-      ; /comment
+      ; /comment40
 
-    } /comment
+    } /comment41
+
+/comment42
+
+/comment43
+f:{[] /comment44
+
+  /comment45
+  if[1b; /comment46
+
+    /comment47
+    if[1b; /comment48
+
+      /comment49
+      1 /comment50
+
+        + /comment51
+
+        2 /comment52
+
+        ; /comment53
+
+      3 /comment54
+
+        + /comment55
+
+        4 /comment56
+
+      ] /comment57
+
+      ; /comment58
+
+    /comment59
+    ]; /comment60
+
+  /comment61
+  } /comment62
+
+/comment63
+
+f:{[]
+
+  if[1b;
+
+    if[1b;
+
+      1+
+        2;
+
+      3+
+        4];
+
+    ];
+
+  }
