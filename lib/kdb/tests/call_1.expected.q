@@ -2,56 +2,68 @@ f[x]
 
 f[x]
 
-f[x]
+f[
+  x]
+
+f[
+  x]
 
 f[x]
 
 f[x]
 
-f[x]
+f[
+  x]
 
-f[x]
-
-f[x]
-
-f[x] /comment
+f[
+  x]
 
 f[x] /comment
 
 f[x] /comment
 
-f[x] /comment
+f[
+  x] /comment
+
+f[
+  x] /comment
 
 f[x] /comment
 
 f[x] /comment
 
-f[x] /comment
+f[
+  x] /comment
 
-f[x] /comment
+f[
+  x] /comment
 
 f[x /comment
+  ]
+
+f[
+  x /comment
   ]
 
 f[x /comment
   ]
 
-f[x /comment
-  ]
-
-f[x /comment
+f[
+  x /comment
   ]
 
 f[x /comment
   ] /comment
 
-f[x /comment
+f[
+  x /comment
   ] /comment
 
 f[x /comment
   ] /comment
 
-f[x /comment
+f[
+  x /comment
   ] /comment
 
 f[ /comment
@@ -101,29 +113,34 @@ f /comment
   [x]
 
 f /comment
-  [x]
+  [
+  x]
 
 f /comment
-  [x]
-
-f /comment
-  [x] /comment
-
-f /comment
-  [x] /comment
+  [
+  x]
 
 f /comment
   [x] /comment
 
 f /comment
   [x] /comment
+
+f /comment
+  [
+  x] /comment
+
+f /comment
+  [
+  x] /comment
 
 f /comment
   [x /comment
   ]
 
 f /comment
-  [x /comment
+  [
+  x /comment
   ]
 
 f /comment
@@ -131,7 +148,8 @@ f /comment
   ] /comment
 
 f /comment
-  [x /comment
+  [
+  x /comment
   ] /comment
 
 f /comment

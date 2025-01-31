@@ -86,14 +86,14 @@ fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
-    for (blocks, 0..) |block, i| {
+    for (blocks, 0..) |node, i| {
         ais.pushIndentNextLine();
 
-        var last_token = tree.lastToken(block);
-        const offset = @intFromBool(node_tags[block] != .empty);
+        var last_token = tree.lastToken(node);
+        const offset = @intFromBool(node_tags[node] != .empty);
         const punctuation = token_tags[last_token + offset] == .semicolon;
 
-        try renderExpression(r, block, if (punctuation) .none else .skip);
+        try renderExpression(r, node, if (punctuation) .none else .skip);
 
         if (punctuation) {
             try renderToken(r, last_token + offset, .skip);
@@ -102,20 +102,20 @@ fn renderBlocks(r: *Render, blocks: []const Ast.Node.Index) Error!void {
 
         ais.popIndent();
 
-        const comment_start = token_locs[last_token].end;
-        const comment_end = token_locs[last_token + 1].start;
-        const comment = try renderComments(r, comment_start, comment_end);
-        if (!comment) {
-            if (mem.containsAtLeast(u8, tree.source[comment_start..comment_end], 2, "\n")) {
-                // Leave up to one empty line before the next block
-                try ais.insertNewline();
-            }
-
-            if (i + 1 < blocks.len) {
-                if (!tree.tokensOnSameLine(tree.firstToken(block), tree.firstToken(blocks[i + 1]))) {
+        if (offset == 1) {
+            const comment_start = token_locs[last_token].end;
+            const comment_end = token_locs[last_token + 1].start;
+            const comment = try renderComments(r, comment_start, comment_end);
+            if (!comment) {
+                if (mem.containsAtLeast(u8, tree.source[comment_start..comment_end], 2, "\n")) {
+                    // Leave up to one empty line before the next block
                     try ais.insertNewline();
                 }
-            } else try ais.insertNewline();
+
+                if (i + 1 == blocks.len or !tree.tokensOnSameLine(last_token, last_token + 1)) {
+                    try ais.insertNewline();
+                }
+            }
         }
     }
 }
@@ -622,9 +622,9 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
 
     const body = lambda.body;
     try renderBody(r, body, .{
-        .should_indent = true,
         .single_line_expr = single_line_expr,
         .single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1])),
+        .respect_empty_lines = true,
     });
 
     return renderToken(r, lambda.r_brace, space); // }
@@ -671,31 +671,27 @@ fn renderCall(r: *Render, call: Ast.full.Call, space: Space) Error!void {
     const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
     try renderExpression(r, call.func, .none);
+    try renderTokenSpace(r, call.l_bracket); // [
 
-    try renderToken(r, call.l_bracket, .none); // [
+    const respect_empty_lines = if (node_tags[call.func] == .identifier) blk: {
+        const slice = tree.tokenSlice(main_tokens[call.func]);
+        break :blk mem.eql(u8, slice, "do") or mem.eql(u8, slice, "if") or mem.eql(u8, slice, "while");
+    } else false;
 
     const body = call.args;
-    const should_indent, const single_line_body = if (node_tags[call.func] == .identifier) blk: {
-        const slice = tree.tokenSlice(main_tokens[call.func]);
-        break :blk if (mem.eql(u8, slice, "do") or mem.eql(u8, slice, "if") or mem.eql(u8, slice, "while")) .{
-            true,
-            tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1])),
-        } else .{ false, true };
-    } else .{ false, true };
-
     try renderBody(r, body, .{
-        .should_indent = should_indent,
         .single_line_expr = true,
-        .single_line_body = single_line_body,
+        .single_line_body = tree.tokensOnSameLine(tree.firstToken(body[0]), tree.lastToken(body[body.len - 1])),
+        .respect_empty_lines = respect_empty_lines,
     });
 
     return renderToken(r, call.r_bracket, space); // ]
 }
 
 fn renderBody(r: *Render, body: []const Ast.Node.Index, args: struct {
-    should_indent: bool,
     single_line_expr: bool,
     single_line_body: bool,
+    respect_empty_lines: bool,
 }) Error!void {
     const tree = r.tree;
     const ais = r.ais;
@@ -704,9 +700,8 @@ fn renderBody(r: *Render, body: []const Ast.Node.Index, args: struct {
     const token_locs: []Token.Loc = tree.tokens.items(.loc);
 
     for (body, 0..) |node, i| {
-        try renderExtraNewline(r, node);
-
-        if (args.should_indent) ais.pushIndentNextLine();
+        if (args.respect_empty_lines) try renderExtraNewline(r, node);
+        ais.pushIndentNextLine();
 
         const node_space: Space = if (i + 1 < body.len)
             if (args.single_line_body) .semicolon else .semicolon_newline
@@ -725,16 +720,16 @@ fn renderBody(r: *Render, body: []const Ast.Node.Index, args: struct {
 
         try renderExpression(r, node, if (punctuation) .none else .skip);
 
-        switch (node_space) {
+        if (punctuation) switch (node_space) {
             .none, .newline => {},
-            .semicolon, .semicolon_newline => if (punctuation) {
+            .semicolon, .semicolon_newline => {
                 try renderToken(r, last_token + offset, .skip);
                 last_token += offset;
             },
             .space, .comma, .skip => unreachable,
-        }
+        };
 
-        if (args.should_indent) ais.popIndent();
+        ais.popIndent();
 
         const comment_start = token_locs[last_token].end;
         const comment_end = token_locs[last_token + offset].start;
@@ -1416,7 +1411,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
                 self.indent_next_line -= 1;
         }
 
-        /// Writes ' ' bytes if the current line is empty
+        /// Writes `indent_char` if the current line is empty
         fn applyIndent(self: *Self) WriteError!void {
             const current_indent = self.currentIndent();
             if (self.current_line_empty and current_indent > 0) {
