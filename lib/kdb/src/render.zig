@@ -190,7 +190,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => return renderLambda(r, tree.fullLambda(node), space),
 
         .expr_block,
-        => return renderExprBlock(r, node, space),
+        => return renderExprBlock(r, tree.fullBlock(node), space),
 
         .colon,
         .colon_colon,
@@ -628,39 +628,20 @@ fn renderLambda(r: *Render, lambda: Ast.full.Lambda, space: Space) Error!void {
     return renderToken(r, lambda.r_brace, space); // }
 }
 
-fn renderExprBlock(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+fn renderExprBlock(r: *Render, block: Ast.full.Block, space: Space) Error!void {
     const tree = r.tree;
-    const main_tokens: []Token.Index = tree.nodes.items(.main_token);
-    const datas: []Ast.Node.Data = tree.nodes.items(.data);
-    const token_tags: []Token.Tag = tree.tokens.items(.tag);
 
-    const l_bracket = main_tokens[node];
-    assert(token_tags[l_bracket] == .l_bracket);
-    const r_bracket = datas[node].rhs;
-    assert(token_tags[r_bracket] == .r_bracket);
+    try renderTokenSpace(r, block.l_bracket); // [
 
-    if (datas[node].lhs == 0) {
-        try renderToken(r, l_bracket, .none);
-        return renderToken(r, r_bracket, space);
+    if (block.body) |body| {
+        const single_line_expr = tree.tokensOnSameLine(block.l_bracket, block.r_bracket);
+        try renderBody(r, body, .{
+            .single_line_expr = single_line_expr,
+            .respect_empty_lines = true,
+        });
     }
 
-    const extra = tree.extraData(datas[node].lhs, Ast.Node.SubRange);
-    const params = tree.extra_data[extra.start..extra.end];
-    assert(params.len > 0);
-
-    if (tree.tokensOnSameLine(l_bracket, r_bracket)) {
-        try renderToken(r, l_bracket, .none);
-        for (params, 0..) |param_node, i| {
-            try renderExpression(r, param_node, if (i + 1 < params.len) .semicolon else .none);
-        }
-        return renderToken(r, r_bracket, space);
-    }
-
-    try renderToken(r, l_bracket, .newline);
-    for (params, 0..) |param_node, i| {
-        try renderExpression(r, param_node, if (i + 1 < params.len) .semicolon_newline else .none);
-    }
-    return renderToken(r, r_bracket, space);
+    return renderToken(r, block.r_bracket, space); // ]
 }
 
 fn renderCall(r: *Render, call: Ast.full.Call, space: Space) Error!void {

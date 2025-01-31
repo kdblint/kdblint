@@ -568,6 +568,31 @@ pub fn fullCall(tree: Ast, node: Node.Index) full.Call {
     };
 }
 
+pub fn fullBlock(tree: Ast, node: Node.Index) full.Block {
+    const node_tags: []Node.Tag = tree.nodes.items(.tag);
+    const token_tags: []Token.Tag = tree.tokens.items(.tag);
+    assert(node_tags[node] == .expr_block);
+
+    const data: Node.Data = tree.nodes.items(.data)[node];
+    const l_bracket = tree.nodes.items(.main_token)[node];
+    assert(token_tags[l_bracket] == .l_bracket);
+    const r_bracket = data.rhs;
+    assert(token_tags[r_bracket] == .r_bracket);
+
+    const body: ?[]Node.Index = if (data.lhs > 0) body: {
+        const sub_range = tree.extraData(data.lhs, Node.SubRange);
+        const body = tree.extra_data[sub_range.start..sub_range.end];
+        assert(body.len > 0);
+        break :body body;
+    } else null;
+
+    return .{
+        .l_bracket = l_bracket,
+        .body = body,
+        .r_bracket = r_bracket,
+    };
+}
+
 pub fn fullSelect(tree: Ast, node: Node.Index) full.Select {
     assert(tree.nodes.items(.tag)[node] == .select);
 
@@ -759,6 +784,12 @@ pub const full = struct {
         func: Node.Index,
         l_bracket: Token.Index,
         args: []Node.Index,
+        r_bracket: Token.Index,
+    };
+
+    pub const Block = struct {
+        l_bracket: Token.Index,
+        body: ?[]Node.Index,
         r_bracket: Token.Index,
     };
 
@@ -4042,10 +4073,10 @@ test "render expression blocks" {
         &.{ .l_bracket, .r_bracket },
         &.{.expr_block},
     );
-    try testAstRender(
+    try testAst(
         \\[
-        \\ ]
-    , "[]", &.{ .l_bracket, .r_bracket }, &.{.expr_block});
+        \\  ]
+    , &.{ .l_bracket, .r_bracket }, &.{.expr_block});
 
     try testAstRender(
         \\[ item1 ;  ; testing123 ;  ]
@@ -4072,9 +4103,7 @@ test "render expression blocks" {
         \\ item1 ;  ; testing123 ;  ]
     ,
         \\[
-        \\  item1;
-        \\  ;
-        \\  testing123;
+        \\  item1;;testing123;
         \\  ]
     ,
         &.{ .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .semicolon, .r_bracket },
@@ -4085,10 +4114,7 @@ test "render expression blocks" {
         \\ item1 ; foo ; testing123 ; identifier ]
     ,
         \\[
-        \\  item1;
-        \\  foo;
-        \\  testing123;
-        \\  identifier]
+        \\  item1;foo;testing123;identifier]
     ,
         &.{
             .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
@@ -4114,11 +4140,7 @@ test "render expression blocks" {
         \\[ item1 ; foo ; testing123 ; identifier
         \\ ]
     ,
-        \\[
-        \\  item1;
-        \\  foo;
-        \\  testing123;
-        \\  identifier]
+        \\[item1;foo;testing123;identifier]
     ,
         &.{
             .l_bracket,  .identifier, .semicolon,  .identifier, .semicolon,
@@ -4131,8 +4153,7 @@ test "render expression blocks" {
         \\[ item1 ;  ; testing123
         \\ ; ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  ;
         \\  testing123;
         \\  ]
@@ -4141,11 +4162,10 @@ test "render expression blocks" {
         &.{ .expr_block, .identifier, .empty, .identifier, .empty },
     );
     try testAstRender(
-        \\[ item1 ; foo ; testing123 ;
+        \\[item1 ; foo ; testing123 ;
         \\ identifier ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  foo;
         \\  testing123;
         \\  identifier]
@@ -4160,8 +4180,7 @@ test "render expression blocks" {
         \\[ item1 ;  ; testing123 ;
         \\ ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  ;
         \\  testing123;
         \\  ]
@@ -4174,8 +4193,7 @@ test "render expression blocks" {
         \\ identifier
         \\ ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  foo;
         \\  testing123;
         \\  identifier]
@@ -4191,8 +4209,7 @@ test "render expression blocks" {
         \\[ item1 ;  ;
         \\ testing123 ; ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  ;
         \\  testing123;
         \\  ]
@@ -4204,8 +4221,7 @@ test "render expression blocks" {
         \\[ item1 ; foo ;
         \\ testing123 ; identifier ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  foo;
         \\  testing123;
         \\  identifier]
@@ -4221,8 +4237,7 @@ test "render expression blocks" {
         \\ testing123 ;
         \\ ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  ;
         \\  testing123;
         \\  ]
@@ -4235,8 +4250,7 @@ test "render expression blocks" {
         \\ testing123 ; identifier
         \\ ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  foo;
         \\  testing123;
         \\  identifier]
@@ -4252,8 +4266,7 @@ test "render expression blocks" {
         \\[ item1 ;
         \\  ; testing123 ; ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  ;
         \\  testing123;
         \\  ]
@@ -4265,8 +4278,7 @@ test "render expression blocks" {
         \\[ item1 ;
         \\ foo ; testing123 ; identifier ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  foo;
         \\  testing123;
         \\  identifier]
@@ -4282,8 +4294,7 @@ test "render expression blocks" {
         \\  ; testing123 ;
         \\ ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  ;
         \\  testing123;
         \\  ]
@@ -4296,8 +4307,7 @@ test "render expression blocks" {
         \\ foo ; testing123 ; identifier
         \\ ]
     ,
-        \\[
-        \\  item1;
+        \\[item1;
         \\  foo;
         \\  testing123;
         \\  identifier]
