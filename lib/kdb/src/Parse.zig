@@ -1409,7 +1409,6 @@ fn expectIdentifier(p: *Parse, comptime sql_identifier: SqlIdentifier) !Token.In
 }
 
 fn peekBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
-    comptime assert(Token.getBuiltin(builtin) == .prefix);
     if (p.peekTag() == .prefix_builtin) {
         const slice = p.tokenSlice(p.tok_i);
         if (std.mem.eql(u8, slice, builtin)) return p.tok_i;
@@ -1418,7 +1417,6 @@ fn peekBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
 }
 
 fn eatBuiltin(p: *Parse, comptime builtin: []const u8) ?Token.Index {
-    comptime assert(Token.getBuiltin(builtin) == .prefix);
     if (p.peekBuiltin(builtin)) |i| {
         _ = p.nextToken();
         return i;

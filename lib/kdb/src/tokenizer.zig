@@ -15,23 +15,23 @@ pub const Token = struct {
     // pub const Index = enum(u32) { _ };
     pub const Index = u32;
 
-    pub const keywords = std.StaticStringMap(Tag).initComptime(.{
+    const keywords = std.StaticStringMap(Tag).initComptime(.{
         .{ "select", .keyword_select },
         .{ "exec", .keyword_exec },
         .{ "update", .keyword_update },
         .{ "delete", .keyword_delete },
     });
 
-    pub fn getKeyword(bytes: []const u8) ?Tag {
+    fn getKeyword(bytes: []const u8) ?Tag {
         return keywords.get(bytes);
     }
 
-    pub const BuiltinType = enum {
+    const BuiltinType = enum {
         prefix,
         infix,
     };
 
-    pub const builtins = std.StaticStringMap(BuiltinType).initComptime(.{
+    const builtins = std.StaticStringMap(BuiltinType).initComptime(.{
         .{ "abs", .prefix },
         .{ "acos", .prefix },
         .{ "aj", .prefix },
@@ -205,7 +205,7 @@ pub const Token = struct {
         .{ "xrank", .infix },
     });
 
-    pub fn getBuiltin(bytes: []const u8) ?BuiltinType {
+    fn getBuiltin(bytes: []const u8) ?BuiltinType {
         return builtins.get(bytes);
     }
 
@@ -423,12 +423,6 @@ pub const Token = struct {
                 const tag: Token.Tag = @enumFromInt(field.value);
                 _ = tag.symbol();
             }
-        }
-
-        pub fn isKeyword(tag: Tag) bool {
-            return switch (tag) {
-                inline else => |t| keywords.has(t.symbol()),
-            };
         }
     };
 };
