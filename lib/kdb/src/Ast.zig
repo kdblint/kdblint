@@ -5264,139 +5264,129 @@ test "delete columns" {
 }
 
 test "do" {
-    if (true) return error.SkipZigTest;
-    try failAst(
+    try testAst(
         "do a",
-        &.{ .keyword_do, .identifier },
-        &.{.expected_token},
+        &.{ .identifier, .identifier },
+        &.{ .identifier, .apply_unary, .identifier },
     );
-    try failAst(
+    try testAst(
         "do[a]",
-        &.{ .keyword_do, .l_bracket, .identifier, .r_bracket },
-        &.{.expected_token},
+        &.{ .identifier, .l_bracket, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier },
     );
     try testAst(
         "do[a;]",
-        &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .r_bracket },
-        &.{ .do, .identifier, .empty },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{ .identifier, .call, .identifier, .empty },
     );
     try testAst(
         "do[a;b]",
-        &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
-        &.{ .do, .identifier, .identifier },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier },
     );
     try testAst(
         "do[a;b;]",
-        &.{ .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{ .do, .identifier, .identifier, .empty },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier, .empty },
     );
     try testAst(
         "do[a;b;c]",
-        &.{
-            .keyword_do, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
-        },
-        &.{ .do, .identifier, .identifier, .identifier },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier, .identifier },
     );
     try testAst(
         "do[a;b;;c]",
         &.{
-            .keyword_do, .l_bracket, .identifier, .semicolon, .identifier,
+            .identifier, .l_bracket, .identifier, .semicolon, .identifier,
             .semicolon,  .semicolon, .identifier, .r_bracket,
         },
-        &.{ .do, .identifier, .identifier, .empty, .identifier },
+        &.{ .identifier, .call, .identifier, .identifier, .empty, .identifier },
     );
 }
 
 test "if" {
-    if (true) return error.SkipZigTest;
-    try failAst(
+    try testAst(
         "if a",
-        &.{ .keyword_if, .identifier },
-        &.{.expected_token},
+        &.{ .identifier, .identifier },
+        &.{ .identifier, .apply_unary, .identifier },
     );
-    try failAst(
+    try testAst(
         "if[a]",
-        &.{ .keyword_if, .l_bracket, .identifier, .r_bracket },
-        &.{.expected_token},
+        &.{ .identifier, .l_bracket, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier },
     );
     try testAst(
         "if[a;]",
-        &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .r_bracket },
-        &.{ .@"if", .identifier, .empty },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{ .identifier, .call, .identifier, .empty },
     );
     try testAst(
         "if[a;b]",
-        &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
-        &.{ .@"if", .identifier, .identifier },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier },
     );
     try testAst(
         "if[a;b;]",
-        &.{ .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{ .@"if", .identifier, .identifier, .empty },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier, .empty },
     );
     try testAst(
         "if[a;b;c]",
-        &.{
-            .keyword_if, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
-        },
-        &.{ .@"if", .identifier, .identifier, .identifier },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier, .identifier },
     );
     try testAst(
         "if[a;b;;c]",
         &.{
-            .keyword_if, .l_bracket, .identifier, .semicolon, .identifier,
+            .identifier, .l_bracket, .identifier, .semicolon, .identifier,
             .semicolon,  .semicolon, .identifier, .r_bracket,
         },
-        &.{ .@"if", .identifier, .identifier, .empty, .identifier },
+        &.{ .identifier, .call, .identifier, .identifier, .empty, .identifier },
     );
 }
 
 test "while" {
-    if (true) return error.SkipZigTest;
-    try failAst(
+    try testAst(
         "while a",
-        &.{ .keyword_while, .identifier },
-        &.{.expected_token},
+        &.{ .identifier, .identifier },
+        &.{ .identifier, .apply_unary, .identifier },
     );
-    try failAst(
+    try testAst(
         "while[a]",
-        &.{ .keyword_while, .l_bracket, .identifier, .r_bracket },
-        &.{.expected_token},
+        &.{ .identifier, .l_bracket, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier },
     );
     try testAst(
         "while[a;]",
-        &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .r_bracket },
-        &.{ .@"while", .identifier, .empty },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .r_bracket },
+        &.{ .identifier, .call, .identifier, .empty },
     );
     try testAst(
         "while[a;b]",
-        &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
-        &.{ .@"while", .identifier, .identifier },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier },
     );
     try testAst(
         "while[a;b;]",
-        &.{ .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{ .@"while", .identifier, .identifier, .empty },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier, .empty },
     );
     try testAst(
         "while[a;b;c]",
-        &.{
-            .keyword_while, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
-        },
-        &.{ .@"while", .identifier, .identifier, .identifier },
+        &.{ .identifier, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .identifier, .call, .identifier, .identifier, .identifier },
     );
     try testAst(
         "while[a;b;;c]",
         &.{
-            .keyword_while, .l_bracket, .identifier, .semicolon, .identifier,
-            .semicolon,     .semicolon, .identifier, .r_bracket,
+            .identifier, .l_bracket, .identifier, .semicolon, .identifier,
+            .semicolon,  .semicolon, .identifier, .r_bracket,
         },
-        &.{ .@"while", .identifier, .identifier, .empty, .identifier },
+        &.{ .identifier, .call, .identifier, .identifier, .empty, .identifier },
     );
 }
 
 test "cond" {
-    if (true) return error.SkipZigTest;
     try testAst(
         "$[]",
         &.{ .dollar, .l_bracket, .r_bracket },
@@ -5427,47 +5417,45 @@ test "cond" {
         &.{ .dollar, .l_bracket, .identifier, .semicolon, .identifier, .r_bracket },
         &.{ .dollar, .call, .identifier, .identifier },
     );
-    try failAst(
+    try testAst(
         "$[;;]",
         &.{ .dollar, .l_bracket, .semicolon, .semicolon, .r_bracket },
-        &.{.expected_expr},
+        &.{ .dollar, .call, .empty, .empty, .empty },
     );
-    try failAst(
+    try testAst(
         "$[;;z]",
         &.{ .dollar, .l_bracket, .semicolon, .semicolon, .identifier, .r_bracket },
-        &.{.expected_expr},
+        &.{ .dollar, .call, .empty, .empty, .identifier },
     );
-    try failAst(
+    try testAst(
         "$[;y;]",
         &.{ .dollar, .l_bracket, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{.expected_expr},
+        &.{ .dollar, .call, .empty, .identifier, .empty },
     );
-    try failAst(
+    try testAst(
         "$[;y;z]",
         &.{ .dollar, .l_bracket, .semicolon, .identifier, .semicolon, .identifier, .r_bracket },
-        &.{.expected_expr},
+        &.{ .dollar, .call, .empty, .identifier, .identifier },
     );
     try testAst(
         "$[x;;]",
         &.{ .dollar, .l_bracket, .identifier, .semicolon, .semicolon, .r_bracket },
-        &.{ .cond, .identifier, .empty, .empty },
+        &.{ .dollar, .call, .identifier, .empty, .empty },
     );
     try testAst(
         "$[x;;z]",
         &.{ .dollar, .l_bracket, .identifier, .semicolon, .semicolon, .identifier, .r_bracket },
-        &.{ .cond, .identifier, .empty, .identifier },
+        &.{ .dollar, .call, .identifier, .empty, .identifier },
     );
     try testAst(
         "$[x;y;]",
         &.{ .dollar, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .r_bracket },
-        &.{ .cond, .identifier, .identifier, .empty },
+        &.{ .dollar, .call, .identifier, .identifier, .empty },
     );
     try testAst(
         "$[x;y;z]",
-        &.{
-            .dollar, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket,
-        },
-        &.{ .cond, .identifier, .identifier, .identifier },
+        &.{ .dollar, .l_bracket, .identifier, .semicolon, .identifier, .semicolon, .identifier, .r_bracket },
+        &.{ .dollar, .call, .identifier, .identifier, .identifier },
     );
 }
 

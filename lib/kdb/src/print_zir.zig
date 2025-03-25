@@ -791,7 +791,7 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
     }
 }
 
-fn testPropertiesUpheld(source: []const u8) anyerror!void {
+fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
     const gpa = std.testing.allocator;
 
     const source0 = try std.testing.allocator.dupeZ(u8, source);
@@ -821,8 +821,7 @@ fn testPropertiesUpheld(source: []const u8) anyerror!void {
 }
 
 test "fuzzable properties upheld" {
-    if (true) return error.SkipZigTest;
-    return std.testing.fuzz(testPropertiesUpheld, .{
+    return std.testing.fuzz({}, testPropertiesUpheld, .{
         .corpus = &.{
             "{[]x:}",
         },
