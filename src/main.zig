@@ -279,8 +279,8 @@ fn cmdAstCheck(
             file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(kdb.Ast.ByteOffset));
         const tree_bytes = @sizeOf(kdb.Ast) + file.tree.nodes.len *
             (@sizeOf(kdb.Ast.Node.Tag) +
-            @sizeOf(kdb.Ast.Node.Data) +
-            @sizeOf(kdb.Ast.Token.Index));
+                @sizeOf(kdb.Ast.Node.Data) +
+                @sizeOf(kdb.Ast.Token.Index));
         const instruction_bytes = file.zir.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.

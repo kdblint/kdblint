@@ -244,6 +244,8 @@ const FmtError = error{
     NetNameDeleted,
     InvalidArgument,
     ProcessNotFound,
+    InvalidEncoding,
+    MessageTooBig,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
@@ -290,7 +292,7 @@ fn fmtPathDir(
 
         if (is_dir or entry.kind == .file and
             (mem.endsWith(u8, entry.name, ".k") or
-            mem.endsWith(u8, entry.name, ".q")))
+                mem.endsWith(u8, entry.name, ".q")))
         {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
             defer fmt.gpa.free(full_path);

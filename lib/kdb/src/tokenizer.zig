@@ -1516,7 +1516,7 @@ test "null byte before eof" {
 }
 
 test "fuzzable properties upheld" {
-    return std.testing.fuzz(testPropertiesUpheld, .{});
+    return std.testing.fuzz({}, testPropertiesUpheld, .{});
 }
 
 test "trailing whitespace" {
@@ -2053,7 +2053,7 @@ fn testTokenizeMode(
     try std.testing.expectEqual(source.len, last_token.loc.end);
 }
 
-fn testPropertiesUpheld(source: []const u8) anyerror!void {
+fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
     const source0 = try std.testing.allocator.dupeZ(u8, source);
     defer std.testing.allocator.free(source0);
     var tokenizer = Tokenizer.init(source0, .q);
