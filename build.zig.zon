@@ -1,13 +1,14 @@
 .{
-    .name = "zig-kdblint",
+    .name = .zig_kdblint,
     .version = "0.1.0",
+    .fingerprint = 0x8d3aa34075cd4f20,
     .dependencies = .{
         .kdb = .{
             .path = "lib/kdb",
         },
         .zls = .{
-            .url = "git+https://github.com/zigtools/zls#8238bad05c833179e43671618fba0fc73fc86d53",
-            .hash = "1220b20a22bd92444f52e5a819bb609139b5d25c90a1ecc3ff32ea591e244da3adbb",
+            .url = "git+https://github.com/zigtools/zls#5449f65d2e042addb521c0d8deff29720a461dee",
+            .hash = "zls-0.15.0-dev-rmm5fth1IADKiEDQUq-obTTDrlEKO0G_JeS7lG31-lLh",
         },
     },
     .paths = .{

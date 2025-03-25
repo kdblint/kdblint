@@ -157,14 +157,15 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
         // Fail if we are applying a unary operator directly in q.
         .unary_operator => if (p.mode == .q and
             (!p.within_fn or tag != .colon or switch (token_tags[main_tokens[lhs] - 1]) {
-            .l_paren,
-            .l_brace,
-            .l_bracket,
-            .r_bracket,
-            .semicolon,
-            => false,
-            else => true,
-        })) {
+                .l_paren,
+                .l_brace,
+                .l_bracket,
+                .r_bracket,
+                .semicolon,
+                => false,
+                else => true,
+            }))
+        {
             return p.warnMsg(.{
                 .tag = .cannot_apply_operator_directly,
                 .token = main_tokens[lhs],
