@@ -244,22 +244,36 @@ fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
         .global_decls = &parent_scope.top().global_decls,
     });
     for (blocks, 0..) |node, i| {
-        if (gz.endsWithNoReturn()) {
-            assert(i > 0);
-            try gz.astgen.appendErrorNodeNotes(node, "unreachable code", .{}, &.{
-                try gz.astgen.errNoteNode(blocks[i - 1], "control flow is diverted here", .{}),
-            }, .warn);
-        }
-
         // TODO: Namespace block.
         // TODO: Something should wrap expr to return an index to show or discard value.
 
         astgen.advanceSourceCursorToNode(node);
-        const expr_ref, scope = expr(gz, scope, node) catch |err| switch (err) {
+        const ref, scope = expr(gz, scope, node) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => continue,
         };
-        _ = expr_ref;
+
+        if (i < blocks.len - 1 and gz.endsWithNoReturn()) {
+            try gz.astgen.appendErrorNodeNotes(blocks[i + 1], "unreachable code", .{}, &.{
+                try gz.astgen.errNoteNode(node, "control flow is diverted here", .{}),
+            }, .warn);
+        }
+
+        if (ref.toIndex()) |inst| {
+            if (astgen.instructions.items(.tag)[@intFromEnum(inst)] == .apply) {
+                const data: Zir.Inst.Data = astgen.instructions.items(.data)[@intFromEnum(inst)];
+                const callee: Zir.Inst.Ref = @enumFromInt(astgen.extra.items[data.pl_node.payload_index]);
+                if (callee == .assign) continue;
+            }
+
+            if (tree.tokens.items(.tag)[tree.lastToken(node) + 1] != .semicolon) {
+                _ = try gz.addUnNode(.print, ref, node);
+            }
+        } else if (tree.tokens.items(.tag)[tree.lastToken(node) + 1] == .semicolon) {
+            _ = try gz.addUnNode(.discard, ref, node);
+        } else {
+            _ = try gz.addUnNode(.print, ref, node);
+        }
     }
     try gz.setFile(file_inst);
 

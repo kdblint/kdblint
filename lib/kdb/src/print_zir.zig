@@ -142,6 +142,10 @@ const Writer = struct {
         switch (tag) {
             .file => try self.writePlNodeBlockWithoutSrc(stream, inst),
 
+            .print,
+            .discard,
+            => try self.writeUnNodeWithoutSrc(stream, inst),
+
             .list => try self.writePlNodeList(stream, inst),
             .table => try self.writePlNodeTable(stream, inst),
 
@@ -253,6 +257,16 @@ const Writer = struct {
         try self.writeInstRef(stream, inst_data.operand);
         try stream.writeAll(") ");
         try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writeUnNodeWithoutSrc(
+        self: *Writer,
+        stream: anytype,
+        inst: Zir.Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(")");
     }
 
     fn writeUnTok(
@@ -828,6 +842,59 @@ test "fuzzable properties upheld" {
     });
 }
 
+test "print" {
+    try testZir("1",
+        \\%0 = file({
+        \\  %1 = print(@one)
+        \\})
+    );
+    try testZir("a:1",
+        \\%0 = file({
+        \\  %1 = identifier("a") token_offset:1:1 to :1:2
+        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = print(%1)
+        \\})
+    );
+    try testZir("a:2",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("a") token_offset:1:1 to :1:2
+        \\  %3 = apply(@assign, %2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
+}
+
+test "discard" {
+    try testZir("1;",
+        \\%0 = file({
+        \\  %1 = discard(@one)
+        \\})
+    );
+    try testZir("a:1;",
+        \\%0 = file({
+        \\  %1 = identifier("a") token_offset:1:1 to :1:2
+        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:4
+        \\})
+    );
+    try testZir("2;",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\})
+    );
+    try testZir("a:2;",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = identifier("a") token_offset:1:1 to :1:2
+        \\  %3 = apply(@assign, %2, %1) node_offset:1:1 to :1:4
+        \\})
+    );
+}
+
 test "empty" {
     return error.SkipZigTest;
 }
@@ -840,6 +907,7 @@ test "grouped expression" {
         \\  %3 = apply(@add, %2, %1) node_offset:1:3 to :1:6
         \\  %4 = long(3)
         \\  %5 = apply(@multiply, %4, %3) node_offset:1:1 to :1:6
+        \\  %6 = print(%5)
         \\})
     );
     try testZir("(3*4)+5",
@@ -849,12 +917,17 @@ test "grouped expression" {
         \\  %3 = long(3)
         \\  %4 = apply(@multiply, %3, %2) node_offset:1:2 to :1:5
         \\  %5 = apply(@add, %4, %1) node_offset:1:1 to :1:8
+        \\  %6 = print(%5)
         \\})
     );
 }
 
 test "empty list" {
-    try testZir("()", "%0 = file({})");
+    try testZir("()",
+        \\%0 = file({
+        \\  %1 = print(@empty_list)
+        \\})
+    );
     try testZir("a:()",
         \\%0 = file({
         \\  %1 = identifier("a") token_offset:1:1 to :1:2
@@ -866,6 +939,7 @@ test "empty list" {
         \\  %1 = lambda({
         \\    %2 = ret_node(@empty_list) node_offset:1:4 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %3 = print(%1)
         \\})
     );
 }
@@ -878,6 +952,7 @@ test "list" {
         \\  %3 = long(3)
         \\  %4 = long(2)
         \\  %5 = list(@one, %4, %3, %2, %1) node_offset:1:1 to :1:12
+        \\  %6 = print(%5)
         \\})
     );
     try testZir("(a;b;c)",
@@ -886,6 +961,7 @@ test "list" {
         \\  %2 = identifier("b") token_offset:1:4 to :1:5
         \\  %3 = identifier("a") token_offset:1:2 to :1:3
         \\  %4 = list(%3, %2, %1) node_offset:1:1 to :1:8
+        \\  %5 = print(%4)
         \\})
     );
 }
@@ -894,42 +970,49 @@ test "table literal" {
     try testZir("([]())",
         \\%0 = file({
         \\  %1 = table("" = @empty_list) node_offset:1:1 to :1:7
+        \\  %2 = print(%1)
         \\})
     );
     try testZir("([]a:1 1 1)",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:6 to :1:11
         \\  %2 = table("a" = %1) node_offset:1:1 to :1:12
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("([](a):1 1 1)",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
         \\  %2 = table("a" = %1) node_offset:1:1 to :1:14
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("([]:[a;1 1 1])",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
         \\  %2 = table("a" = %1) node_offset:1:1 to :1:15
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("([]:[(a);1 1 1])",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
         \\  %2 = table("a" = %1) node_offset:1:1 to :1:17
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("([](:)[a;1 1 1])",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
         \\  %2 = table("a" = %1) node_offset:1:1 to :1:17
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("([](:)[(a);1 1 1])",
         \\%0 = file({
         \\  %1 = long_list(@one, @one, @one) node_offset:1:12 to :1:17
         \\  %2 = table("a" = %1) node_offset:1:1 to :1:19
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("([]a:1 1 1;b:1 1 1)",
@@ -937,6 +1020,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:14 to :1:19
         \\  %2 = long_list(@one, @one, @one) node_offset:1:6 to :1:11
         \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:20
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([](a):1 1 1;(b):1 1 1)",
@@ -944,6 +1028,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
         \\  %2 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
         \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:24
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([]:[a;1 1 1];:[b;1 1 1])",
@@ -951,6 +1036,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:19 to :1:24
         \\  %2 = long_list(@one, @one, @one) node_offset:1:8 to :1:13
         \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:26
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([]:[(a);1 1 1];:[(b);1 1 1])",
@@ -958,6 +1044,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:23 to :1:28
         \\  %2 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
         \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:30
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([](:)[a;1 1 1];(:)[b;1 1 1])",
@@ -965,6 +1052,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:23 to :1:28
         \\  %2 = long_list(@one, @one, @one) node_offset:1:10 to :1:15
         \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:30
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([](:)[(a);1 1 1];(:)[(b);1 1 1])",
@@ -972,6 +1060,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:27 to :1:32
         \\  %2 = long_list(@one, @one, @one) node_offset:1:12 to :1:17
         \\  %3 = table("a" = %2, "b" = %1) node_offset:1:1 to :1:34
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("{[]([]a:b;b:b:1 1 1)}",
@@ -983,6 +1072,7 @@ test "table literal" {
         \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:21
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:21
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([](a):b;(b):b:1 1 1)}",
@@ -994,6 +1084,7 @@ test "table literal" {
         \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:25
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
         \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]:[a;b];:[b;b:1 1 1])}",
@@ -1005,6 +1096,7 @@ test "table literal" {
         \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:27
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:27
         \\  }) (lbrace=1:1,rbrace=1:27) node_offset:1:1 to :1:28
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]:[(a);b];:[(b);b:1 1 1])}",
@@ -1016,6 +1108,7 @@ test "table literal" {
         \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:31
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:31
         \\  }) (lbrace=1:1,rbrace=1:31) node_offset:1:1 to :1:32
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([](:)[a;b];(:)[b;b:1 1 1])}",
@@ -1027,6 +1120,7 @@ test "table literal" {
         \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:31
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:31
         \\  }) (lbrace=1:1,rbrace=1:31) node_offset:1:1 to :1:32
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([](:)[(a);b];(:)[(b);b:1 1 1])}",
@@ -1038,6 +1132,7 @@ test "table literal" {
         \\    %5 = table("a" = %3, "b" = %4) node_offset:1:4 to :1:35
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:35
         \\  }) (lbrace=1:1,rbrace=1:35) node_offset:1:1 to :1:36
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]b;b:b:1 1 1)}",
@@ -1049,6 +1144,7 @@ test "table literal" {
         \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:19
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]b;(b):b:1 1 1)}",
@@ -1060,6 +1156,7 @@ test "table literal" {
         \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:21
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:21
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]b;:[b;b:1 1 1])}",
@@ -1071,6 +1168,7 @@ test "table literal" {
         \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:22
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:22
         \\  }) (lbrace=1:1,rbrace=1:22) node_offset:1:1 to :1:23
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]b;:[(b);b:1 1 1])}",
@@ -1082,6 +1180,7 @@ test "table literal" {
         \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:24
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:24
         \\  }) (lbrace=1:1,rbrace=1:24) node_offset:1:1 to :1:25
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]b;(:)[b;b:1 1 1])}",
@@ -1093,6 +1192,7 @@ test "table literal" {
         \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:24
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:24
         \\  }) (lbrace=1:1,rbrace=1:24) node_offset:1:1 to :1:25
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]b;(:)[(b);b:1 1 1])}",
@@ -1104,6 +1204,7 @@ test "table literal" {
         \\    %5 = table("" = %3, "b" = %4) node_offset:1:4 to :1:26
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:26
         \\  }) (lbrace=1:1,rbrace=1:26) node_offset:1:1 to :1:27
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([]a:b;b:1 1 1)}",
@@ -1114,6 +1215,7 @@ test "table literal" {
         \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:19
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]([](a):b;(b):1 1 1)}",
@@ -1124,6 +1226,7 @@ test "table literal" {
         \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:23
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:23
         \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]([]:[a;b];:[b;1 1 1])}",
@@ -1134,6 +1237,7 @@ test "table literal" {
         \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:25
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:25
         \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]([]:[(a);b];:[(b);1 1 1])}",
@@ -1144,6 +1248,7 @@ test "table literal" {
         \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:29
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:29
         \\  }) (lbrace=1:1,rbrace=1:29) node_offset:1:1 to :1:30
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]([](:)[a;b];(:)[b;1 1 1])}",
@@ -1154,6 +1259,7 @@ test "table literal" {
         \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:29
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:29
         \\  }) (lbrace=1:1,rbrace=1:29) node_offset:1:1 to :1:30
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]([](:)[(a);b];(:)[(b);1 1 1])}",
@@ -1164,6 +1270,7 @@ test "table literal" {
         \\    %4 = table("a" = %3, "b" = %2) node_offset:1:4 to :1:33
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:33
         \\  }) (lbrace=1:1,rbrace=1:33) node_offset:1:1 to :1:34
+        \\  %6 = print(%1)
         \\})
     );
     try failZir("{[]([]a:a:1 1 1;a)}",
@@ -1223,6 +1330,7 @@ test "table literal" {
     try testZir("([()]())",
         \\%0 = file({
         \\  %1 = table(keys={"" = @empty_list}, "" = @empty_list) node_offset:1:1 to :1:9
+        \\  %2 = print(%1)
         \\})
     );
     try testZir("([a:1 1 1]b:1 1 1)",
@@ -1230,6 +1338,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:13 to :1:18
         \\  %2 = long_list(@one, @one, @one) node_offset:1:5 to :1:10
         \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:19
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([(a):1 1 1](b):1 1 1)",
@@ -1237,6 +1346,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:17 to :1:22
         \\  %2 = long_list(@one, @one, @one) node_offset:1:7 to :1:12
         \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:23
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([:[a;1 1 1]]:[b;1 1 1])",
@@ -1244,6 +1354,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:18 to :1:23
         \\  %2 = long_list(@one, @one, @one) node_offset:1:7 to :1:12
         \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:25
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([:[(a);1 1 1]]:[(b);1 1 1])",
@@ -1251,6 +1362,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:22 to :1:27
         \\  %2 = long_list(@one, @one, @one) node_offset:1:9 to :1:14
         \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:29
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([(:)[a;1 1 1]](:)[b;1 1 1])",
@@ -1258,6 +1370,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:22 to :1:27
         \\  %2 = long_list(@one, @one, @one) node_offset:1:9 to :1:14
         \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:29
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("([(:)[(a);1 1 1]](:)[(b);1 1 1])",
@@ -1265,6 +1378,7 @@ test "table literal" {
         \\  %1 = long_list(@one, @one, @one) node_offset:1:26 to :1:31
         \\  %2 = long_list(@one, @one, @one) node_offset:1:11 to :1:16
         \\  %3 = table(keys={"a" = %2}, "b" = %1) node_offset:1:1 to :1:33
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("{[]([b]b:b:1 1 1)}",
@@ -1276,6 +1390,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:18
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:18
         \\  }) (lbrace=1:1,rbrace=1:18) node_offset:1:1 to :1:19
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b](b):b:1 1 1)}",
@@ -1287,6 +1402,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:20
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:20
         \\  }) (lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b]:[b;b:1 1 1])}",
@@ -1298,6 +1414,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:21
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:21
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b]:[(b);b:1 1 1])}",
@@ -1309,6 +1426,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:23
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:23
         \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b](:)[b;b:1 1 1])}",
@@ -1320,6 +1438,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:23
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:23
         \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b](:)[(b);b:1 1 1])}",
@@ -1331,6 +1450,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3}, "b" = %4) node_offset:1:4 to :1:25
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
         \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b;b]b:b:1 1 1)}",
@@ -1342,6 +1462,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:20
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:20
         \\  }) (lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b;b](b):b:1 1 1)}",
@@ -1353,6 +1474,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:22
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:22
         \\  }) (lbrace=1:1,rbrace=1:22) node_offset:1:1 to :1:23
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b;b]:[b;b:1 1 1])}",
@@ -1364,6 +1486,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:23
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:23
         \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b;b]:[(b);b:1 1 1])}",
@@ -1375,6 +1498,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:25
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
         \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b;b](:)[b;b:1 1 1])}",
@@ -1386,6 +1510,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:25
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:25
         \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{[]([b;b](:)[(b);b:1 1 1])}",
@@ -1397,6 +1522,7 @@ test "table literal" {
         \\    %5 = table(keys={"" = %3, "" = %3}, "b" = %4) node_offset:1:4 to :1:27
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:27
         \\  }) (lbrace=1:1,rbrace=1:27) node_offset:1:1 to :1:28
+        \\  %7 = print(%1)
         \\})
     );
     try failZir("{[]([a:a:1 1 1]a)}",
@@ -1461,6 +1587,7 @@ test "lambda" {
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:3
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[]}",
@@ -1468,6 +1595,7 @@ test "lambda" {
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@null) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[x]}",
@@ -1476,6 +1604,7 @@ test "lambda" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x;y]}",
@@ -1485,6 +1614,7 @@ test "lambda" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1493,6 +1623,7 @@ test "lambda" {
         \\  %1 = lambda({
         \\    %2 = ret_node(@one) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[]1}",
@@ -1500,6 +1631,7 @@ test "lambda" {
         \\  %1 = lambda({
         \\    %2 = ret_node(@one) node_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[x]1}",
@@ -1508,6 +1640,7 @@ test "lambda" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_node(@one) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x;y]1}",
@@ -1517,6 +1650,7 @@ test "lambda" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_node(@one) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1526,6 +1660,7 @@ test "lambda" {
         \\    %2 = long(2)
         \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[]2}",
@@ -1534,6 +1669,7 @@ test "lambda" {
         \\    %2 = long(2)
         \\    %3 = ret_node(%2) node_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]2}",
@@ -1543,6 +1679,7 @@ test "lambda" {
         \\    %3 = long(2)
         \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[x;y]2}",
@@ -1553,6 +1690,7 @@ test "lambda" {
         \\    %4 = long(2)
         \\    %5 = ret_node(%4) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %6 = print(%1)
         \\})
     );
 
@@ -1562,6 +1700,7 @@ test "lambda" {
         \\    %2 = param_implicit(@x) token_offset:1:2 to :1:3
         \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[]x}",
@@ -1570,6 +1709,7 @@ test "lambda" {
         \\    %2 = identifier("x") token_offset:1:4 to :1:5
         \\    %3 = ret_node(%2) node_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]x}",
@@ -1578,6 +1718,7 @@ test "lambda" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_node(%2) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x;y]x}",
@@ -1587,6 +1728,7 @@ test "lambda" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_node(%2) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1597,6 +1739,7 @@ test "lambda" {
         \\    %3 = param_implicit(@y) token_offset:1:2 to :1:3
         \\    %4 = ret_node(%3) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]y}",
@@ -1605,6 +1748,7 @@ test "lambda" {
         \\    %2 = identifier("y") token_offset:1:4 to :1:5
         \\    %3 = ret_node(%2) node_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]y}",
@@ -1614,6 +1758,7 @@ test "lambda" {
         \\    %3 = identifier("y") token_offset:1:5 to :1:6
         \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[x;y]y}",
@@ -1623,6 +1768,7 @@ test "lambda" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_node(%3) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1634,6 +1780,7 @@ test "lambda" {
         \\    %4 = param_implicit(@z) token_offset:1:2 to :1:3
         \\    %5 = ret_node(%4) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]z}",
@@ -1642,6 +1789,7 @@ test "lambda" {
         \\    %2 = identifier("z") token_offset:1:4 to :1:5
         \\    %3 = ret_node(%2) node_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]z}",
@@ -1651,6 +1799,7 @@ test "lambda" {
         \\    %3 = identifier("z") token_offset:1:5 to :1:6
         \\    %4 = ret_node(%3) node_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[x;y]z}",
@@ -1661,6 +1810,7 @@ test "lambda" {
         \\    %4 = identifier("z") token_offset:1:7 to :1:8
         \\    %5 = ret_node(%4) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %6 = print(%1)
         \\})
     );
 }
@@ -1671,6 +1821,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@null) token_offset:1:3 to :1:4
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[];}",
@@ -1678,6 +1829,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@null) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[x];}",
@@ -1686,6 +1838,7 @@ test "lambda semicolon" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x;y];}",
@@ -1695,6 +1848,7 @@ test "lambda semicolon" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:8 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1703,6 +1857,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@null) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[]1;}",
@@ -1710,6 +1865,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@null) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{[x]1;}",
@@ -1718,6 +1874,7 @@ test "lambda semicolon" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x;y]1;}",
@@ -1727,6 +1884,7 @@ test "lambda semicolon" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1736,6 +1894,7 @@ test "lambda semicolon" {
         \\    %2 = long(2)
         \\    %3 = ret_implicit(@null) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[]2;}",
@@ -1744,6 +1903,7 @@ test "lambda semicolon" {
         \\    %2 = long(2)
         \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]2;}",
@@ -1753,6 +1913,7 @@ test "lambda semicolon" {
         \\    %3 = long(2)
         \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[x;y]2;}",
@@ -1763,6 +1924,7 @@ test "lambda semicolon" {
         \\    %4 = long(2)
         \\    %5 = ret_implicit(@null) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %6 = print(%1)
         \\})
     );
 
@@ -1772,6 +1934,7 @@ test "lambda semicolon" {
         \\    %2 = param_implicit(@x) token_offset:1:2 to :1:3
         \\    %3 = ret_implicit(@null) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[]x;}",
@@ -1780,6 +1943,7 @@ test "lambda semicolon" {
         \\    %2 = identifier("x") token_offset:1:4 to :1:5
         \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]x;}",
@@ -1788,6 +1952,7 @@ test "lambda semicolon" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x;y]x;}",
@@ -1797,6 +1962,7 @@ test "lambda semicolon" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1807,6 +1973,7 @@ test "lambda semicolon" {
         \\    %3 = param_implicit(@y) token_offset:1:2 to :1:3
         \\    %4 = ret_implicit(@null) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]y;}",
@@ -1815,6 +1982,7 @@ test "lambda semicolon" {
         \\    %2 = identifier("y") token_offset:1:4 to :1:5
         \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]y;}",
@@ -1824,6 +1992,7 @@ test "lambda semicolon" {
         \\    %3 = identifier("y") token_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[x;y]y;}",
@@ -1833,6 +2002,7 @@ test "lambda semicolon" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %5 = print(%1)
         \\})
     );
 
@@ -1844,6 +2014,7 @@ test "lambda semicolon" {
         \\    %4 = param_implicit(@z) token_offset:1:2 to :1:3
         \\    %5 = ret_implicit(@null) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]z;}",
@@ -1852,6 +2023,7 @@ test "lambda semicolon" {
         \\    %2 = identifier("z") token_offset:1:4 to :1:5
         \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %4 = print(%1)
         \\})
     );
     try testZir("{[x]z;}",
@@ -1861,6 +2033,7 @@ test "lambda semicolon" {
         \\    %3 = identifier("z") token_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[x;y]z;}",
@@ -1871,18 +2044,22 @@ test "lambda semicolon" {
         \\    %4 = identifier("z") token_offset:1:7 to :1:8
         \\    %5 = ret_implicit(@null) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %6 = print(%1)
         \\})
     );
 }
 
 test "expr block" {
     try testZir("[]",
-        \\%0 = file({})
+        \\%0 = file({
+        \\  %1 = print(@null)
+        \\})
     );
     try testZir("[1;2;3]",
         \\%0 = file({
         \\  %1 = long(2)
         \\  %2 = long(3)
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("{[][a:1;a*:2;a*:2]}",
@@ -1898,6 +2075,7 @@ test "expr block" {
         \\    %9 = apply(@assign, %2, %8) node_offset:1:14 to :1:18
         \\    %10 = ret_node(@null) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %11 = print(%1)
         \\})
     );
     try testZir("{[][a:1;a*:2;2*a*:2]}",
@@ -1915,6 +2093,7 @@ test "expr block" {
         \\    %11 = apply(@multiply, %10, %9) node_offset:1:14 to :1:20
         \\    %12 = ret_node(%11) node_offset:1:4 to :1:21
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %13 = print(%1)
         \\})
     );
     try testZir("{[][a:1;a*:2;a*2]}",
@@ -1929,6 +2108,7 @@ test "expr block" {
         \\    %8 = apply(@multiply, %2, %7) node_offset:1:14 to :1:17
         \\    %9 = ret_node(%8) node_offset:1:4 to :1:18
         \\  }) (lbrace=1:1,rbrace=1:18) node_offset:1:1 to :1:19
+        \\  %10 = print(%1)
         \\})
     );
     try testZir("{[][a:1;a*:2;a:a*2]}",
@@ -1944,6 +2124,7 @@ test "expr block" {
         \\    %9 = apply(@assign, %2, %8) node_offset:1:14 to :1:19
         \\    %10 = ret_node(%9) node_offset:1:4 to :1:20
         \\  }) (lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
+        \\  %11 = print(%1)
         \\})
     );
 }
@@ -1959,6 +2140,7 @@ test "return" {
         \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
         \\    %3 = ret_node(%2) node_offset:2:3 to :2:5
         \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
+        \\  %4 = print(%1)
         \\})
     );
     try testZir(
@@ -1971,6 +2153,7 @@ test "return" {
         \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
         \\    %3 = ret_implicit(@null) token_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
+        \\  %4 = print(%1)
         \\})
     );
 }
@@ -1980,18 +2163,21 @@ test "signal" {
         \\%0 = file({
         \\  %1 = sym("signal") token_offset:1:2 to :1:9
         \\  %2 = signal(%1) node_offset:1:1 to :1:9
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("'\"signal\"",
         \\%0 = file({
         \\  %1 = str("signal") token_offset:1:2 to :1:10
         \\  %2 = signal(%1) node_offset:1:1 to :1:10
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("'break",
         \\%0 = file({
         \\  %1 = identifier("break") token_offset:1:2 to :1:7
         \\  %2 = signal(%1) node_offset:1:1 to :1:7
+        \\  %3 = print(%2)
         \\})
     );
 }
@@ -2340,6 +2526,7 @@ test "lambda assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:7
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]x:x:1}",
@@ -2350,6 +2537,7 @@ test "lambda assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:9
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[](x):1}",
@@ -2359,6 +2547,7 @@ test "lambda assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:9
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](x):(x):1}",
@@ -2369,6 +2558,7 @@ test "lambda assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:13
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:13
         \\  }) (lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %6 = print(%1)
         \\})
     );
 
@@ -2379,6 +2569,7 @@ test "lambda assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[x;:[x;1]]}",
@@ -2389,6 +2580,7 @@ test "lambda assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:15
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:15
         \\  }) (lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]:[(x);1]}",
@@ -2398,6 +2590,7 @@ test "lambda assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
         \\  }) (lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[(x);:[(x);1]]}",
@@ -2408,6 +2601,7 @@ test "lambda assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:19
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %6 = print(%1)
         \\})
     );
 }
@@ -2420,6 +2614,7 @@ test "lambda global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:8
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]x::x::1}",
@@ -2430,6 +2625,7 @@ test "lambda global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:11
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:11
         \\  }) (lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[](x)::1}",
@@ -2439,6 +2635,7 @@ test "lambda global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](x)::(x)::1}",
@@ -2449,6 +2646,7 @@ test "lambda global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:15
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:15
         \\  }) (lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %6 = print(%1)
         \\})
     );
 
@@ -2459,6 +2657,7 @@ test "lambda global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:11
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:11
         \\  }) (lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[x;::[x;1]]}",
@@ -2469,6 +2668,7 @@ test "lambda global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:17
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:17
         \\  }) (lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]::[(x);1]}",
@@ -2478,6 +2678,7 @@ test "lambda global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:13
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:13
         \\  }) (lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[(x);::[(x);1]]}",
@@ -2488,6 +2689,7 @@ test "lambda global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:21
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:21
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %6 = print(%1)
         \\})
     );
 }
@@ -2500,6 +2702,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:9
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[].ns:.ns:1}",
@@ -2510,6 +2713,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:13
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:13
         \\  }) (lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[].ns.x:1}",
@@ -2519,6 +2723,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:11
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:11
         \\  }) (lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[].ns.x:.ns.x:1}",
@@ -2529,6 +2734,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:17
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:17
         \\  }) (lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[](.ns):1}",
@@ -2538,6 +2744,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:11
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:11
         \\  }) (lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](.ns):(.ns):1}",
@@ -2548,6 +2755,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:17
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:17
         \\  }) (lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[](.ns.x):1}",
@@ -2557,6 +2765,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:13
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:13
         \\  }) (lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](.ns.x):(.ns.x):1}",
@@ -2567,6 +2776,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:21
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:21
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %6 = print(%1)
         \\})
     );
 
@@ -2577,6 +2787,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
         \\  }) (lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[.ns;:[.ns;1]]}",
@@ -2587,6 +2798,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:19
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]:[.ns.x;1]}",
@@ -2596,6 +2808,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:14
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:14
         \\  }) (lbrace=1:1,rbrace=1:14) node_offset:1:1 to :1:15
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[.ns.x;:[.ns.x;1]]}",
@@ -2606,6 +2819,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:23
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:23
         \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]:[(.ns);1]}",
@@ -2615,6 +2829,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:14
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:14
         \\  }) (lbrace=1:1,rbrace=1:14) node_offset:1:1 to :1:15
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[(.ns);:[(.ns);1]]}",
@@ -2625,6 +2840,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:23
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:23
         \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]:[(.ns.x);1]}",
@@ -2634,6 +2850,7 @@ test "lambda namespace assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:16
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:16
         \\  }) (lbrace=1:1,rbrace=1:16) node_offset:1:1 to :1:17
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[(.ns.x);:[(.ns.x);1]]}",
@@ -2644,6 +2861,7 @@ test "lambda namespace assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:27
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:27
         \\  }) (lbrace=1:1,rbrace=1:27) node_offset:1:1 to :1:28
+        \\  %6 = print(%1)
         \\})
     );
 }
@@ -2656,6 +2874,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[].ns::.ns::1}",
@@ -2666,6 +2885,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:15
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:15
         \\  }) (lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[].ns.x::1}",
@@ -2675,6 +2895,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
         \\  }) (lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[].ns.x::.ns.x::1}",
@@ -2685,6 +2906,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:19
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[](.ns)::1}",
@@ -2694,6 +2916,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
         \\  }) (lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](.ns)::(.ns)::1}",
@@ -2704,6 +2927,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:19
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[](.ns.x)::1}",
@@ -2713,6 +2937,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:14
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:14
         \\  }) (lbrace=1:1,rbrace=1:14) node_offset:1:1 to :1:15
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](.ns.x)::(.ns.x)::1}",
@@ -2723,6 +2948,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:23
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:23
         \\  }) (lbrace=1:1,rbrace=1:23) node_offset:1:1 to :1:24
+        \\  %6 = print(%1)
         \\})
     );
 
@@ -2733,6 +2959,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:13
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:13
         \\  }) (lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[.ns;::[.ns;1]]}",
@@ -2743,6 +2970,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:21
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:21
         \\  }) (lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]::[.ns.x;1]}",
@@ -2752,6 +2980,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:15
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:15
         \\  }) (lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[.ns.x;::[.ns.x;1]]}",
@@ -2762,6 +2991,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:25
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:25
         \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]::[(.ns);1]}",
@@ -2771,6 +3001,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:15
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:15
         \\  }) (lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[(.ns);::[(.ns);1]]}",
@@ -2781,6 +3012,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:25
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:25
         \\  }) (lbrace=1:1,rbrace=1:25) node_offset:1:1 to :1:26
+        \\  %6 = print(%1)
         \\})
     );
     try testZir("{[]::[(.ns.x);1]}",
@@ -2790,6 +3022,7 @@ test "lambda namespace global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:17
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:17
         \\  }) (lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[(.ns.x);::[(.ns.x);1]]}",
@@ -2800,6 +3033,7 @@ test "lambda namespace global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:29
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:29
         \\  }) (lbrace=1:1,rbrace=1:29) node_offset:1:1 to :1:30
+        \\  %6 = print(%1)
         \\})
     );
 }
@@ -2884,6 +3118,7 @@ test "assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:7
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](x):1}",
@@ -2893,6 +3128,7 @@ test "assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:9
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[x;1]}",
@@ -2902,6 +3138,7 @@ test "assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](:)[x;1]}",
@@ -2911,6 +3148,7 @@ test "assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
         \\  }) (lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]:[(x);1]}",
@@ -2920,6 +3158,7 @@ test "assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
         \\  }) (lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](:)[(x);1]}",
@@ -2929,6 +3168,7 @@ test "assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:14
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:14
         \\  }) (lbrace=1:1,rbrace=1:14) node_offset:1:1 to :1:15
+        \\  %5 = print(%1)
         \\})
     );
 }
@@ -2978,6 +3218,7 @@ test "global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:8
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](x)::1}",
@@ -2987,6 +3228,7 @@ test "global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[x;1]}",
@@ -2996,6 +3238,7 @@ test "global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:11
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:11
         \\  }) (lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](::)[x;1]}",
@@ -3005,6 +3248,7 @@ test "global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:13
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:13
         \\  }) (lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[]::[(x);1]}",
@@ -3014,6 +3258,7 @@ test "global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:13
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:13
         \\  }) (lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{[](::)[(x);1]}",
@@ -3023,6 +3268,7 @@ test "global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:15
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:15
         \\  }) (lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %5 = print(%1)
         \\})
     );
 }
@@ -3238,6 +3484,7 @@ test "slash" {
         \\  %1 = apply(@over, @add) node_offset:1:2 to :1:4
         \\  %2 = identifier("a") token_offset:1:1 to :1:2
         \\  %3 = apply(%1, %2, .none) node_offset:1:1 to :1:4
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("a+/b",
@@ -3246,6 +3493,7 @@ test "slash" {
         \\  %2 = apply(@over, @add) node_offset:1:2 to :1:4
         \\  %3 = identifier("a") token_offset:1:1 to :1:2
         \\  %4 = apply(%2, %3, %1) node_offset:1:1 to :1:5
+        \\  %5 = print(%4)
         \\})
     );
     // TODO: Need to think about this:
@@ -3298,12 +3546,14 @@ test "call" {
         \\%0 = file({
         \\  %1 = identifier("f") token_offset:1:1 to :1:2
         \\  %2 = apply(%1, @null) node_offset:1:1 to :1:4
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("f[1]",
         \\%0 = file({
         \\  %1 = identifier("f") token_offset:1:1 to :1:2
         \\  %2 = apply(%1, @one) node_offset:1:1 to :1:5
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("f[1;2]",
@@ -3311,6 +3561,7 @@ test "call" {
         \\  %1 = long(2)
         \\  %2 = identifier("f") token_offset:1:1 to :1:2
         \\  %3 = apply(%2, @one, %1) node_offset:1:1 to :1:7
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("f[1;2;3]",
@@ -3319,12 +3570,14 @@ test "call" {
         \\  %2 = long(2)
         \\  %3 = identifier("f") token_offset:1:1 to :1:2
         \\  %4 = apply(%3, @one, %2, %1) node_offset:1:1 to :1:9
+        \\  %5 = print(%4)
         \\})
     );
 
     try testZir("()[]",
         \\%0 = file({
         \\  %1 = apply(@empty_list, @null) node_offset:1:1 to :1:5
+        \\  %2 = print(%1)
         \\})
     );
     try testZir("(first x)[]",
@@ -3333,6 +3586,7 @@ test "call" {
         \\  %2 = builtin("first") token_offset:1:2 to :1:7
         \\  %3 = apply(%2, %1) node_offset:1:2 to :1:9
         \\  %4 = apply(%3, @null) node_offset:1:1 to :1:12
+        \\  %5 = print(%4)
         \\})
     );
     try testZir("(` sv`.test`func)[]",
@@ -3342,6 +3596,7 @@ test "call" {
         \\  %3 = sym("") token_offset:1:2 to :1:3
         \\  %4 = apply(%2, %3, %1) node_offset:1:2 to :1:17
         \\  %5 = apply(%4, @null) node_offset:1:1 to :1:20
+        \\  %6 = print(%5)
         \\})
     );
 
@@ -3351,6 +3606,7 @@ test "call" {
         \\  %2 = identifier("f") token_offset:1:4 to :1:5
         \\  %3 = identifier("f") token_offset:1:6 to :1:7
         \\  %4 = apply(%3, @null) node_offset:1:1 to :1:10
+        \\  %5 = print(%4)
         \\})
     );
 }
@@ -3361,6 +3617,7 @@ test "apply unary" {
         \\  %1 = identifier("x") token_offset:1:3 to :1:4
         \\  %2 = identifier("f") token_offset:1:1 to :1:2
         \\  %3 = apply(%2, %1) node_offset:1:1 to :1:4
+        \\  %4 = print(%3)
         \\})
     );
 }
@@ -3370,6 +3627,7 @@ test "apply binary" {
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:1 to :1:2
         \\  %2 = apply(@add, %1, @one) node_offset:1:1 to :1:4
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("{[]x+1}",
@@ -3379,6 +3637,7 @@ test "apply binary" {
         \\    %3 = apply(@add, %2, @one) node_offset:1:4 to :1:7
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("x+2",
@@ -3386,6 +3645,7 @@ test "apply binary" {
         \\  %1 = long(2)
         \\  %2 = identifier("x") token_offset:1:1 to :1:2
         \\  %3 = apply(@add, %2, %1) node_offset:1:1 to :1:4
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("{[]x+2}",
@@ -3396,6 +3656,7 @@ test "apply binary" {
         \\    %4 = apply(@add, %3, %2) node_offset:1:4 to :1:7
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %6 = print(%1)
         \\})
     );
 }
@@ -3421,6 +3682,7 @@ test "symbol literal" {
     try testZir("`symbol123",
         \\%0 = file({
         \\  %1 = sym("symbol123") token_offset:1:1 to :1:11
+        \\  %2 = print(%1)
         \\})
     );
 }
@@ -3429,6 +3691,7 @@ test "symbol list literal" {
     try testZir("`abc`def",
         \\%0 = file({
         \\  %1 = sym_list("abc", "def") node_offset:1:1 to :1:9
+        \\  %2 = print(%1)
         \\})
     );
 }
@@ -3437,6 +3700,7 @@ test "identifier" {
     try testZir("a",
         \\%0 = file({
         \\  %1 = identifier("a") token_offset:1:1 to :1:2
+        \\  %2 = print(%1)
         \\})
     );
 }
@@ -3447,6 +3711,7 @@ test "builtin" {
         \\  %1 = identifier("x") token_offset:1:7 to :1:8
         \\  %2 = builtin("value") token_offset:1:1 to :1:6
         \\  %3 = apply(%2, %1) node_offset:1:1 to :1:8
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("value[x]",
@@ -3454,6 +3719,7 @@ test "builtin" {
         \\  %1 = identifier("x") token_offset:1:7 to :1:8
         \\  %2 = builtin("value") token_offset:1:1 to :1:6
         \\  %3 = apply(%2, %1) node_offset:1:1 to :1:9
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("x sv y",
@@ -3462,6 +3728,7 @@ test "builtin" {
         \\  %2 = builtin("sv") token_offset:1:3 to :1:5
         \\  %3 = identifier("x") token_offset:1:1 to :1:2
         \\  %4 = apply(%2, %3, %1) node_offset:1:1 to :1:7
+        \\  %5 = print(%4)
         \\})
     );
     try testZir("sv[x;y]",
@@ -3470,6 +3737,7 @@ test "builtin" {
         \\  %2 = identifier("x") token_offset:1:4 to :1:5
         \\  %3 = builtin("sv") token_offset:1:1 to :1:3
         \\  %4 = apply(%3, %2, %1) node_offset:1:1 to :1:8
+        \\  %5 = print(%4)
         \\})
     );
 }
@@ -3536,6 +3804,7 @@ test "too many parameters" {
         \\    %9 = param_node("h") node_offset:1:17 to :1:18
         \\    %10 = ret_implicit(@null) token_offset:1:19 to :1:20
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %11 = print(%1)
         \\})
     );
     try failZir("{[a;b;c;d;e;f;g;h;i]}",
@@ -3561,6 +3830,7 @@ test "declared after use / use of undeclared identifier" {
         \\    %5 = apply(@assign, %4, %3) node_offset:1:4 to :1:10
         \\    %6 = ret_node(%5) node_offset:1:4 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\  %7 = print(%1)
         \\})
     );
     try failZir("{[]a:a+1}",
@@ -3586,6 +3856,7 @@ test "declared after use / use of undeclared identifier" {
         \\    %5 = apply(@assign, %4, @one) node_offset:3:3 to :3:7
         \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
+        \\  %7 = print(%1)
         \\})
     );
     try failZir(
@@ -3613,6 +3884,7 @@ test "unused function parameter" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %4 = print(%1)
         \\})
     );
     try warnZir("{[x;y]}",
@@ -3628,6 +3900,7 @@ test "unused function parameter" {
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %5 = print(%1)
         \\})
     );
 }
@@ -3638,6 +3911,7 @@ test "unused implicit function parameter" {
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:3
+        \\  %3 = print(%1)
         \\})
     );
     try testZir("{x}",
@@ -3646,6 +3920,7 @@ test "unused implicit function parameter" {
         \\    %2 = param_implicit(@x) token_offset:1:2 to :1:3
         \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %4 = print(%1)
         \\})
     );
     try warnZir("{y}",
@@ -3661,6 +3936,7 @@ test "unused implicit function parameter" {
         \\    %3 = param_implicit(@y) token_offset:1:2 to :1:3
         \\    %4 = ret_node(%3) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{x+y}",
@@ -3671,6 +3947,7 @@ test "unused implicit function parameter" {
         \\    %4 = apply(@add, %2, %3) node_offset:1:2 to :1:5
         \\    %5 = ret_node(%4) node_offset:1:2 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %6 = print(%1)
         \\})
     );
     try warnZir("{z}",
@@ -3693,6 +3970,7 @@ test "unused implicit function parameter" {
         \\    %4 = param_implicit(@z) token_offset:1:2 to :1:3
         \\    %5 = ret_node(%4) node_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
+        \\  %6 = print(%1)
         \\})
     );
     try warnZir("{x+z}",
@@ -3710,6 +3988,7 @@ test "unused implicit function parameter" {
         \\    %5 = apply(@add, %2, %4) node_offset:1:2 to :1:5
         \\    %6 = ret_node(%5) node_offset:1:2 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %7 = print(%1)
         \\})
     );
     try warnZir("{y+z}",
@@ -3730,6 +4009,7 @@ test "unused implicit function parameter" {
         \\    %5 = apply(@add, %3, %4) node_offset:1:2 to :1:5
         \\    %6 = ret_node(%5) node_offset:1:2 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
+        \\  %7 = print(%1)
         \\})
     );
     try testZir("{x+y+z}",
@@ -3742,6 +4022,7 @@ test "unused implicit function parameter" {
         \\    %6 = apply(@add, %2, %5) node_offset:1:2 to :1:7
         \\    %7 = ret_node(%6) node_offset:1:2 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %8 = print(%1)
         \\})
     );
 }
@@ -3761,6 +4042,7 @@ test "unused local variable" {
         \\    %3 = apply(@assign, %2, @one) node_offset:2:3 to :2:6
         \\    %4 = ret_implicit(@null) token_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
+        \\  %5 = print(%1)
         \\})
     );
     try warnZir(
@@ -3780,6 +4062,7 @@ test "unused local variable" {
         \\    %5 = apply(@assign, %2, %4) node_offset:3:3 to :3:6
         \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
+        \\  %7 = print(%1)
         \\})
     );
     try warnZir(
@@ -3799,6 +4082,7 @@ test "unused local variable" {
         \\    %5 = apply(@assign, %2, %4) node_offset:3:3 to :3:6
         \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
+        \\  %7 = print(%1)
         \\})
     );
 }
@@ -3819,6 +4103,7 @@ test "redeclaration of function parameter" {
         \\    %2 = param_node("a") node_offset:1:3 to :1:4
         \\    %3 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
+        \\  %4 = print(%1)
         \\})
     );
     try warnZir("{[a;a]a}",
@@ -3833,6 +4118,7 @@ test "redeclaration of function parameter" {
         \\    %2 = param_node("a") node_offset:1:3 to :1:4
         \\    %3 = ret_node(%2) node_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
+        \\  %4 = print(%1)
         \\})
     );
 }
@@ -3885,6 +4171,7 @@ test "misleading global assign" {
         \\    %4 = apply(@assign, %2, %3) node_offset:1:4 to :1:10
         \\    %5 = ret_node(%4) node_offset:1:4 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
+        \\  %6 = print(%1)
         \\})
     );
     try warnZir("{[x]x::1}",
@@ -3900,6 +4187,7 @@ test "misleading global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:5 to :1:9
         \\    %4 = ret_node(%3) node_offset:1:5 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
+        \\  %5 = print(%1)
         \\})
     );
     // TODO: unused function parameter.
@@ -3916,6 +4204,7 @@ test "misleading global assign" {
         \\    %3 = apply(@assign, %2, @one) node_offset:1:2 to :1:6
         \\    %4 = ret_node(%3) node_offset:1:2 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
+        \\  %5 = print(%1)
         \\})
     );
     try warnZir(
@@ -3937,6 +4226,7 @@ test "misleading global assign" {
         \\    %4 = apply(@assign, %2, @one) node_offset:3:3 to :3:7
         \\    %5 = ret_implicit(@null) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
+        \\  %6 = print(%1)
         \\})
     );
 }
@@ -3958,6 +4248,7 @@ test "unreachable code" {
         \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
         \\    %3 = ret_node(@one) node_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:4) node_offset:1:1 to :1:2
+        \\  %4 = print(%1)
         \\})
     );
     try warnZir(
@@ -3977,6 +4268,7 @@ test "unreachable code" {
         \\    %3 = signal(%2) node_offset:2:3 to :2:9
         \\    %4 = ret_node(@one) node_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:4) node_offset:1:1 to :1:2
+        \\  %5 = print(%1)
         \\})
     );
     try warnZir(
@@ -3992,6 +4284,7 @@ test "unreachable code" {
         \\%0 = file({
         \\  %1 = identifier("break") token_offset:1:2 to :1:7
         \\  %2 = signal(%1) node_offset:1:1 to :1:7
+        \\  %3 = print(@one)
         \\})
     );
 }
