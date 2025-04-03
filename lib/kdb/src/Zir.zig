@@ -112,6 +112,10 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Block`.
         file,
 
+        /// TODO
+        print,
+        discard,
+
         /// Variable assignment.
         /// Uses the `node` union field.
         assign,
@@ -359,6 +363,8 @@ pub const Inst = struct {
         pub fn isNoReturn(tag: Tag) bool {
             return switch (tag) {
                 .file,
+                .print,
+                .discard,
                 .assign,
                 .add,
                 .subtract,
@@ -449,7 +455,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 71;
+        pub const static_len = @intFromEnum(Ref.nyi) + 1;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
