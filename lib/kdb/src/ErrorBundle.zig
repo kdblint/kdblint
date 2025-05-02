@@ -309,9 +309,9 @@ pub const Wip = struct {
     pub fn init(wip: *Wip, gpa: Allocator) !void {
         wip.* = .{
             .gpa = gpa,
-            .string_bytes = .{},
-            .extra = .{},
-            .root_list = .{},
+            .string_bytes = .empty,
+            .extra = .empty,
+            .root_list = .empty,
         };
 
         // So that 0 can be used to indicate a null string.
@@ -340,9 +340,9 @@ pub const Wip = struct {
             wip.deinit();
             wip.* = .{
                 .gpa = gpa,
-                .string_bytes = .{},
-                .extra = .{},
-                .root_list = .{},
+                .string_bytes = .empty,
+                .extra = .empty,
+                .root_list = .empty,
             };
             return empty;
         }
@@ -416,18 +416,14 @@ pub const Wip = struct {
             for (0..items_len) |_| {
                 const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
                 extra_index = item.end;
-                const err_span = blk: {
-                    if (item.data.node != 0) {
-                        break :blk tree.nodeToSpan(item.data.node);
-                    }
-                    const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
-                    const start = token_locs[item.data.token].start + item.data.byte_offset;
-                    const end = start + @as(u32, @intCast(tree.tokenLen(item.data.token))) - item.data.byte_offset;
-                    break :blk Ast.Span{
-                        .start = @intCast(start),
-                        .end = @intCast(end),
-                        .main = @intCast(start),
-                    };
+                const err_span: Ast.Span = blk: {
+                    if (item.data.node.unwrap()) |node| {
+                        break :blk tree.nodeToSpan(node);
+                    } else if (item.data.token.unwrap()) |token| {
+                        const start = tree.tokenStart(token) + item.data.byte_offset;
+                        const end = start + @as(u32, @intCast(tree.tokenLen(token))) - item.data.byte_offset;
+                        break :blk .{ .start = start, .end = end, .main = start };
+                    } else unreachable;
                 };
                 const err_loc = std.zig.findLineColumn(source, err_span.main);
 
@@ -456,18 +452,14 @@ pub const Wip = struct {
                     for (notes_start.., body) |note_i, body_elem| {
                         const note_item = zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
                         const msg = zir.nullTerminatedString(note_item.data.msg);
-                        const span = blk: {
-                            if (note_item.data.node != 0) {
-                                break :blk tree.nodeToSpan(note_item.data.node);
-                            }
-                            const token_locs = tree.tokens.items(.loc);
-                            const start = token_locs[note_item.data.token].start + note_item.data.byte_offset;
-                            const end = start + @as(u32, @intCast(tree.tokenLen(note_item.data.token))) - item.data.byte_offset;
-                            break :blk Ast.Span{
-                                .start = @intCast(start),
-                                .end = @intCast(end),
-                                .main = @intCast(start),
-                            };
+                        const span: Ast.Span = blk: {
+                            if (note_item.data.node.unwrap()) |node| {
+                                break :blk tree.nodeToSpan(node);
+                            } else if (note_item.data.token.unwrap()) |token| {
+                                const start = tree.tokenStart(token) + note_item.data.byte_offset;
+                                const end = start + @as(u32, @intCast(tree.tokenLen(token))) - item.data.byte_offset;
+                                break :blk .{ .start = start, .end = end, .main = start };
+                            } else unreachable;
                         };
                         const loc = std.zig.findLineColumn(source, span.main);
 

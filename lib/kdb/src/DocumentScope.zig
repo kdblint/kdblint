@@ -27,12 +27,12 @@ global_error_set: IdentifierSet = .empty,
 global_enum_set: IdentifierSet = .empty,
 
 /// Stores a set of identifier tokens with unique names
-pub const IdentifierSet = std.ArrayHashMapUnmanaged(Ast.Token.Index, void, IdentifierTokenContext, true);
+pub const IdentifierSet = std.ArrayHashMapUnmanaged(Ast.TokenIndex, void, IdentifierTokenContext, true);
 
 pub const IdentifierTokenContext = struct {
     tree: Ast,
 
-    pub fn eql(self: @This(), a: Ast.Token.Index, b: Ast.Token.Index, b_index: usize) bool {
+    pub fn eql(self: @This(), a: Ast.TokenIndex, b: Ast.TokenIndex, b_index: usize) bool {
         _ = b_index;
         if (a == b) return true;
         const a_name = self.tree.tokenSlice(a);
@@ -40,7 +40,7 @@ pub const IdentifierTokenContext = struct {
         return std.mem.eql(u8, a_name, b_name);
     }
 
-    pub fn hash(self: @This(), token: Ast.Token.Index) u32 {
+    pub fn hash(self: @This(), token: Ast.TokenIndex) u32 {
         const name = self.tree.tokenSlice(token);
         return std.array_hash_map.hashString(name);
     }
@@ -96,12 +96,12 @@ pub const Declaration = union(enum) {
         param_index: u16,
         func: Ast.Node.Index,
 
-        pub fn get(self: Param, tree: Ast) ?Ast.Token.Index {
+        pub fn get(self: Param, tree: Ast) ?Ast.TokenIndex {
             const lambda = tree.fullLambda(self.func);
             if (lambda.params) |p| {
                 const param = p.params[self.param_index];
-                assert(tree.nodes.items(.tag)[param] == .identifier);
-                return tree.nodes.items(.main_token)[param];
+                assert(tree.nodeTag(param) == .identifier);
+                return tree.nodeMainToken(param);
             } else return null;
         }
     };
@@ -158,10 +158,10 @@ pub const Declaration = union(enum) {
     }
 
     /// Returns a `.identifier` or `.builtin` token.
-    pub fn nameToken(decl: Declaration, tree: Ast) ?Ast.Token.Index {
+    pub fn nameToken(decl: Declaration, tree: Ast) Ast.TokenIndex {
         return switch (decl) {
-            .ast_node => |n| tree.nodes.items(.main_token)[n],
-            .function_parameter => |payload| payload.get(tree),
+            .ast_node => |n| tree.nodeMainToken(n),
+            .function_parameter => |payload| payload.get(tree).?,
             // .assign_destructure => |payload| {
             //     const var_decl_node = payload.getVarDeclNode(tree);
             //     const varDecl = tree.fullVarDecl(var_decl_node).?;
@@ -279,7 +279,7 @@ pub const ScopeContext = struct {
 
         pub fn pushDeclaration(
             pushed: PushedScope,
-            identifier_token: Ast.Token.Index,
+            identifier_token: Ast.TokenIndex,
             declaration: Declaration,
         ) error{OutOfMemory}!void {
             const name = pushed.context.tree.tokenSlice(identifier_token);
@@ -477,7 +477,7 @@ fn walkNodeEnsureScope(
     context: *ScopeContext,
     tree: Ast,
     node_idx: Ast.Node.Index,
-    start_token: Ast.Token.Index,
+    start_token: Ast.TokenIndex,
 ) error{OutOfMemory}!ScopeContext.PushedScope {
     assert(node_idx != 0);
     const tags = tree.nodes.items(.tag);
@@ -906,7 +906,7 @@ fn walkBlockNodeKeepOpen(
     context: *ScopeContext,
     tree: Ast,
     node_idx: Ast.Node.Index,
-    start_token: Ast.Token.Index,
+    start_token: Ast.TokenIndex,
 ) error{OutOfMemory}!ScopeContext.PushedScope {
     const node_tags = tree.nodes.items(.tag);
     const data = tree.nodes.items(.data);

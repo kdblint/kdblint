@@ -212,9 +212,9 @@ fn cmdAstCheck(
 
     var file: kdb.File = .{
         .sub_file_path = undefined,
-        .source = undefined,
-        .tree = undefined,
-        .zir = undefined,
+        .source = null,
+        .tree = null,
+        .zir = null,
     };
     if (kdb_source_file) |file_name| {
         var f = std.fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -234,7 +234,6 @@ fn cmdAstCheck(
 
         file.sub_file_path = file_name;
         file.source = source;
-        file.source_loaded = true;
     } else {
         const stdin = io.getStdIn();
         const source = std.zig.readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
@@ -242,32 +241,29 @@ fn cmdAstCheck(
         };
         file.sub_file_path = "<stdin>";
         file.source = source;
-        file.source_loaded = true;
     }
 
-    file.tree = try kdb.Ast.parse(gpa, file.source, .{
+    file.tree = try kdb.Ast.parse(gpa, file.source.?, .{
         .mode = if (mem.endsWith(u8, file.sub_file_path, ".k")) .k else .q,
         .version = .@"4.0",
     });
-    file.tree_loaded = true;
-    defer file.tree.deinit(gpa);
+    defer file.tree.?.deinit(gpa);
 
     var document_scope: DocumentScope = .{};
     defer document_scope.deinit(gpa);
     var context: DocumentScope.ScopeContext = .{
         .gpa = gpa,
-        .tree = file.tree,
+        .tree = file.tree.?,
         .doc_scope = &document_scope,
     };
     file.zir = try kdb.AstGen.generate(gpa, &context);
-    file.zir_loaded = true;
-    defer file.zir.deinit(gpa);
+    defer file.zir.?.deinit(gpa);
 
-    if (file.zir.hasCompileErrors()) {
-        try kdb.printZirErrorsToStderr(gpa, file.tree, file.zir, file.sub_file_path, color);
+    if (file.zir.?.hasCompileErrors()) {
+        try kdb.printZirErrorsToStderr(gpa, file.tree.?, file.zir.?, file.sub_file_path, color);
         process.exit(1);
-    } else if (file.zir.hasCompileWarnings()) {
-        try kdb.printZirErrorsToStderr(gpa, file.tree, file.zir, file.sub_file_path, color);
+    } else if (file.zir.?.hasCompileWarnings()) {
+        try kdb.printZirErrorsToStderr(gpa, file.tree.?, file.zir.?, file.sub_file_path, color);
     }
 
     if (!want_output_text) {
@@ -276,18 +272,18 @@ fn cmdAstCheck(
 
     {
         const token_bytes = @sizeOf(std.MultiArrayList(kdb.Ast.Token)) +
-            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(kdb.Ast.ByteOffset));
-        const tree_bytes = @sizeOf(kdb.Ast) + file.tree.nodes.len *
+            file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(kdb.Ast.ByteOffset));
+        const tree_bytes = @sizeOf(kdb.Ast) + file.tree.?.nodes.len *
             (@sizeOf(kdb.Ast.Node.Tag) +
                 @sizeOf(kdb.Ast.Node.Data) +
-                @sizeOf(kdb.Ast.Token.Index));
-        const instruction_bytes = file.zir.instructions.len *
+                @sizeOf(kdb.Ast.TokenIndex));
+        const instruction_bytes = file.zir.?.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.
             (@sizeOf(kdb.Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+        const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(kdb.Zir) + instruction_bytes + extra_bytes +
-            file.zir.string_bytes.len * @sizeOf(u8);
+            file.zir.?.string_bytes.len * @sizeOf(u8);
         const stdout = io.getStdOut();
         const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
@@ -301,13 +297,13 @@ fn cmdAstCheck(
             \\Extra data items  | {d} ({})
             \\
         , .{
-            fmtIntSizeBin(file.source.len),
-            file.tree.tokens.len, fmtIntSizeBin(token_bytes),
-            file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
+            fmtIntSizeBin(file.source.?.len),
+            file.tree.?.tokens.len, fmtIntSizeBin(token_bytes),
+            file.tree.?.nodes.len, fmtIntSizeBin(tree_bytes),
             fmtIntSizeBin(total_bytes),
-            file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.string_bytes.len),
-            file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+            file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
+            fmtIntSizeBin(file.zir.?.string_bytes.len),
+            file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
         });
         // zig fmt: on
     }

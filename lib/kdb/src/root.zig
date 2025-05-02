@@ -18,13 +18,10 @@ pub const DocumentScope = @import("DocumentScope.zig");
 pub const InternPool = @import("InternPool.zig");
 
 pub const File = struct {
-    source_loaded: bool = false,
-    tree_loaded: bool = false,
-    zir_loaded: bool = false,
     sub_file_path: []const u8,
-    source: [:0]const u8,
-    tree: Ast,
-    zir: Zir,
+    source: ?[:0]const u8,
+    tree: ?Ast,
+    zir: ?Zir,
 };
 
 pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {

@@ -67,7 +67,7 @@ const Builder = struct {
 
     fn add(
         self: *Builder,
-        token: Ast.Token.Index,
+        token: Ast.TokenIndex,
         token_type: TokenType,
         token_modifiers: TokenModifiers,
     ) !void {
@@ -187,13 +187,13 @@ const Builder = struct {
         self.source_index = loc.end;
     }
 
-    fn writeToken(builder: *Builder, token_idx: ?Ast.Token.Index, tok_type: TokenType) !void {
+    fn writeToken(builder: *Builder, token_idx: ?Ast.TokenIndex, tok_type: TokenType) !void {
         return try writeTokenMod(builder, token_idx, tok_type, .{});
     }
 
     fn writeTokenMod(
         builder: *Builder,
-        token_idx: ?Ast.Token.Index,
+        token_idx: ?Ast.TokenIndex,
         tok_type: TokenType,
         tok_mod: TokenModifiers,
     ) !void {
@@ -203,40 +203,34 @@ const Builder = struct {
     }
 
     fn writeNodeTokens(builder: *Builder, node: Ast.Node.Index) !void {
-        if (node == 0) return;
+        // TODO: Validate assertion.
+        assert(node != .root);
 
         const handle = builder.handle;
         const tree = handle.tree;
-        const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-        const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-        const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
 
-        const tag = node_tags[node];
-        const main_token = main_tokens[node];
+        const main_token = tree.nodeMainToken(node);
 
-        switch (tag) {
+        switch (tree.nodeTag(node)) {
             .root => unreachable,
 
             .empty => {},
 
-            .grouped_expression => try builder.writeNodeTokens(node_datas[node].lhs),
+            .grouped_expression => try builder.writeNodeTokens(tree.nodeData(node).node_and_token[0]),
 
             .empty_list => {},
 
             .list => {
-                const data = node_datas[node];
-                const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
-                const elems = tree.extra_data[sub_range.start..sub_range.end];
-                for (elems) |elem_node| try builder.writeNodeTokens(elem_node);
+                const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
+                for (nodes) |n| try builder.writeNodeTokens(n);
             },
 
             .table_literal => {
-                const data = node_datas[node];
-                const table = tree.extraData(data.lhs, Ast.Node.Table);
-                const keys = tree.extra_data[table.keys_start..table.keys_end];
-                for (keys) |key_node| try builder.writeNodeTokens(key_node);
-                const columns = tree.extra_data[table.columns_start..table.columns_end];
-                for (columns) |column_node| try builder.writeNodeTokens(column_node);
+                const table = tree.extraData(tree.nodeData(node).extra_and_token[0], Ast.Node.Table);
+                const keys = tree.extraDataSlice(.{ .start = table.keys_start, .end = table.keys_end }, Ast.Node.Index);
+                for (keys) |key| try builder.writeNodeTokens(key);
+                const columns = tree.extraDataSlice(.{ .start = table.columns_start, .end = table.columns_end }, Ast.Node.Index);
+                for (columns) |column| try builder.writeNodeTokens(column);
             },
 
             .lambda,
@@ -249,12 +243,8 @@ const Builder = struct {
             },
 
             .expr_block => {
-                const data = node_datas[node];
-                if (data.lhs != 0) {
-                    const sub_range = tree.extraData(data.lhs, Ast.Node.SubRange);
-                    const nodes = tree.extra_data[sub_range.start..sub_range.end];
-                    for (nodes) |block_node| try builder.writeNodeTokens(block_node);
-                }
+                const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
+                for (nodes) |n| try builder.writeNodeTokens(n);
             },
 
             .colon,
@@ -314,15 +304,16 @@ const Builder = struct {
             .backslash,
             .backslash_colon,
             => {
-                try builder.writeNodeTokens(node_datas[node].lhs);
+                if (tree.nodeData(node).opt_node.unwrap()) |n| try builder.writeNodeTokens(n);
                 try builder.writeToken(main_token, .operator);
             },
 
             .call => {
-                const call = tree.fullCall(node);
-                switch (node_tags[call.func]) {
+                const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
+                const func_node = nodes[0];
+                switch (tree.nodeTag(func_node)) {
                     .identifier => {
-                        const ident_token = main_tokens[call.func];
+                        const ident_token = tree.nodeMainToken(func_node);
                         const ident_bytes = tree.tokenSlice(ident_token);
                         if (std.mem.eql(u8, ident_bytes, "do") or
                             std.mem.eql(u8, ident_bytes, "if") or
@@ -330,39 +321,39 @@ const Builder = struct {
                         {
                             try builder.writeToken(ident_token, .keyword);
                         } else {
-                            try builder.writeNodeTokens(call.func);
+                            try builder.writeNodeTokens(func_node);
                         }
                     },
-                    else => try builder.writeNodeTokens(call.func),
+                    else => try builder.writeNodeTokens(func_node),
                 }
-                for (call.args) |arg_node| try builder.writeNodeTokens(arg_node);
+                for (nodes[1..]) |arg_node| try builder.writeNodeTokens(arg_node);
             },
 
             .apply_unary => {
-                const data = node_datas[node];
-                try builder.writeNodeTokens(data.lhs);
-                try builder.writeNodeTokens(data.rhs);
+                const data = tree.nodeData(node).node_and_node;
+                try builder.writeNodeTokens(data[0]);
+                try builder.writeNodeTokens(data[1]);
             },
 
             .apply_binary => {
-                const data = node_datas[node];
-                try builder.writeNodeTokens(data.lhs);
-                try builder.writeNodeTokens(main_token);
-                if (data.rhs != 0) try builder.writeNodeTokens(data.rhs);
+                const data = tree.nodeData(node).node_and_opt_node;
+                try builder.writeNodeTokens(data[0]);
+                try builder.writeNodeTokens(@enumFromInt(main_token));
+                if (data[1].unwrap()) |n| try builder.writeNodeTokens(n);
             },
 
             .number_literal => try builder.writeToken(main_token, .number),
 
-            .number_list_literal => for (main_token..node_datas[node].lhs + 1) |literal_token| {
-                try builder.writeToken(@intCast(literal_token), .number);
+            .number_list_literal => for (main_token..tree.nodeData(node).token + 1) |token| {
+                try builder.writeToken(@intCast(token), .number);
             },
 
             .string_literal => try builder.writeToken(main_token, .string),
 
             .symbol_literal => try builder.writeToken(main_token, .symbol),
 
-            .symbol_list_literal => for (main_token..node_datas[node].lhs + 1) |literal_token| {
-                try builder.writeToken(@intCast(literal_token), .symbol);
+            .symbol_list_literal => for (main_token..tree.nodeData(node).token + 1) |token| {
+                try builder.writeToken(@intCast(token), .symbol);
             },
 
             .identifier => try builder.writeIdentifier(main_token),
@@ -470,7 +461,7 @@ const Builder = struct {
         }
     }
 
-    fn writeIdentifier(builder: *Builder, token: Ast.Token.Index) !void {
+    fn writeIdentifier(builder: *Builder, token: Ast.TokenIndex) !void {
         const handle = builder.handle;
         const tree = handle.tree;
 
@@ -538,7 +529,7 @@ pub fn writeSemanticTokens(
     };
 
     var nodes = if (loc) |l| try ast.nodesAtLoc(arena, handle.tree, l) else handle.tree.getBlocks();
-    if (nodes.len == 1 and nodes[0] == 0) {
+    if (nodes.len == 1 and nodes[0] == .root) {
         nodes = handle.tree.getBlocks();
     }
 

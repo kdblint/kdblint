@@ -54,9 +54,17 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Inst.Index,
             NullTerminatedString,
             Inst.CompileErrors.Kind,
+            // Ast.TokenIndex is missing because it is a u32.
+            Ast.OptionalTokenIndex,
+            Ast.Node.Index,
+            Ast.Node.OptionalIndex,
             => @enumFromInt(code.extra[i]),
 
-            i32 => @bitCast(code.extra[i]),
+            Ast.TokenOffset,
+            Ast.OptionalTokenOffset,
+            Ast.Node.Offset,
+            Ast.Node.OptionalOffset,
+            => @enumFromInt(@as(i32, @bitCast(code.extra[i]))),
 
             else => |t| @compileError("bad field type: " ++ @typeName(t)),
         };
@@ -590,21 +598,21 @@ pub const Inst = struct {
         /// Used for unary operators, with an AST node source location.
         un_node: struct {
             /// Offset from Decl AST node index.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
         },
         /// Used for unary operators, with a token source location.
         un_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: Ast.Token.Index,
+            src_tok: Ast.TokenOffset,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
         },
         pl_node: struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
@@ -613,7 +621,7 @@ pub const Inst = struct {
             /// Offset into `string_bytes`. Null-terminated.
             start: NullTerminatedString,
             /// Offset from Decl AST node index.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
 
             pub fn get(self: @This(), code: Zir) [:0]const u8 {
                 return code.nullTerminatedString(self.start);
@@ -623,14 +631,16 @@ pub const Inst = struct {
             /// Offset into `string_bytes`. Null-terminated.
             start: NullTerminatedString,
             /// Offset from Decl AST token index.
-            src_tok: u32,
+            src_tok: Ast.TokenOffset,
 
             pub fn get(self: @This(), code: Zir) [:0]const u8 {
                 return code.nullTerminatedString(self.start);
             }
         },
+        /// Offset from Decl AST token index.
+        tok: Ast.TokenOffset,
         /// Offset from Decl AST node index.
-        node: i32,
+        node: Ast.Node.Offset,
         byte: u8,
         short: i16,
         int: i32,
@@ -745,9 +755,9 @@ pub const Inst = struct {
         pub const Item = struct {
             /// null terminated string index
             msg: NullTerminatedString,
-            node: Ast.Node.Index,
-            /// If node is 0 then this will be populated.
-            token: Ast.Token.Index,
+            node: Ast.Node.OptionalIndex,
+            /// If node is .none then this will be populated.
+            token: Ast.OptionalTokenIndex,
             /// Can be used in combination with `token`.
             byte_offset: u32,
             /// 0 or a payload index of a `Block`, each is a payload
@@ -785,7 +795,7 @@ pub const Inst = struct {
             /// null terminated string index
             name: NullTerminatedString,
             /// points to the import name
-            token: Ast.Token.Index,
+            token: Ast.TokenIndex,
         };
     };
 };
