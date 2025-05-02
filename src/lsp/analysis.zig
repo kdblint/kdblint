@@ -3647,7 +3647,7 @@ pub fn getPositionContext(
 }
 
 pub const TokenWithHandle = struct {
-    token: Ast.Token.Index,
+    token: Ast.TokenIndex,
     handle: *DocumentStore.Handle,
 };
 
@@ -3660,7 +3660,7 @@ pub const DeclWithHandle = struct {
     }
 
     /// Returns a `.identifier` or `.builtin` token.
-    pub fn nameToken(self: DeclWithHandle) ?Ast.Token.Index {
+    pub fn nameToken(self: DeclWithHandle) ?Ast.TokenIndex {
         return self.decl.nameToken(self.handle.tree);
     }
 

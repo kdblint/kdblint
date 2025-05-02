@@ -24,9 +24,9 @@ pub fn renderAsText(
         .gpa = gpa,
         .arena = arena.allocator(),
         .file = scope_file,
-        .code = scope_file.zir,
+        .code = scope_file.zir.?,
         .indent = 0,
-        .parent_decl_node = 0,
+        .parent_decl_node = .root,
         .recurse_blocks = true,
     };
 
@@ -38,18 +38,18 @@ pub fn renderAsText(
     try writer.writeInstToStream(stream, inst);
     try stream.writeAll("\n");
 
-    const imports_index = scope_file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+    const imports_index = scope_file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
         try stream.writeAll("Imports:\n");
 
-        const extra = scope_file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = scope_file.zir.?.extraData(Zir.Inst.Imports, imports_index);
         var extra_index = extra.end;
 
         for (0..extra.data.imports_len) |_| {
-            const item = scope_file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = scope_file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = scope_file.zir.nullTerminatedString(item.data.name);
+            const import_path = scope_file.zir.?.nullTerminatedString(item.data.name);
             try stream.print("  @import(\"{}\") ", .{
                 std.zig.fmtEscapes(import_path),
             });
@@ -451,7 +451,7 @@ const Writer = struct {
                 src_locs.rbrace_line + 1, @as(u16, @truncate(src_locs.columns >> 16)) + 1,
             });
         }
-        try self.writeSrcNode(stream, 0);
+        try self.writeSrcNode(stream, .zero);
     }
 
     fn writePlNodeDo(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -499,10 +499,9 @@ const Writer = struct {
         return stream.print("%{d}", .{@intFromEnum(inst)});
     }
 
-    fn writeSrcNode(self: *Writer, stream: anytype, src_node: i32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
-        const abs_node = self.relativeToNodeIndex(src_node);
+    fn writeSrcNode(self: *Writer, stream: anytype, src_node: Ast.Node.Offset) !void {
+        const tree = self.file.tree orelse return;
+        const abs_node = src_node.toAbsolute(self.parent_decl_node);
         const src_span = tree.nodeToSpan(abs_node);
         const start = self.line_col_cursor.find(tree.source, src_span.start);
         const end = self.line_col_cursor.find(tree.source, src_span.end);
@@ -512,25 +511,25 @@ const Writer = struct {
         });
     }
 
-    fn writeSrcTok(self: *Writer, stream: anytype, src_tok: u32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
-        const abs_tok = tree.firstToken(self.parent_decl_node) + src_tok;
-        const span_loc = tree.tokens.items(.loc)[abs_tok];
-        const start = self.line_col_cursor.find(tree.source, span_loc.start);
-        const end = self.line_col_cursor.find(tree.source, span_loc.end);
+    fn writeSrcTok(self: *Writer, stream: anytype, src_tok: Ast.TokenOffset) !void {
+        const tree = self.file.tree orelse return;
+        const abs_tok = src_tok.toAbsolute(tree.firstToken(self.parent_decl_node));
+        const span_start = tree.tokenStart(abs_tok);
+        const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(abs_tok).len));
+        const start = self.line_col_cursor.find(tree.source, span_start);
+        const end = self.line_col_cursor.find(tree.source, span_end);
         try stream.print("token_offset:{d}:{d} to :{d}:{d}", .{
             start.line + 1, start.column + 1,
             end.line + 1,   end.column + 1,
         });
     }
 
-    fn writeSrcTokAbs(self: *Writer, stream: anytype, src_tok: u32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
-        const span_loc = tree.tokens.items(.loc)[src_tok];
-        const start = self.line_col_cursor.find(tree.source, span_loc.start);
-        const end = self.line_col_cursor.find(tree.source, span_loc.end);
+    fn writeSrcTokAbs(self: *Writer, stream: anytype, src_tok: Ast.TokenIndex) !void {
+        const tree = self.file.tree orelse return;
+        const span_start = tree.tokenStart(src_tok);
+        const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(src_tok).len));
+        const start = self.line_col_cursor.find(tree.source, span_start);
+        const end = self.line_col_cursor.find(tree.source, span_end);
         try stream.print("token_abs:{d}:{d} to :{d}:{d}", .{
             start.line + 1, start.column + 1,
             end.line + 1,   end.column + 1,
@@ -616,9 +615,6 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     }
 
     var file: kdb.File = .{
-        .source_loaded = true,
-        .tree_loaded = true,
-        .zir_loaded = true,
         .sub_file_path = "test",
         .source = source,
         .tree = tree,
@@ -683,9 +679,6 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     try error_bundle.renderToWriter(.{ .ttyconf = .no_color }, output.writer());
 
     var file: kdb.File = .{
-        .source_loaded = true,
-        .tree_loaded = true,
-        .zir_loaded = true,
         .sub_file_path = "test",
         .source = source,
         .tree = tree,

@@ -40,27 +40,27 @@ pub fn maybePositionToIndex(text: []const u8, position: types.Position, encoding
     return line_start_index + line_byte_length;
 }
 
-pub fn tokenToIndex(tree: Ast, token_index: Ast.Token.Index) usize {
+pub fn tokenToIndex(tree: Ast, token_index: Ast.TokenIndex) usize {
     return tree.tokens.items(.loc)[token_index].start;
 }
 
-pub fn tokensToLoc(tree: Ast, first_token: Ast.Token.Index, last_token: Ast.Token.Index) Loc {
+pub fn tokensToLoc(tree: Ast, first_token: Ast.TokenIndex, last_token: Ast.TokenIndex) Loc {
     return .{
         .start = tokenToIndex(tree, first_token),
         .end = tokenToLoc(tree, last_token).end,
     };
 }
 
-pub fn tokenToLoc(tree: Ast, token_index: Ast.Token.Index) Loc {
+pub fn tokenToLoc(tree: Ast, token_index: Ast.TokenIndex) Loc {
     return tree.tokens.items(.loc)[token_index];
 }
 
-pub fn tokenToPosition(tree: Ast, token_index: Ast.Token.Index, encoding: Encoding) types.Position {
+pub fn tokenToPosition(tree: Ast, token_index: Ast.TokenIndex, encoding: Encoding) types.Position {
     const start = tokenToIndex(tree, token_index);
     return indexToPosition(tree.source, start, encoding);
 }
 
-pub fn tokenToRange(tree: Ast, token_index: Ast.Token.Index, encoding: Encoding) types.Range {
+pub fn tokenToRange(tree: Ast, token_index: Ast.TokenIndex, encoding: Encoding) types.Range {
     const loc = tokenToLoc(tree, token_index);
     const start = indexToPosition(tree.source, loc.start, encoding);
     const end = indexToPosition(tree.source, loc.end, encoding);
@@ -237,6 +237,120 @@ pub fn orderPosition(a: types.Position, b: types.Position) std.math.Order {
     return std.math.order(a.character, b.character);
 }
 
+/// More efficient conversion functions that operate on multiple elements.
+pub const multiple = struct {
+    /// a mapping from a source index to a line character pair
+    pub const IndexToPositionMapping = struct {
+        output: *types.Position,
+        source_index: usize,
+
+        fn lessThan(_: void, lhs: IndexToPositionMapping, rhs: IndexToPositionMapping) bool {
+            return lhs.source_index < rhs.source_index;
+        }
+    };
+
+    pub fn indexToPositionWithMappings(
+        text: []const u8,
+        mappings: []IndexToPositionMapping,
+        encoding: Encoding,
+    ) void {
+        std.mem.sort(IndexToPositionMapping, mappings, {}, IndexToPositionMapping.lessThan);
+
+        var last_index: usize = 0;
+        var last_position: types.Position = .{ .line = 0, .character = 0 };
+        for (mappings) |mapping| {
+            const index = mapping.source_index;
+            const position = advancePosition(text, last_position, last_index, index, encoding);
+            defer last_index = index;
+            defer last_position = position;
+
+            mapping.output.* = position;
+        }
+    }
+
+    pub fn indexToPosition(
+        allocator: std.mem.Allocator,
+        text: []const u8,
+        source_indices: []const usize,
+        result_positions: []types.Position,
+        encoding: Encoding,
+    ) error{OutOfMemory}!void {
+        std.debug.assert(source_indices.len == result_positions.len);
+
+        // one mapping for every start and end position
+        const mappings = try allocator.alloc(IndexToPositionMapping, source_indices.len);
+        defer allocator.free(mappings);
+
+        for (mappings, source_indices, result_positions) |*mapping, index, *position| {
+            mapping.* = .{ .output = position, .source_index = index };
+        }
+
+        indexToPositionWithMappings(text, mappings, encoding);
+    }
+
+    test "indexToPosition" {
+        const text =
+            \\hello
+            \\world
+        ;
+
+        const source_indices: []const usize = &.{ 3, 9, 6, 0 };
+        var result_positions: [4]types.Position = undefined;
+        try multiple.indexToPosition(std.testing.allocator, text, source_indices, &result_positions, .@"utf-16");
+
+        try std.testing.expectEqualSlices(types.Position, &.{
+            .{ .line = 0, .character = 3 },
+            .{ .line = 1, .character = 3 },
+            .{ .line = 1, .character = 0 },
+            .{ .line = 0, .character = 0 },
+        }, &result_positions);
+    }
+
+    pub fn locToRange(
+        allocator: std.mem.Allocator,
+        text: []const u8,
+        locs: []const Loc,
+        ranges: []types.Range,
+        encoding: Encoding,
+    ) error{OutOfMemory}!void {
+        std.debug.assert(locs.len == ranges.len);
+
+        // one mapping for every start and end position
+        var mappings = try allocator.alloc(IndexToPositionMapping, locs.len * 2);
+        defer allocator.free(mappings);
+
+        for (locs, ranges, 0..) |loc, *range, i| {
+            mappings[2 * i + 0] = .{ .output = &range.start, .source_index = loc.start };
+            mappings[2 * i + 1] = .{ .output = &range.end, .source_index = loc.end };
+        }
+
+        indexToPositionWithMappings(text, mappings, encoding);
+    }
+
+    test "locToRange" {
+        const text =
+            \\hello
+            \\world
+        ;
+
+        const locs: []const Loc = &.{
+            .{ .start = 3, .end = 9 },
+            .{ .start = 6, .end = 0 },
+        };
+        var result_ranges: [2]types.Range = undefined;
+        try multiple.locToRange(std.testing.allocator, text, locs, &result_ranges, .@"utf-16");
+
+        try std.testing.expectEqualSlices(types.Range, &.{
+            .{ .start = .{ .line = 0, .character = 3 }, .end = .{ .line = 1, .character = 3 } },
+            .{ .start = .{ .line = 1, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+        }, &result_ranges);
+    }
+};
+
+comptime {
+    std.testing.refAllDecls(multiple);
+}
+
 pub fn convertPositionEncoding(
     text: []const u8,
     position: types.Position,
@@ -274,7 +388,7 @@ pub fn positionToIndex(text: []const u8, position: types.Position, encoding: Enc
     return line_start_index + line_byte_length;
 }
 
-pub fn sourceIndexToTokenIndex(tree: Ast, source_index: usize) Ast.Token.Index {
+pub fn sourceIndexToTokenIndex(tree: Ast, source_index: usize) Ast.TokenIndex {
     assert(source_index <= tree.source.len);
 
     const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
@@ -284,8 +398,8 @@ pub fn sourceIndexToTokenIndex(tree: Ast, source_index: usize) Ast.Token.Index {
     // dividing overruns the cost of iterating and vice versa
     const threshold = 336;
 
-    var upper_index: Ast.Token.Index = @intCast(token_locs.len - 1); // The Ast always has a .eof token
-    var lower_index: Ast.Token.Index = 0;
+    var upper_index: Ast.TokenIndex = @intCast(token_locs.len - 1); // The Ast always has a .eof token
+    var lower_index: Ast.TokenIndex = 0;
     while (upper_index - lower_index > threshold) {
         const mid = lower_index + (upper_index - lower_index) / 2;
         if (token_locs[mid].start < source_index) {

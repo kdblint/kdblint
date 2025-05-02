@@ -1450,28 +1450,24 @@ fn iterateChildrenTypeErased(
     context: *const anyopaque,
     callback: *const fn (*const anyopaque, Ast, Ast.Node.Index) anyerror!void,
 ) anyerror!void {
-    const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-    const node_datas: []Ast.Node.Data = tree.nodes.items(.data);
-
-    const tag = node_tags[node];
-    switch (tag) {
+    switch (tree.nodeTag(node)) {
         .root => for (tree.getBlocks()) |child| try callback(context, tree, child),
         .empty => {},
 
-        .grouped_expression => try callback(context, tree, node_datas[node].lhs),
+        .grouped_expression => try callback(context, tree, tree.nodeData(node).node_and_token[0]),
         .empty_list => {},
         .list => {
-            const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
-            for (tree.extra_data[sub_range.start..sub_range.end]) |child| try callback(context, tree, child);
+            const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
+            for (nodes) |n| try callback(context, tree, n);
         },
         .table_literal => {
-            const table = tree.extraData(node_datas[node].lhs, Ast.Node.Table);
+            const table = tree.extraData(tree.nodeData(node).extra_and_token[0], Ast.Node.Table);
 
-            const keys = tree.extra_data[table.keys_start..table.keys_end];
-            for (keys) |child| try callback(context, tree, child);
+            const keys = tree.extraDataSlice(.{ .start = table.keys_start, .end = table.keys_end }, Ast.Node.Index);
+            for (keys) |key| try callback(context, tree, key);
 
-            const columns = tree.extra_data[table.columns_start..table.columns_end];
-            for (columns) |child| try callback(context, tree, child);
+            const columns = tree.extraDataSlice(.{ .start = table.columns_start, .end = table.columns_end }, Ast.Node.Index);
+            for (columns) |column| try callback(context, tree, column);
         },
 
         .lambda,
@@ -1485,9 +1481,9 @@ fn iterateChildrenTypeErased(
             for (lambda.body) |child| try callback(context, tree, child);
         },
 
-        .expr_block => if (node_datas[node].lhs != 0) {
-            const sub_range = tree.extraData(node_datas[node].lhs, Ast.Node.SubRange);
-            for (tree.extra_data[sub_range.start..sub_range.end]) |child| try callback(context, tree, child);
+        .expr_block => {
+            const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
+            for (nodes) |n| try callback(context, tree, n);
         },
 
         .apostrophe,
@@ -1496,25 +1492,26 @@ fn iterateChildrenTypeErased(
         .slash_colon,
         .backslash,
         .backslash_colon,
-        => if (node_datas[node].lhs != 0) try callback(context, tree, node_datas[node].lhs),
+        => if (tree.nodeData(node).opt_node.unwrap()) |n| try callback(context, tree, n),
 
         .call,
         => {
-            const call = tree.fullCall(node);
-            try callback(context, tree, call.func);
-            for (call.args) |child| try callback(context, tree, child);
+            const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
+            for (nodes) |n| try callback(context, tree, n);
         },
 
         .apply_unary,
         => {
-            try callback(context, tree, node_datas[node].lhs);
-            try callback(context, tree, node_datas[node].rhs);
+            const data = tree.nodeData(node).node_and_node;
+            try callback(context, tree, data[0]);
+            try callback(context, tree, data[1]);
         },
 
         .apply_binary,
         => {
-            try callback(context, tree, node_datas[node].lhs);
-            if (node_datas[node].rhs != 0) try callback(context, tree, node_datas[node].rhs);
+            const data = tree.nodeData(node).node_and_opt_node;
+            try callback(context, tree, data[0]);
+            if (data[1].unwrap()) |n| try callback(context, tree, n);
         },
 
         else => {},
@@ -1532,7 +1529,7 @@ pub fn iterateChildrenRecursive(
 ) Error!void {
     const RecursiveContext = struct {
         fn recursive_callback(ctx: *const anyopaque, ast: Ast, child_node: Ast.Node.Index) anyerror!void {
-            if (child_node == 0) return;
+            if (child_node == .root) return;
             try callback(@as(*const @TypeOf(context), @alignCast(@ptrCast(ctx))).*, ast, child_node);
             try iterateChildrenTypeErased(ast, child_node, ctx, recursive_callback);
         }
@@ -1622,7 +1619,7 @@ pub fn nodesAtLoc(allocator: Allocator, tree: Ast, loc: offsets.Loc) error{OutOf
         locs: std.ArrayListUnmanaged(offsets.Loc) = .{},
 
         pub fn append(self: *@This(), ast: Ast, node: Ast.Node.Index) !void {
-            if (node == 0) return;
+            if (node == .root) return;
             try self.nodes.append(self.allocator, node);
             try self.locs.append(self.allocator, offsets.nodeToLoc(ast, node));
         }
@@ -1633,7 +1630,7 @@ pub fn nodesAtLoc(allocator: Allocator, tree: Ast, loc: offsets.Loc) error{OutOf
 
     try context.nodes.ensureTotalCapacity(allocator, 32);
 
-    var parent: Ast.Node.Index = 0; // root node
+    var parent: Ast.Node.Index = .root;
     while (true) {
         try iterateChildren(
             tree,

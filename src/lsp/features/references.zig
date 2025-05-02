@@ -87,7 +87,7 @@ const Builder = struct {
         self.locations.deinit(self.allocator);
     }
 
-    fn add(self: *Builder, handle: *DocumentStore.Handle, token_index: Ast.Token.Index) error{OutOfMemory}!void {
+    fn add(self: *Builder, handle: *DocumentStore.Handle, token_index: Ast.TokenIndex) error{OutOfMemory}!void {
         if (self.decl_handle.handle == handle and
             self.decl_handle.nameToken() == token_index)
         {
@@ -113,25 +113,20 @@ const Builder = struct {
         const builder = self.builder;
         const handle = self.handle;
 
-        const node_tags: []Ast.Node.Tag = tree.nodes.items(.tag);
-        const main_tokens: []Ast.Token.Index = tree.nodes.items(.main_token);
-        const token_locs: []Ast.Token.Loc = tree.tokens.items(.loc);
-
-        const tag = node_tags[node];
-        switch (tag) {
+        switch (tree.nodeTag(node)) {
             .identifier,
             => {
-                const name_token = main_tokens[node];
-                const name = tree.tokenSlice(name_token);
+                const ident_token = tree.nodeMainToken(node);
+                const ident_bytes = tree.tokenSlice(ident_token);
 
                 const child = try builder.analyser.lookupSymbolGlobal(
                     handle,
-                    name,
-                    token_locs[name_token].start,
+                    ident_bytes,
+                    tree.tokenStart(ident_token),
                 ) orelse return;
 
                 if (builder.decl_handle.eql(child)) {
-                    try builder.add(handle, name_token);
+                    try builder.add(handle, ident_token);
                 }
             },
             else => {},
@@ -177,7 +172,7 @@ fn gatherReferences(
             .get_or_load => analyser.store.getOrLoadHandle(uri),
         } orelse continue;
 
-        try builder.collectReferences(handle, 0);
+        try builder.collectReferences(handle, .root);
     }
 }
 
@@ -208,7 +203,7 @@ fn symbolReferences(
 
     switch (decl_handle.decl) {
         .ast_node => {
-            try builder.collectReferences(curr_handle, 0);
+            try builder.collectReferences(curr_handle, .root);
 
             const source_index = offsets.tokenToIndex(
                 decl_handle.handle.tree,

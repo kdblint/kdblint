@@ -12,9 +12,6 @@ pub const Token = struct {
         end: usize,
     };
 
-    // pub const Index = enum(u32) { _ };
-    pub const Index = u32;
-
     const keywords = std.StaticStringMap(Tag).initComptime(.{
         .{ "select", .keyword_select },
         .{ "exec", .keyword_exec },

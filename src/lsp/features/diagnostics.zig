@@ -119,7 +119,7 @@ fn collectParseDiagnostics(tree: Ast, eb: *ErrorBundle.Wip) error{OutOfMemory}!v
 fn errorBundleSourceLocationFromToken(
     tree: Ast,
     eb: *ErrorBundle.Wip,
-    token: Ast.Token.Index,
+    token: Ast.TokenIndex,
 ) error{OutOfMemory}!ErrorBundle.SourceLocationIndex {
     const loc = offsets.tokenToLoc(tree, token);
     const pos = offsets.indexToPosition(tree.source, loc.start, .@"utf-8");
