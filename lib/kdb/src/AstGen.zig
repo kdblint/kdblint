@@ -1590,11 +1590,16 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
         .lambda,
         => {},
 
-        .colon => {
+        .colon => if (parent_scope.lambda()) |_| {
             const rhs_ref, scope = try expr(gz, scope, rhs);
             const ref = try gz.addUnNode(.ret_node, rhs_ref, src_node);
             return .{ ref, scope };
-        },
+        } else return failNode(
+            astgen,
+            lhs,
+            "return outside function scope",
+            .{},
+        ),
 
         .apostrophe => {
             const rhs_ref, scope = try expr(gz, scope, rhs);
