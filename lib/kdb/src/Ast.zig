@@ -176,7 +176,6 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast
         .scratch = .empty,
         .tok_i = 0,
         .eob = false,
-        .within_fn = false,
         .ends_expr = .empty,
     };
     defer parser.errors.deinit(gpa);
@@ -2559,7 +2558,6 @@ test "table literals" {
         },
         &.{ .table_literal, .identifier, .apply_binary, .plus, .builtin, .apply_unary, .identifier },
     );
-    if (true) return error.SkipZigTest;
     try testAst(
         "([]sum[a]+b)",
         &.{
@@ -2807,14 +2805,7 @@ test "operators" {
 }
 
 test "return" {
-    try failAstMode(
-        .q,
-        ":1",
-        &.{ .colon, .number_literal },
-        &.{.cannot_apply_operator_directly},
-    );
-    try testAstMode(
-        .k,
+    try testAst(
         ":1",
         &.{ .colon, .number_literal },
         &.{ .colon, .apply_unary, .number_literal },

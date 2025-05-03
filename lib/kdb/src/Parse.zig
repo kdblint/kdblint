@@ -8,7 +8,6 @@ source: []const u8,
 tokens: Ast.TokenList.Slice,
 tok_i: TokenIndex,
 eob: bool,
-within_fn: bool,
 ends_expr: std.ArrayListUnmanaged(Token.Tag),
 errors: std.ArrayListUnmanaged(AstError),
 nodes: Ast.NodeList,
@@ -154,16 +153,12 @@ fn tokenSlice(p: *Parse, token_index: TokenIndex) []const u8 {
 fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
     assert(lhs != .root);
     assert(rhs != .root);
-    const node_tags: []Node.Tag = p.nodes.items(.tag);
-    const node_datas: []Node.Data = p.nodes.items(.data);
-    const main_tokens: []TokenIndex = p.nodes.items(.main_token);
-    const token_tags: []Token.Tag = p.tokens.items(.tag);
 
-    const tag = node_tags[@intFromEnum(lhs)];
+    const tag = p.nodeTag(lhs);
     switch (tag.getType()) {
         // Fail if we are applying a unary operator directly in q.
         .unary_operator => if (p.mode == .q and
-            (!p.within_fn or tag != .colon or switch (token_tags[main_tokens[@intFromEnum(lhs)] - 1]) {
+            (tag != .colon or (p.nodeMainToken(lhs) > 0 and switch (p.tokenTag(p.nodeMainToken(lhs) - 1)) {
                 .l_paren,
                 .l_brace,
                 .l_bracket,
@@ -171,19 +166,19 @@ fn validateUnaryApplication(p: *Parse, lhs: Node.Index, rhs: Node.Index) !void {
                 .semicolon,
                 => false,
                 else => true,
-            }))
+            })))
         {
             return p.warnMsg(.{
                 .tag = .cannot_apply_operator_directly,
-                .token = main_tokens[@intFromEnum(lhs)],
+                .token = p.nodeMainToken(lhs),
             });
         },
 
         // Fail if we are applying an iterator directly in q.
-        .iterator => if (p.mode == .q and (tag != .apostrophe or node_datas[@intFromEnum(lhs)].opt_node != .none)) {
+        .iterator => if (p.mode == .q and (tag != .apostrophe or p.nodeData(lhs).opt_node != .none)) {
             return p.warnMsg(.{
                 .tag = .cannot_apply_iterator_directly,
-                .token = main_tokens[@intFromEnum(lhs)],
+                .token = p.nodeMainToken(lhs),
             });
         },
 
@@ -693,10 +688,6 @@ fn parseLambda(p: *Parse) !Node.Index {
         _ = try p.expectToken(.r_bracket);
         assert(p.ends_expr.pop() == .r_bracket);
     }
-
-    const prev_within_fn = p.within_fn;
-    defer p.within_fn = prev_within_fn;
-    p.within_fn = true;
 
     const body_top = p.scratch.items.len;
     while (true) {
