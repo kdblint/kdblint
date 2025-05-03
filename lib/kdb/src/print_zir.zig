@@ -3346,6 +3346,11 @@ test "colon" {
         \\  %4 = print(%1)
         \\})
     );
+    try failZir("{(:)1}",
+        \\test:1:2: error: return should not be surrounded by parentheses
+        \\{(:)1}
+        \\ ^~~
+    );
     try testZir("{a:1}",
         \\%0 = file({
         \\  %1 = lambda({
