@@ -269,8 +269,6 @@ fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
             }, .warn);
         }
 
-        std.log.debug("done {}", .{tree.lastToken(node)});
-
         if (ref.toIndex()) |inst| {
             if (astgen.instructions.items(.tag)[@intFromEnum(inst)] == .apply) {
                 const data: Zir.Inst.Data = astgen.instructions.items(.data)[@intFromEnum(inst)];
@@ -1582,7 +1580,14 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
     const lhs, const rhs = tree.nodeData(src_node).node_and_node;
 
     switch (tree.nodeTag(lhs)) {
-        .grouped_expression => {},
+        .grouped_expression => switch (tree.nodeTag(tree.unwrapGroupedExpr(lhs))) {
+            .colon => return astgen.failNode(
+                lhs,
+                "return should not be surrounded by parentheses",
+                .{},
+            ),
+            else => {},
+        },
         .empty_list => {},
         .list => {},
         .table_literal => {},
@@ -1594,8 +1599,7 @@ fn applyUnary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inner
             const rhs_ref, scope = try expr(gz, scope, rhs);
             const ref = try gz.addUnNode(.ret_node, rhs_ref, src_node);
             return .{ ref, scope };
-        } else return failNode(
-            astgen,
+        } else return astgen.failNode(
             lhs,
             "return outside function scope",
             .{},
