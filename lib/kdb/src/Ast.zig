@@ -6169,6 +6169,218 @@ test "normalize empty lines" {
     );
 }
 
+test "rewrite expressions to reduce parens" {
+    if (true) return error.SkipZigTest;
+    try testAstRender(
+        \\(((a)))
+    ,
+        \\a
+    ,
+        &.{ .l_paren, .l_paren, .l_paren, .identifier, .r_paren, .r_paren, .r_paren },
+        &.{ .grouped_expression, .grouped_expression, .grouped_expression, .identifier },
+    );
+    try testAst(
+        \\(lower@)a
+    ,
+        &.{ .l_paren, .prefix_builtin, .at, .r_paren, .identifier },
+        &.{ .grouped_expression, .builtin, .apply_binary, .at, .apply_unary, .identifier },
+    );
+    try testAst(
+        \\(string lower@)a
+    ,
+        &.{ .l_paren, .prefix_builtin, .prefix_builtin, .at, .r_paren, .identifier },
+        &.{
+            .grouped_expression, .builtin, .apply_unary, .builtin, .apply_binary, .at, .apply_unary, .identifier,
+        },
+    );
+    try testAst(
+        \\(lower@)each a
+    ,
+        &.{ .l_paren, .prefix_builtin, .at, .r_paren, .infix_builtin, .identifier },
+        &.{ .grouped_expression, .builtin, .apply_binary, .at, .apply_binary, .builtin, .identifier },
+    );
+    try testAst(
+        \\(string lower@)each a
+    ,
+        &.{ .l_paren, .prefix_builtin, .prefix_builtin, .at, .r_paren, .infix_builtin, .identifier },
+        &.{
+            .grouped_expression, .builtin,      .apply_unary, .builtin,    .apply_binary,
+            .at,                 .apply_binary, .builtin,     .identifier,
+        },
+    );
+    try testAst(
+        \\(" "vs')a
+    ,
+        &.{ .l_paren, .string_literal, .infix_builtin, .apostrophe, .r_paren, .identifier },
+        &.{
+            .grouped_expression, .string_literal, .apply_binary, .builtin, .apostrophe, .apply_unary, .identifier,
+        },
+    );
+    try testAst(
+        \\(" "vs')each a
+    ,
+        &.{
+            .l_paren, .string_literal, .infix_builtin, .apostrophe, .r_paren, .infix_builtin, .identifier,
+        },
+        &.{
+            .grouped_expression, .string_literal, .apply_binary, .builtin,
+            .apostrophe,         .apply_binary,   .builtin,      .identifier,
+        },
+    );
+    try testAstRender(
+        \\(((a),'(b)),'(c))
+    ,
+        \\(a,'b),'c
+    ,
+        &.{
+            .l_paren, .l_paren, .l_paren, .identifier, .r_paren, .comma,      .apostrophe, .l_paren, .identifier,
+            .r_paren, .r_paren, .comma,   .apostrophe, .l_paren, .identifier, .r_paren,    .r_paren,
+        },
+        &.{
+            .grouped_expression, .grouped_expression, .grouped_expression, .identifier,   .apply_binary, .comma,
+            .apostrophe,         .grouped_expression, .identifier,         .apply_binary, .comma,        .apostrophe,
+            .grouped_expression, .identifier,
+        },
+    );
+    try testAstRender(
+        \\((a),'((b),'(c)))
+    ,
+        \\a,'b,'c
+    ,
+        &.{
+            .l_paren, .l_paren, .identifier, .r_paren, .comma,      .apostrophe, .l_paren, .l_paren, .identifier,
+            .r_paren, .comma,   .apostrophe, .l_paren, .identifier, .r_paren,    .r_paren, .r_paren,
+        },
+        &.{
+            .grouped_expression, .grouped_expression, .identifier, .apply_binary, .comma, .apostrophe,
+            .grouped_expression, .grouped_expression, .identifier, .apply_binary, .comma, .apostrophe,
+            .grouped_expression, .identifier,
+        },
+    );
+    try testAstRender(
+        \\((string`int$`date$execTime),'(value3)),'(value4)
+    ,
+        \\((string`int$`date$execTime),'value3),'value4
+    ,
+        &.{
+            .l_paren,    .l_paren, .prefix_builtin, .symbol_literal, .dollar,     .symbol_literal, .dollar,
+            .identifier, .r_paren, .comma,          .apostrophe,     .l_paren,    .identifier,     .r_paren,
+            .r_paren,    .comma,   .apostrophe,     .l_paren,        .identifier, .r_paren,
+        },
+        &.{
+            .grouped_expression, .grouped_expression, .builtin,            .apply_unary, .symbol_literal, .apply_binary,
+            .dollar,             .symbol_literal,     .apply_binary,       .dollar,      .identifier,     .apply_binary,
+            .comma,              .apostrophe,         .grouped_expression, .identifier,  .apply_binary,   .comma,
+            .apostrophe,         .grouped_expression, .identifier,
+        },
+    );
+    try testAstRender(
+        \\(string`int$`date$execTime),'(value3),'(value4)
+    ,
+        \\(string`int$`date$execTime),'value3,'value4
+    ,
+        &.{
+            .l_paren,    .prefix_builtin, .symbol_literal, .dollar,     .symbol_literal, .dollar, .identifier, .r_paren,
+            .comma,      .apostrophe,     .l_paren,        .identifier, .r_paren,        .comma,  .apostrophe, .l_paren,
+            .identifier, .r_paren,
+        },
+        &.{
+            .grouped_expression, .builtin,            .apply_unary, .symbol_literal, .apply_binary, .dollar,
+            .symbol_literal,     .apply_binary,       .dollar,      .identifier,     .apply_binary, .comma,
+            .apostrophe,         .grouped_expression, .identifier,  .apply_binary,   .comma,        .apostrophe,
+            .grouped_expression, .identifier,
+        },
+    );
+    try testAstRender(
+        \\{(((a)))}
+    ,
+        \\{a}
+    ,
+        &.{
+            .l_brace, .l_paren, .l_paren, .l_paren, .identifier, .r_paren, .r_paren, .r_paren, .r_brace,
+        },
+        &.{ .lambda, .grouped_expression, .grouped_expression, .grouped_expression, .identifier },
+    );
+    try testAstRender(
+        \\{(((a),'(b)),'(c))}
+    ,
+        \\{(a,'b),'c}
+    ,
+        &.{
+            .l_brace,    .l_paren, .l_paren, .l_paren, .identifier, .r_paren, .comma,      .apostrophe, .l_paren,
+            .identifier, .r_paren, .r_paren, .comma,   .apostrophe, .l_paren, .identifier, .r_paren,    .r_paren,
+            .r_brace,
+        },
+        &.{
+            .lambda,     .grouped_expression, .grouped_expression, .grouped_expression, .identifier,   .apply_binary,
+            .comma,      .apostrophe,         .grouped_expression, .identifier,         .apply_binary, .comma,
+            .apostrophe, .grouped_expression, .identifier,
+        },
+    );
+    try testAstRender(
+        \\{((a),'((b),'(c)))}
+    ,
+        \\{a,'b,'c}
+    ,
+        &.{
+            .l_brace,    .l_paren, .l_paren, .identifier, .r_paren, .comma,      .apostrophe, .l_paren, .l_paren,
+            .identifier, .r_paren, .comma,   .apostrophe, .l_paren, .identifier, .r_paren,    .r_paren, .r_paren,
+            .r_brace,
+        },
+        &.{
+            .lambda,     .grouped_expression, .grouped_expression, .identifier, .apply_binary, .comma,
+            .apostrophe, .grouped_expression, .grouped_expression, .identifier, .apply_binary, .comma,
+            .apostrophe, .grouped_expression, .identifier,
+        },
+    );
+    try testAstRender(
+        \\((((a)));(((a))))
+    ,
+        \\(a;a)
+    ,
+        &.{
+            .l_paren, .l_paren, .l_paren, .l_paren,    .identifier, .r_paren, .r_paren, .r_paren, .semicolon,
+            .l_paren, .l_paren, .l_paren, .identifier, .r_paren,    .r_paren, .r_paren, .r_paren,
+        },
+        &.{
+            .list,               .grouped_expression, .grouped_expression, .grouped_expression, .identifier,
+            .grouped_expression, .grouped_expression, .grouped_expression, .identifier,
+        },
+    );
+    try testAstRender(
+        \\((((a),'(b)),'(c));)
+    ,
+        \\((a,'b),'c;)
+    ,
+        &.{
+            .l_paren,    .l_paren, .l_paren, .l_paren, .identifier, .r_paren, .comma,      .apostrophe, .l_paren,
+            .identifier, .r_paren, .r_paren, .comma,   .apostrophe, .l_paren, .identifier, .r_paren,    .r_paren,
+            .semicolon,  .r_paren,
+        },
+        &.{
+            .list,       .grouped_expression, .grouped_expression, .grouped_expression, .identifier,   .apply_binary,
+            .comma,      .apostrophe,         .grouped_expression, .identifier,         .apply_binary, .comma,
+            .apostrophe, .grouped_expression, .identifier,         .empty,
+        },
+    );
+    try testAstRender(
+        \\(((a),'((b),'(c)));)
+    ,
+        \\(a,'b,'c;)
+    ,
+        &.{
+            .l_paren,    .l_paren,   .l_paren, .identifier, .r_paren, .comma,      .apostrophe, .l_paren, .l_paren,
+            .identifier, .r_paren,   .comma,   .apostrophe, .l_paren, .identifier, .r_paren,    .r_paren, .r_paren,
+            .r_brace,    .semicolon, .r_paren,
+        },
+        &.{
+            .list,       .grouped_expression, .grouped_expression, .identifier, .apply_binary, .comma,
+            .apostrophe, .grouped_expression, .grouped_expression, .identifier, .apply_binary, .comma,
+            .apostrophe, .grouped_expression, .identifier,         .empty,
+        },
+    );
+}
+
 fn testRender(file_path: []const u8) !void {
     const gpa = std.testing.allocator;
 
