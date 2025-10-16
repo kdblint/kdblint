@@ -12,9 +12,10 @@ pub fn build(b: *std.Build) !void {
     const kdb = b.dependency("kdb", .{});
     const kdb_module = kdb.module("kdb");
 
-    const zls = b.dependency("zls", .{});
+    const zls = b.dependency("zls", .{
+        .@"version-string" = "0.1.0",
+    });
     const zls_module = zls.module("zls");
-    const tracy_module = zls.module("tracy");
 
     const known_folders = zls.builder.dependency("known_folders", .{});
     const known_folders_module = known_folders.module("known-folders");
@@ -24,16 +25,15 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    exe_mod.addImport("kdb", kdb_module);
+    exe_mod.addImport("zls", zls_module);
+    exe_mod.addImport("known_folders", known_folders_module);
+    exe_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
         .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
         .root_module = exe_mod,
     });
-    exe.root_module.addImport("kdb", kdb_module);
-    exe.root_module.addImport("zls", zls_module);
-    exe.root_module.addImport("tracy", tracy_module);
-    exe.root_module.addImport("known_folders", known_folders_module);
-    exe.root_module.addOptions("build_options", options);
 
     const install_exe = b.addInstallArtifact(exe, .{
         .dest_dir = .{
@@ -72,21 +72,10 @@ pub fn build(b: *std.Build) !void {
         .root_module = exe_mod,
         .filters = test_filters,
     });
-    unit_tests.root_module.addImport("kdb", kdb_module);
-    unit_tests.root_module.addImport("zls", zls_module);
-    unit_tests.root_module.addImport("tracy", tracy_module);
-    unit_tests.root_module.addImport("known_folders", known_folders_module);
-    unit_tests.root_module.addOptions("build_options", options);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    const kdb_unit_tests = @import("kdb").addTest(
-        kdb.builder,
-        kdb_module,
-        target,
-        optimize,
-        test_filters,
-    );
+    const kdb_unit_tests = @import("kdb").addTest(kdb.builder, kdb_module, test_filters);
 
     const run_kdb_unit_tests = b.addRunArtifact(kdb_unit_tests);
 
@@ -148,7 +137,7 @@ fn getOptions(b: *std.Build) !*std.Build.Step.Options {
 
                 const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
                 if (kdblint_version.order(ancestor_ver) != .gt) {
-                    std.debug.print("kdblint version '{}' must be greater than tagged ancestor '{}'\n", .{
+                    std.debug.print("kdblint version '{f}' must be greater than tagged ancestor '{f}'\n", .{
                         kdblint_version, ancestor_ver,
                     });
                     std.process.exit(1);

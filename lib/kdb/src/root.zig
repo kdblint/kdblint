@@ -8,7 +8,6 @@ pub const Ast = @import("Ast.zig");
 pub const AstGen = @import("AstGen.zig");
 pub const ErrorBundle = @import("ErrorBundle.zig");
 pub const Parse = @import("Parse.zig");
-pub const render = @import("render.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const Zir = @import("Zir.zig");

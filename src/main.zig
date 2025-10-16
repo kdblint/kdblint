@@ -1,9 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const io = std.io;
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const process = std.process;
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const zls = @import("zls");
 const Color = std.zig.Color;
@@ -17,21 +14,51 @@ const Server = @import("lsp/Server.zig");
 
 const log = std.log.scoped(.main);
 
+const usage =
+    \\Usage: kdblint [command] [options]
+    \\
+    \\Commands:
+    \\
+    \\  lsp         Run language server
+    \\  ast-check   Look for simple compile errors in any set of files
+    \\  fmt         Reformat kdb+ source into canonical form
+    \\
+    \\  help        Print this help and exit
+    \\  version     Print version number and exit
+    \\
+    \\Options:
+    \\
+    \\  -h, --help  Print command-specific usage
+    \\
+;
+
 pub const std_options: std.Options = .{
+    .wasiCwd = wasi_cwd,
     // Always set this to debug to make std.log call into our handler, then control the runtime
     // value in logFn itself
     .log_level = .debug,
     .logFn = logFn,
 };
 
-var log_transport: ?zls.lsp.AnyTransport = null;
+var wasi_preopens: std.fs.wasi.Preopens = undefined;
+pub fn wasi_cwd() std.os.wasi.fd_t {
+    // Expect the first preopen to be current working directory.
+    const cwd_fd: std.posix.fd_t = 3;
+    assert(std.mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
+    return cwd_fd;
+}
+
+/// Log messages with the LSP 'window/logMessage' message.
+var log_transport: ?*zls.lsp.Transport = null;
+/// Log messages to stderr.
 var log_stderr: bool = true;
-var log_level: std.log.Level = if (builtin.mode == .Debug) .debug else .info;
+/// Log messages to the given file.
 var log_file: ?std.fs.File = null;
+var log_level: std.log.Level = if (builtin.mode == .Debug) .debug else .info;
 
 fn logFn(
     comptime level: std.log.Level,
-    comptime scope: @TypeOf(.enum_literal),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -60,322 +87,36 @@ fn logFn(
     };
     const scope_txt: []const u8 = comptime @tagName(scope);
 
-    var fbs = std.io.fixedBufferStream(&buffer);
+    var writer: std.Io.Writer = .fixed(&buffer);
     const no_space_left = blk: {
-        fbs.writer().print("{s} ({s:^6}): ", .{ level_txt, scope_txt }) catch break :blk true;
-        fbs.writer().print(format, args) catch break :blk true;
-        fbs.writer().writeByte('\n') catch break :blk true;
+        writer.print("{s} ({s:^6}): ", .{ level_txt, scope_txt }) catch break :blk true;
+        writer.print(format, args) catch break :blk true;
+        writer.writeByte('\n') catch break :blk true;
         break :blk false;
     };
     if (no_space_left) {
-        buffer[buffer.len - 4 ..][0..4].* = "...\n".*;
+        const trailing = "...\n".*;
+        writer.undo(trailing.len -| writer.unusedCapacityLen());
+        (writer.writableArray(trailing.len) catch unreachable).* = trailing;
     }
 
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
 
     if (log_stderr) {
-        std.io.getStdErr().writeAll(fbs.getWritten()) catch {};
+        var stderr_writer = std.fs.File.stderr().writer(&.{});
+        stderr_writer.interface.writeAll(writer.buffered()) catch {};
     }
 
     if (log_file) |file| {
+        var log_writer = file.writerStreaming(&.{});
         file.seekFromEnd(0) catch {};
-        file.writeAll(fbs.getWritten()) catch {};
-    }
-}
-
-pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    process.exit(1);
-}
-
-const usage =
-    \\Usage: kdblint [command] [options]
-    \\
-    \\Commands:
-    \\
-    \\  lsp         Run language server
-    \\  ast-check   Look for simple compile errors in any set of files
-    \\  fmt         Reformat kdb+ source into canonical form
-    \\
-    \\  help        Print this help and exit
-    \\  version     Print version number and exit
-    \\
-    \\Options:
-    \\
-    \\  -h, --help  Print command-specific usage
-    \\
-;
-
-var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{
-    .stack_trace_frames = switch (builtin.mode) {
-        .Debug => 10,
-        else => 0,
-    },
-}) = .{};
-
-pub fn main() !void {
-    const gpa = gpa: {
-        if (builtin.os.tag == .wasi) break :gpa std.heap.wasm_allocator;
-        break :gpa general_purpose_allocator.allocator();
-    };
-    defer _ = general_purpose_allocator.deinit();
-    var arena_instance: std.heap.ArenaAllocator = .init(gpa);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
-    const args = try process.argsAlloc(arena);
-
-    return mainArgs(gpa, arena, args);
-}
-
-fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    if (args.len <= 1) {
-        std.log.info("{s}", .{usage});
-        fatal("expected command argument", .{});
-    }
-
-    const cmd = args[1];
-    const cmd_args = args[2..];
-    if (mem.eql(u8, cmd, "lsp")) {
-        return cmdLsp(gpa, args[0], cmd_args);
-    } else if (mem.eql(u8, cmd, "ast-check")) {
-        return cmdAstCheck(gpa, arena, cmd_args);
-    } else if (mem.eql(u8, cmd, "fmt")) {
-        return @import("fmt.zig").run(gpa, arena, cmd_args);
-    } else if (mem.eql(u8, cmd, "version")) {
-        return io.getStdOut().writeAll(build_options.version_string ++ "\n");
-    } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
-        return io.getStdOut().writeAll(usage);
-    } else {
-        try io.getStdOut().writeAll(usage ++ "\n");
-        fatal("unknown command: {s}", .{cmd});
-    }
-}
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}
-
-const usage_ast_check =
-    \\Usage: kdblint ast-check [file]
-    \\
-    \\    Given a .k/.q source file, reports any compile errors that can be
-    \\    ascertained on the basis of the source code alone.
-    \\
-    \\    If [file] is omitted, stdin is used.
-    \\
-    \\Options:
-    \\
-    \\  -h, --help            Print this help and exit
-    \\  --color [auto|off|on] Enable or disable colored error messages
-    \\  -t                    Output IR in text form to stdout
-    \\
-;
-
-fn cmdAstCheck(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
-    var color: Color = .auto;
-    var want_output_text = false;
-    var kdb_source_file: ?[]const u8 = null;
-
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (mem.startsWith(u8, arg, "-")) {
-            if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                try io.getStdOut().writeAll(usage_ast_check);
-                return process.cleanExit();
-            } else if (mem.eql(u8, arg, "-t")) {
-                want_output_text = true;
-            } else if (mem.eql(u8, arg, "--color")) {
-                if (i + 1 >= args.len) {
-                    fatal("expected [auto|on|off] after --color", .{});
-                }
-                i += 1;
-                const next_arg = args[i];
-                color = std.meta.stringToEnum(Color, next_arg) orelse {
-                    fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
-                };
-            } else {
-                fatal("unrecognized parameter: '{s}'", .{arg});
-            }
-        } else if (kdb_source_file == null) {
-            kdb_source_file = arg;
-        } else {
-            fatal("extra positional parameter: '{s}'", .{arg});
-        }
-    }
-
-    var file: kdb.File = .{
-        .sub_file_path = undefined,
-        .source = null,
-        .tree = null,
-        .zir = null,
-    };
-    if (kdb_source_file) |file_name| {
-        var f = std.fs.cwd().openFile(file_name, .{}) catch |err| {
-            fatal("unable to open file for ast-check '{s}': {s}", .{ file_name, @errorName(err) });
-        };
-        defer f.close();
-
-        const stat = try f.stat();
-
-        if (stat.size > std.zig.max_src_size)
-            return error.FileTooBig;
-
-        const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
-        const amt = try f.readAll(source);
-        if (amt != stat.size)
-            return error.UnexpectedEndOfFile;
-
-        file.sub_file_path = file_name;
-        file.source = source;
-    } else {
-        const stdin = io.getStdIn();
-        const source = std.zig.readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
-            fatal("unable to read stdin: {}", .{err});
-        };
-        file.sub_file_path = "<stdin>";
-        file.source = source;
-    }
-
-    file.tree = try kdb.Ast.parse(gpa, file.source.?, .{
-        .mode = if (mem.endsWith(u8, file.sub_file_path, ".k")) .k else .q,
-        .version = .@"4.0",
-    });
-    defer file.tree.?.deinit(gpa);
-
-    var document_scope: DocumentScope = .{};
-    defer document_scope.deinit(gpa);
-    var context: DocumentScope.ScopeContext = .{
-        .gpa = gpa,
-        .tree = file.tree.?,
-        .doc_scope = &document_scope,
-    };
-    file.zir = try kdb.AstGen.generate(gpa, &context);
-    defer file.zir.?.deinit(gpa);
-
-    if (file.zir.?.hasCompileErrors()) {
-        try kdb.printZirErrorsToStderr(gpa, file.tree.?, file.zir.?, file.sub_file_path, color);
-        process.exit(1);
-    } else if (file.zir.?.hasCompileWarnings()) {
-        try kdb.printZirErrorsToStderr(gpa, file.tree.?, file.zir.?, file.sub_file_path, color);
-    }
-
-    if (!want_output_text) {
-        return process.cleanExit();
-    }
-
-    {
-        const token_bytes = @sizeOf(std.MultiArrayList(kdb.Ast.Token)) +
-            file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(kdb.Ast.ByteOffset));
-        const tree_bytes = @sizeOf(kdb.Ast) + file.tree.?.nodes.len *
-            (@sizeOf(kdb.Ast.Node.Tag) +
-                @sizeOf(kdb.Ast.Node.Data) +
-                @sizeOf(kdb.Ast.TokenIndex));
-        const instruction_bytes = file.zir.?.instructions.len *
-            // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
-            // the debug safety tag but we want to measure release size.
-            (@sizeOf(kdb.Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
-        const total_bytes = @sizeOf(kdb.Zir) + instruction_bytes + extra_bytes +
-            file.zir.?.string_bytes.len * @sizeOf(u8);
-        const stdout = io.getStdOut();
-        const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
-        // zig fmt: off
-        try stdout.writer().print(
-            \\Source bytes      | {}
-            \\Tokens            | {} ({})
-            \\AST nodes         | {} ({})
-            \\Total IR bytes    | {}
-            \\Instructions      | {d} ({})
-            \\String table bytes| {}
-            \\Extra data items  | {d} ({})
-            \\
-        , .{
-            fmtIntSizeBin(file.source.?.len),
-            file.tree.?.tokens.len, fmtIntSizeBin(token_bytes),
-            file.tree.?.nodes.len, fmtIntSizeBin(tree_bytes),
-            fmtIntSizeBin(total_bytes),
-            file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.?.string_bytes.len),
-            file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
-        });
-        // zig fmt: on
-    }
-
-    return kdb.print_zir.renderAsText(gpa, &file, io.getStdOut());
-}
-
-const usage_lsp =
-    \\Usage: kdblint lsp
-    \\
-    \\  Runs the language server.
-    \\
-    \\Options:
-    \\
-    \\  -h, --help                  Print this help and exit
-    \\
-;
-
-fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (mem.startsWith(u8, arg, "-")) {
-            if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                try std.io.getStdOut().writeAll(usage_lsp);
-                return process.cleanExit();
-            } else {
-                fatal("unrecognized parameter: '{s}'", .{arg});
-            }
-        } else {
-            fatal("extra positional parameter: '{s}'", .{arg});
-        }
-    }
-
-    if (std.io.getStdIn().isTty()) {
-        std.log.warn("Running kdblint in LSP mode is not a CLI tool, it communicates over the Language Server Protocol.", .{});
-    }
-
-    log_file, const log_file_path = createLogFile(gpa, null) orelse .{ null, null };
-    defer if (log_file_path) |path| gpa.free(path);
-    defer if (log_file) |file| {
-        file.close();
-        log_file = null;
-    };
-    log_stderr = false;
-
-    var transport: zls.lsp.ThreadSafeTransport(.{
-        .ChildTransport = zls.lsp.TransportOverStdio,
-        .thread_safe_read = false,
-        .thread_safe_write = true,
-    }) = .{ .child_transport = .init(std.io.getStdIn(), std.io.getStdOut()) };
-
-    log_transport = transport.any();
-
-    log.info("Starting kdblint {s} @ '{s}'", .{ build_options.version_string, binary });
-    log.info("Log file: {?s} ({s})", .{ log_file_path, @tagName(log_level) });
-
-    const server = try Server.create(gpa);
-    defer server.destroy();
-    server.setTransport(transport.any());
-    // server.config_path = result.config_path;
-
-    try server.loop();
-
-    switch (server.status) {
-        .exiting_failure => process.exit(1),
-        .exiting_success => return process.cleanExit(),
-        else => unreachable,
+        log_writer.interface.writeAll(writer.buffered()) catch {};
     }
 }
 
 fn defaultLogFilePath(allocator: std.mem.Allocator) std.mem.Allocator.Error!?[]const u8 {
+    if (builtin.target.os.tag == .wasi) return null;
     const cache_path = known_folders.getPath(allocator, .cache) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => return null,
@@ -402,4 +143,280 @@ fn createLogFile(allocator: std.mem.Allocator, override_log_file_path: ?[]const 
     errdefer file.close();
 
     return .{ file, log_file_path };
+}
+
+const fatal = std.process.fatal;
+const cleanExit = std.process.cleanExit;
+
+/// This can be global since stdin is a singleton.
+var stdin_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
+/// This can be global since stdout is a singleton.
+var stdout_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
+
+var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+
+pub fn main() !void {
+    const gpa, const is_debug = gpa: {
+        if (builtin.os.tag == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+        };
+    };
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
+    };
+    var arena_instance: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    const args = try std.process.argsAlloc(arena);
+
+    if (builtin.os.tag == .wasi) {
+        wasi_preopens = try std.fs.wasi.preopensAlloc(arena);
+    }
+
+    return mainArgs(gpa, arena, args);
+}
+
+fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    if (args.len <= 1) {
+        log.info("{s}", .{usage});
+        fatal("expected command argument", .{});
+    }
+
+    const cmd = args[1];
+    const cmd_args = args[2..];
+    if (std.mem.eql(u8, cmd, "lsp")) {
+        return cmdLsp(gpa, args[0], cmd_args);
+    } else if (std.mem.eql(u8, cmd, "ast-check")) {
+        return cmdAstCheck(gpa, arena, cmd_args);
+    } else if (std.mem.eql(u8, cmd, "fmt")) {
+        return @import("fmt.zig").run(gpa, arena, cmd_args);
+    } else if (std.mem.eql(u8, cmd, "version")) {
+        return std.fs.File.stdout().writeAll(build_options.version_string ++ "\n");
+    } else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "-h") or std.mem.eql(u8, cmd, "--help")) {
+        return std.fs.File.stdout().writeAll(usage);
+    } else {
+        try std.fs.File.stdout().writeAll(usage ++ "\n");
+        fatal("unknown command: {s}", .{cmd});
+    }
+}
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
+
+const usage_ast_check =
+    \\Usage: kdblint ast-check [file]
+    \\
+    \\    Given a .k/.q source file, reports any compile errors that can be
+    \\    ascertained on the basis of the source code alone.
+    \\
+    \\    If [file] is omitted, stdin is used.
+    \\
+    \\Options:
+    \\
+    \\  -h, --help            Print this help and exit
+    \\  --color [auto|off|on] Enable or disable colored error messages
+    \\  -t                    Output IR in text form to stdout
+    \\
+;
+
+fn cmdAstCheck(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    var color: Color = .auto;
+    var want_output_text = false;
+    var kdb_source_path: ?[]const u8 = null;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.startsWith(u8, arg, "-")) {
+            if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+                try std.fs.File.stdout().writeAll(usage_ast_check);
+                return std.process.cleanExit();
+            } else if (std.mem.eql(u8, arg, "-t")) {
+                want_output_text = true;
+            } else if (std.mem.eql(u8, arg, "--color")) {
+                if (i + 1 >= args.len) {
+                    fatal("expected [auto|on|off] after --color", .{});
+                }
+                i += 1;
+                const next_arg = args[i];
+                color = std.meta.stringToEnum(Color, next_arg) orelse {
+                    fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
+                };
+            } else {
+                fatal("unrecognized parameter: '{s}'", .{arg});
+            }
+        } else if (kdb_source_path == null) {
+            kdb_source_path = arg;
+        } else {
+            fatal("extra positional parameter: '{s}'", .{arg});
+        }
+    }
+
+    const display_path = kdb_source_path orelse "<stdin>";
+    const source = s: {
+        var f = if (kdb_source_path) |p| file: {
+            break :file std.fs.cwd().openFile(p, .{}) catch |err| {
+                fatal("unable to open file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
+            };
+        } else std.fs.File.stdin();
+        defer if (kdb_source_path != null) f.close();
+        var file_reader = f.reader(&stdin_buffer);
+        break :s std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err| {
+            fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
+        };
+    };
+
+    const tree = try kdb.Ast.parse(arena, source, .{
+        .mode = if (std.mem.endsWith(u8, display_path, ".k")) .k else .q,
+        .version = .@"4.0",
+    });
+
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout_bw = &stdout_writer.interface;
+
+    var document_scope: DocumentScope = .{};
+    defer document_scope.deinit(gpa);
+    var context: DocumentScope.ScopeContext = .{
+        .gpa = gpa,
+        .tree = tree,
+        .doc_scope = &document_scope,
+    };
+    const zir = try kdb.AstGen.generate(arena, &context);
+
+    if (zir.hasCompileErrors()) {
+        try kdb.printZirErrorsToStderr(gpa, tree, zir, display_path, color);
+        std.process.exit(1);
+    } else if (zir.hasCompileWarnings()) {
+        try kdb.printZirErrorsToStderr(gpa, tree, zir, display_path, color);
+    }
+
+    if (!want_output_text) {
+        return std.process.cleanExit();
+    }
+
+    const token_bytes = @sizeOf(kdb.Ast.TokenList) +
+        tree.tokens.len * (@sizeOf(kdb.Token.Tag) + @sizeOf(kdb.Ast.ByteOffset));
+    const tree_bytes = @sizeOf(kdb.Ast) + tree.nodes.len *
+        (@sizeOf(kdb.Ast.Node.Tag) +
+            @sizeOf(kdb.Ast.Node.Data) +
+            @sizeOf(kdb.Ast.TokenIndex));
+    const instruction_bytes = zir.instructions.len *
+        // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
+        // the debug safety tag but we want to measure release size.
+        (@sizeOf(kdb.Zir.Inst.Tag) + 8);
+    const extra_bytes = zir.extra.len * @sizeOf(u32);
+    const total_bytes = @sizeOf(kdb.Zir) + instruction_bytes + extra_bytes +
+        zir.string_bytes.len * @sizeOf(u8);
+    // zig fmt: off
+    try stdout_bw.print(
+        \\# Source bytes:       {Bi}
+        \\# Tokens:             {} ({Bi})
+        \\# AST Nodes:          {} ({Bi})
+        \\# Total ZIR bytes:    {Bi}
+        \\# Instructions:       {d} ({Bi})
+        \\# String Table Bytes: {}
+        \\# Extra Data Items:   {d} ({Bi})
+    , .{
+        source.len,
+        tree.tokens.len, token_bytes,
+        tree.nodes.len, tree_bytes,
+        total_bytes,
+        zir.instructions.len, instruction_bytes,
+        zir.string_bytes.len,
+        zir.extra.len, extra_bytes,
+    });
+    // zig fmt: on
+
+    try kdb.print_zir.renderAsText(gpa, tree, zir, stdout_bw);
+    try stdout_bw.flush();
+
+    if (zir.hasCompileErrors()) {
+        std.process.exit(1);
+    } else {
+        return cleanExit();
+    }
+}
+
+const usage_lsp =
+    \\Usage: kdblint lsp
+    \\
+    \\  Runs the language server.
+    \\
+    \\Options:
+    \\
+    \\  -h, --help                  Print this help and exit
+    \\
+;
+
+fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.startsWith(u8, arg, "-")) {
+            if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+                try std.fs.File.stdout().writeAll(usage_lsp);
+                return std.process.cleanExit();
+            } else {
+                fatal("unrecognized parameter: '{s}'", .{arg});
+            }
+        } else {
+            fatal("extra positional parameter: '{s}'", .{arg});
+        }
+    }
+
+    if (std.fs.File.stdin().isTty()) {
+        log.warn("kdblint lsp is not a CLI tool, it communicates over the Language Server Protocol.", .{});
+        log.warn("Did you mean to run 'kdblint --help'?", .{});
+    }
+
+    log_file, const log_file_path = createLogFile(gpa, null) orelse .{ null, null };
+    defer if (log_file_path) |path| gpa.free(path);
+    defer if (log_file) |file| {
+        file.close();
+        log_file = null;
+    };
+
+    var read_buffer: [256]u8 = undefined;
+    var stdio_transport: zls.lsp.Transport.Stdio = .init(&read_buffer, .stdin(), .stdout());
+
+    var thread_safe_transport: zls.lsp.ThreadSafeTransport(.{
+        .thread_safe_read = false,
+        .thread_safe_write = true,
+    }) = .init(&stdio_transport.transport);
+
+    const transport: *zls.lsp.Transport = &thread_safe_transport.transport;
+
+    log_transport = transport;
+    log_stderr = false;
+    log_level = log_level;
+    defer {
+        log_transport = null;
+        log_stderr = true;
+    }
+
+    log.info("Starting kdblint {s} @ '{s}'", .{ build_options.version_string, binary });
+    if (log_file_path) |path| {
+        log.info("Log File:        {s} ({t})", .{ path, log_level });
+    } else {
+        log.info("Log File:        none", .{});
+    }
+
+    const server: *zls.Server = try .create(.{
+        .allocator = gpa,
+        .transport = transport,
+        .config = null,
+    });
+    defer server.destroy();
+
+    try server.loop();
+
+    switch (server.status) {
+        .exiting_failure => std.process.exit(1),
+        .exiting_success => std.process.cleanExit(),
+        else => unreachable,
+    }
 }

@@ -471,597 +471,597 @@ pub const Value = union(ValueType) {
         };
     }
 
-    pub fn format(self: Value, comptime _: anytype, _: anytype, writer: std.io.AnyWriter) !void {
-        switch (self) {
-            .boolean => |value| try writer.writeAll(if (value) "1b" else "0b"),
-            .boolean_list => |values| {
-                for (values) |value| {
-                    try writer.writeByte(if (value) '1' else '0');
-                }
-                try writer.writeByte('b');
-            },
-            .guid => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("00000000-0000-0000-0000-000000000000");
-                } else unreachable;
-            },
-            .guid_list => |values| {
-                for (values[0 .. values.len - 1]) |value| {
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("00000000-0000-0000-0000-000000000000 ");
-                    } else unreachable;
-                }
-                const value = values[values.len - 1];
-                if (utils.isNull(value)) {
-                    try writer.writeAll("00000000-0000-0000-0000-000000000000");
-                } else unreachable;
-            },
-            .byte => |value| try writer.print("0x{x:0>2}", .{value}),
-            .byte_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`byte$()");
-                } else {
-                    try writer.writeAll("0x");
-                    for (values) |value| try writer.print("{x:0>2}", .{value});
-                }
-            },
-            .char => |value| try writer.print("\"{c}\"", .{value}),
-            .char_list => |values| try writer.print("\"{s}\"", .{values}),
-            .short => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Nh");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wh");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wh");
-                } else {
-                    try writer.print("{d}h", .{value});
-                }
-            },
-            .short_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`short$()");
-                } else {
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            try writer.print("{d} ", .{value});
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0Nh");
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0Wh");
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0Wh");
-                    } else {
-                        try writer.print("{d}h", .{value});
-                    }
-                }
-            },
-            .int => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Ni");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wi");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wi");
-                } else {
-                    try writer.print("{d}i", .{value});
-                }
-            },
-            .int_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`int$()");
-                } else {
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            try writer.print("{d} ", .{value});
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0Ni");
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0Wi");
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0Wi");
-                    } else {
-                        try writer.print("{d}i", .{value});
-                    }
-                }
-            },
-            .month => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Nm");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wm");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wm");
-                } else {
-                    const year, const month = utils.monthsToYearMonth(value);
-                    try writer.print("{d:0>4}.{d:0>2}m", .{ year, month });
-                }
-            },
-            .month_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`month$()");
-                } else {
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            const year, const month = utils.monthsToYearMonth(value);
-                            try writer.print("{d:0>4}.{d:0>2} ", .{ year, month });
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0Nm");
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0Wm");
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0Wm");
-                    } else {
-                        const year, const month = utils.monthsToYearMonth(value);
-                        try writer.print("{d:0>4}.{d:0>2}m", .{ year, month });
-                    }
-                }
-            },
-            .date => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Nd");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wd");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wd");
-                } else {
-                    const year, const month, const day = utils.daysToYearMonthDay(value);
-                    try writer.print("{d:0>4}.{d:0>2}.{d:0>2}", .{ year, month, day });
-                }
-            },
-            .date_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`date$()");
-                } else {
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            const year, const month, const day = utils.daysToYearMonthDay(value);
-                            try writer.print("{d:0>4}.{d:0>2}.{d:0>2} ", .{ year, month, day });
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0Nd");
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0Wd");
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0Wd");
-                    } else {
-                        const year, const month, const day = utils.daysToYearMonthDay(value);
-                        try writer.print("{d:0>4}.{d:0>2}.{d:0>2}", .{ year, month, day });
-                    }
-                }
-            },
-            .minute => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Nu");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wu");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wu");
-                } else {
-                    const hour, const minute = utils.minutesToHourMinute(value);
-                    if (hour > 99) {
-                        if (value < 0) {
-                            try writer.print("-**:{d:0>2}", .{minute});
-                        } else {
-                            try writer.print("**:{d:0>2}", .{minute});
-                        }
-                    } else {
-                        if (value < 0) {
-                            try writer.print("-{d:0>2}:{d:0>2}", .{ hour, minute });
-                        } else {
-                            try writer.print("{d:0>2}:{d:0>2}", .{ hour, minute });
-                        }
-                    }
-                }
-            },
-            .minute_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`minute$()");
-                } else {
-                    var requires_suffix = true;
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            requires_suffix = false;
-                            const hour, const minute = utils.minutesToHourMinute(value);
-                            if (hour > 99) {
-                                if (value < 0) {
-                                    try writer.print("-**:{d:0>2} ", .{minute});
-                                } else {
-                                    try writer.print("**:{d:0>2} ", .{minute});
-                                }
-                            } else {
-                                if (value < 0) {
-                                    try writer.print("-{d:0>2}:{d:0>2} ", .{ hour, minute });
-                                } else {
-                                    try writer.print("{d:0>2}:{d:0>2} ", .{ hour, minute });
-                                }
-                            }
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0N");
-                        if (requires_suffix) try writer.writeByte('u');
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0W");
-                        if (requires_suffix) try writer.writeByte('u');
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0W");
-                        if (requires_suffix) try writer.writeByte('u');
-                    } else {
-                        const hour, const minute = utils.minutesToHourMinute(value);
-                        if (hour > 99) {
-                            if (value < 0) {
-                                try writer.print("-**:{d:0>2}", .{minute});
-                            } else {
-                                try writer.print("**:{d:0>2}", .{minute});
-                            }
-                        } else {
-                            if (value < 0) {
-                                try writer.print("-{d:0>2}:{d:0>2}", .{ hour, minute });
-                            } else {
-                                try writer.print("{d:0>2}:{d:0>2}", .{ hour, minute });
-                            }
-                        }
-                    }
-                }
-            },
-            .second => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Nv");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wv");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wv");
-                } else {
-                    const hour, const minute, const second = utils.secondsToHourMinuteSecond(value);
-                    if (hour > 99) {
-                        if (value < 0) {
-                            try writer.print("-**:{d:0>2}:{d:0>2}", .{ minute, second });
-                        } else {
-                            try writer.print("**:{d:0>2}:{d:0>2}", .{ minute, second });
-                        }
-                    } else {
-                        if (value < 0) {
-                            try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
-                        } else {
-                            try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
-                        }
-                    }
-                }
-            },
-            .second_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`second$()");
-                } else {
-                    var requires_suffix = true;
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            requires_suffix = false;
-                            const hour, const minute, const second = utils.secondsToHourMinuteSecond(value);
-                            if (hour > 99) {
-                                if (value < 0) {
-                                    try writer.print("-**:{d:0>2}:{d:0>2} ", .{ minute, second });
-                                } else {
-                                    try writer.print("**:{d:0>2}:{d:0>2} ", .{ minute, second });
-                                }
-                            } else {
-                                if (value < 0) {
-                                    try writer.print("-{d:0>2}:{d:0>2}:{d:0>2} ", .{ hour, minute, second });
-                                } else {
-                                    try writer.print("{d:0>2}:{d:0>2}:{d:0>2} ", .{ hour, minute, second });
-                                }
-                            }
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0N");
-                        if (requires_suffix) try writer.writeByte('v');
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0W");
-                        if (requires_suffix) try writer.writeByte('v');
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0W");
-                        if (requires_suffix) try writer.writeByte('v');
-                    } else {
-                        const hour, const minute, const second = utils.secondsToHourMinuteSecond(value);
-                        if (hour > 99) {
-                            if (value < 0) {
-                                try writer.print("-**:{d:0>2}:{d:0>2}", .{ minute, second });
-                            } else {
-                                try writer.print("**:{d:0>2}:{d:0>2}", .{ minute, second });
-                            }
-                        } else {
-                            if (value < 0) {
-                                try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
-                            } else {
-                                try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
-                            }
-                        }
-                    }
-                }
-            },
-            .time => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Nt");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wt");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wt");
-                } else {
-                    const hour, const minute, const second, const millisecond = utils.millisecondsToHourMinuteSecondMillisecond(value);
-                    if (hour > 99) {
-                        if (value < 0) {
-                            try writer.print("-**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
-                        } else {
-                            try writer.print("**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
-                        }
-                    } else {
-                        if (value < 0) {
-                            try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
-                        } else {
-                            try writer.print("{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
-                        }
-                    }
-                }
-            },
-            .time_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`time$()");
-                } else {
-                    var requires_suffix = true;
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            requires_suffix = false;
-                            const hour, const minute, const second, const millisecond = utils.millisecondsToHourMinuteSecondMillisecond(value);
-                            if (hour > 99) {
-                                if (value < 0) {
-                                    try writer.print("-**:{d:0>2}:{d:0>2}.{d:0>3} ", .{ minute, second, millisecond });
-                                } else {
-                                    try writer.print("**:{d:0>2}:{d:0>2}.{d:0>3} ", .{ minute, second, millisecond });
-                                }
-                            } else {
-                                if (value < 0) {
-                                    try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3} ", .{ hour, minute, second, millisecond });
-                                } else {
-                                    try writer.print("{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3} ", .{ hour, minute, second, millisecond });
-                                }
-                            }
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0N");
-                        if (requires_suffix) try writer.writeByte('t');
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0W");
-                        if (requires_suffix) try writer.writeByte('t');
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0W");
-                        if (requires_suffix) try writer.writeByte('t');
-                    } else {
-                        const hour, const minute, const second, const millisecond = utils.millisecondsToHourMinuteSecondMillisecond(value);
-                        if (hour > 99) {
-                            if (value < 0) {
-                                try writer.print("-**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
-                            } else {
-                                try writer.print("**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
-                            }
-                        } else {
-                            if (value < 0) {
-                                try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
-                            } else {
-                                try writer.print("{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
-                            }
-                        }
-                    }
-                }
-            },
-            .long => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0N");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0W");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0W");
-                } else {
-                    try writer.print("{d}", .{value});
-                }
-            },
-            .long_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`long$()");
-                } else {
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            try writer.print("{d} ", .{value});
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0N");
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0W");
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0W");
-                    } else {
-                        try writer.print("{d}", .{value});
-                    }
-                }
-            },
-            .timestamp => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Np");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wp");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wp");
-                } else {
-                    try writer.print("{d}p", .{value}); // TODO: NYI
-                }
-            },
-            .timestamp_list => unreachable,
-            .timespan => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Nn");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0Wn");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0Wn");
-                } else {
-                    try writer.print("{d}n", .{value}); // TODO: NYI
-                }
-            },
-            .timespan_list => unreachable,
-            .real => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0Ne");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0We");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0We");
-                } else {
-                    try writer.print("{d}e", .{value});
-                }
-            },
-            .real_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`real$()");
-                } else {
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            try writer.writeAll("0N ");
-                        } else if (utils.isPositiveInf(value)) {
-                            try writer.writeAll("0W ");
-                        } else if (utils.isNegativeInf(value)) {
-                            try writer.writeAll("-0W ");
-                        } else {
-                            try writer.print("{d} ", .{value});
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0Ne");
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0We");
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0We");
-                    } else {
-                        try writer.print("{d}e", .{value});
-                    }
-                }
-            },
-            .float => |value| {
-                if (utils.isNull(value)) {
-                    try writer.writeAll("0n");
-                } else if (utils.isPositiveInf(value)) {
-                    try writer.writeAll("0w");
-                } else if (utils.isNegativeInf(value)) {
-                    try writer.writeAll("-0w");
-                } else if (@floor(value) == value) {
-                    try writer.print("{d}f", .{value});
-                } else {
-                    try writer.print("{d}", .{value});
-                }
-            },
-            .float_list => |values| {
-                if (values.len == 0) {
-                    try writer.writeAll("`float$()");
-                } else {
-                    var requires_suffix = true;
-                    for (values[0 .. values.len - 1]) |value| {
-                        if (utils.isNull(value)) {
-                            requires_suffix = false;
-                            try writer.writeAll("0n ");
-                        } else if (utils.isPositiveInf(value)) {
-                            requires_suffix = false;
-                            try writer.writeAll("0w ");
-                        } else if (utils.isNegativeInf(value)) {
-                            requires_suffix = false;
-                            try writer.writeAll("-0w ");
-                        } else {
-                            requires_suffix = requires_suffix and @floor(value) == value;
-                            try writer.print("{d} ", .{value});
-                        }
-                    }
-                    const value = values[values.len - 1];
-                    if (utils.isNull(value)) {
-                        try writer.writeAll("0n");
-                    } else if (utils.isPositiveInf(value)) {
-                        try writer.writeAll("0w");
-                    } else if (utils.isNegativeInf(value)) {
-                        try writer.writeAll("-0w");
-                    } else if (requires_suffix and @floor(value) == value) {
-                        try writer.print("{d}f", .{value});
-                    } else {
-                        try writer.print("{d}", .{value});
-                    }
-                }
-            },
-            .datetime => unreachable,
-            .datetime_list => unreachable,
-        }
-    }
+    // pub fn format(self: Value, comptime _: anytype, _: anytype, writer: std.io.AnyWriter) !void {
+    //     switch (self) {
+    //         .boolean => |value| try writer.writeAll(if (value) "1b" else "0b"),
+    //         .boolean_list => |values| {
+    //             for (values) |value| {
+    //                 try writer.writeByte(if (value) '1' else '0');
+    //             }
+    //             try writer.writeByte('b');
+    //         },
+    //         .guid => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("00000000-0000-0000-0000-000000000000");
+    //             } else unreachable;
+    //         },
+    //         .guid_list => |values| {
+    //             for (values[0 .. values.len - 1]) |value| {
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("00000000-0000-0000-0000-000000000000 ");
+    //                 } else unreachable;
+    //             }
+    //             const value = values[values.len - 1];
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("00000000-0000-0000-0000-000000000000");
+    //             } else unreachable;
+    //         },
+    //         .byte => |value| try writer.print("0x{x:0>2}", .{value}),
+    //         .byte_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`byte$()");
+    //             } else {
+    //                 try writer.writeAll("0x");
+    //                 for (values) |value| try writer.print("{x:0>2}", .{value});
+    //             }
+    //         },
+    //         .char => |value| try writer.print("\"{c}\"", .{value}),
+    //         .char_list => |values| try writer.print("\"{s}\"", .{values}),
+    //         .short => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Nh");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wh");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wh");
+    //             } else {
+    //                 try writer.print("{d}h", .{value});
+    //             }
+    //         },
+    //         .short_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`short$()");
+    //             } else {
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         try writer.print("{d} ", .{value});
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0Nh");
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0Wh");
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0Wh");
+    //                 } else {
+    //                     try writer.print("{d}h", .{value});
+    //                 }
+    //             }
+    //         },
+    //         .int => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Ni");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wi");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wi");
+    //             } else {
+    //                 try writer.print("{d}i", .{value});
+    //             }
+    //         },
+    //         .int_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`int$()");
+    //             } else {
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         try writer.print("{d} ", .{value});
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0Ni");
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0Wi");
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0Wi");
+    //                 } else {
+    //                     try writer.print("{d}i", .{value});
+    //                 }
+    //             }
+    //         },
+    //         .month => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Nm");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wm");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wm");
+    //             } else {
+    //                 const year, const month = utils.monthsToYearMonth(value);
+    //                 try writer.print("{d:0>4}.{d:0>2}m", .{ year, month });
+    //             }
+    //         },
+    //         .month_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`month$()");
+    //             } else {
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         const year, const month = utils.monthsToYearMonth(value);
+    //                         try writer.print("{d:0>4}.{d:0>2} ", .{ year, month });
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0Nm");
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0Wm");
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0Wm");
+    //                 } else {
+    //                     const year, const month = utils.monthsToYearMonth(value);
+    //                     try writer.print("{d:0>4}.{d:0>2}m", .{ year, month });
+    //                 }
+    //             }
+    //         },
+    //         .date => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Nd");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wd");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wd");
+    //             } else {
+    //                 const year, const month, const day = utils.daysToYearMonthDay(value);
+    //                 try writer.print("{d:0>4}.{d:0>2}.{d:0>2}", .{ year, month, day });
+    //             }
+    //         },
+    //         .date_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`date$()");
+    //             } else {
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         const year, const month, const day = utils.daysToYearMonthDay(value);
+    //                         try writer.print("{d:0>4}.{d:0>2}.{d:0>2} ", .{ year, month, day });
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0Nd");
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0Wd");
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0Wd");
+    //                 } else {
+    //                     const year, const month, const day = utils.daysToYearMonthDay(value);
+    //                     try writer.print("{d:0>4}.{d:0>2}.{d:0>2}", .{ year, month, day });
+    //                 }
+    //             }
+    //         },
+    //         .minute => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Nu");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wu");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wu");
+    //             } else {
+    //                 const hour, const minute = utils.minutesToHourMinute(value);
+    //                 if (hour > 99) {
+    //                     if (value < 0) {
+    //                         try writer.print("-**:{d:0>2}", .{minute});
+    //                     } else {
+    //                         try writer.print("**:{d:0>2}", .{minute});
+    //                     }
+    //                 } else {
+    //                     if (value < 0) {
+    //                         try writer.print("-{d:0>2}:{d:0>2}", .{ hour, minute });
+    //                     } else {
+    //                         try writer.print("{d:0>2}:{d:0>2}", .{ hour, minute });
+    //                     }
+    //                 }
+    //             }
+    //         },
+    //         .minute_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`minute$()");
+    //             } else {
+    //                 var requires_suffix = true;
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         requires_suffix = false;
+    //                         const hour, const minute = utils.minutesToHourMinute(value);
+    //                         if (hour > 99) {
+    //                             if (value < 0) {
+    //                                 try writer.print("-**:{d:0>2} ", .{minute});
+    //                             } else {
+    //                                 try writer.print("**:{d:0>2} ", .{minute});
+    //                             }
+    //                         } else {
+    //                             if (value < 0) {
+    //                                 try writer.print("-{d:0>2}:{d:0>2} ", .{ hour, minute });
+    //                             } else {
+    //                                 try writer.print("{d:0>2}:{d:0>2} ", .{ hour, minute });
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0N");
+    //                     if (requires_suffix) try writer.writeByte('u');
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0W");
+    //                     if (requires_suffix) try writer.writeByte('u');
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0W");
+    //                     if (requires_suffix) try writer.writeByte('u');
+    //                 } else {
+    //                     const hour, const minute = utils.minutesToHourMinute(value);
+    //                     if (hour > 99) {
+    //                         if (value < 0) {
+    //                             try writer.print("-**:{d:0>2}", .{minute});
+    //                         } else {
+    //                             try writer.print("**:{d:0>2}", .{minute});
+    //                         }
+    //                     } else {
+    //                         if (value < 0) {
+    //                             try writer.print("-{d:0>2}:{d:0>2}", .{ hour, minute });
+    //                         } else {
+    //                             try writer.print("{d:0>2}:{d:0>2}", .{ hour, minute });
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         },
+    //         .second => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Nv");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wv");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wv");
+    //             } else {
+    //                 const hour, const minute, const second = utils.secondsToHourMinuteSecond(value);
+    //                 if (hour > 99) {
+    //                     if (value < 0) {
+    //                         try writer.print("-**:{d:0>2}:{d:0>2}", .{ minute, second });
+    //                     } else {
+    //                         try writer.print("**:{d:0>2}:{d:0>2}", .{ minute, second });
+    //                     }
+    //                 } else {
+    //                     if (value < 0) {
+    //                         try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+    //                     } else {
+    //                         try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+    //                     }
+    //                 }
+    //             }
+    //         },
+    //         .second_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`second$()");
+    //             } else {
+    //                 var requires_suffix = true;
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         requires_suffix = false;
+    //                         const hour, const minute, const second = utils.secondsToHourMinuteSecond(value);
+    //                         if (hour > 99) {
+    //                             if (value < 0) {
+    //                                 try writer.print("-**:{d:0>2}:{d:0>2} ", .{ minute, second });
+    //                             } else {
+    //                                 try writer.print("**:{d:0>2}:{d:0>2} ", .{ minute, second });
+    //                             }
+    //                         } else {
+    //                             if (value < 0) {
+    //                                 try writer.print("-{d:0>2}:{d:0>2}:{d:0>2} ", .{ hour, minute, second });
+    //                             } else {
+    //                                 try writer.print("{d:0>2}:{d:0>2}:{d:0>2} ", .{ hour, minute, second });
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0N");
+    //                     if (requires_suffix) try writer.writeByte('v');
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0W");
+    //                     if (requires_suffix) try writer.writeByte('v');
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0W");
+    //                     if (requires_suffix) try writer.writeByte('v');
+    //                 } else {
+    //                     const hour, const minute, const second = utils.secondsToHourMinuteSecond(value);
+    //                     if (hour > 99) {
+    //                         if (value < 0) {
+    //                             try writer.print("-**:{d:0>2}:{d:0>2}", .{ minute, second });
+    //                         } else {
+    //                             try writer.print("**:{d:0>2}:{d:0>2}", .{ minute, second });
+    //                         }
+    //                     } else {
+    //                         if (value < 0) {
+    //                             try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+    //                         } else {
+    //                             try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ hour, minute, second });
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         },
+    //         .time => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Nt");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wt");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wt");
+    //             } else {
+    //                 const hour, const minute, const second, const millisecond = utils.millisecondsToHourMinuteSecondMillisecond(value);
+    //                 if (hour > 99) {
+    //                     if (value < 0) {
+    //                         try writer.print("-**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
+    //                     } else {
+    //                         try writer.print("**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
+    //                     }
+    //                 } else {
+    //                     if (value < 0) {
+    //                         try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
+    //                     } else {
+    //                         try writer.print("{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
+    //                     }
+    //                 }
+    //             }
+    //         },
+    //         .time_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`time$()");
+    //             } else {
+    //                 var requires_suffix = true;
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         requires_suffix = false;
+    //                         const hour, const minute, const second, const millisecond = utils.millisecondsToHourMinuteSecondMillisecond(value);
+    //                         if (hour > 99) {
+    //                             if (value < 0) {
+    //                                 try writer.print("-**:{d:0>2}:{d:0>2}.{d:0>3} ", .{ minute, second, millisecond });
+    //                             } else {
+    //                                 try writer.print("**:{d:0>2}:{d:0>2}.{d:0>3} ", .{ minute, second, millisecond });
+    //                             }
+    //                         } else {
+    //                             if (value < 0) {
+    //                                 try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3} ", .{ hour, minute, second, millisecond });
+    //                             } else {
+    //                                 try writer.print("{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3} ", .{ hour, minute, second, millisecond });
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0N");
+    //                     if (requires_suffix) try writer.writeByte('t');
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0W");
+    //                     if (requires_suffix) try writer.writeByte('t');
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0W");
+    //                     if (requires_suffix) try writer.writeByte('t');
+    //                 } else {
+    //                     const hour, const minute, const second, const millisecond = utils.millisecondsToHourMinuteSecondMillisecond(value);
+    //                     if (hour > 99) {
+    //                         if (value < 0) {
+    //                             try writer.print("-**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
+    //                         } else {
+    //                             try writer.print("**:{d:0>2}:{d:0>2}.{d:0>3}", .{ minute, second, millisecond });
+    //                         }
+    //                     } else {
+    //                         if (value < 0) {
+    //                             try writer.print("-{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
+    //                         } else {
+    //                             try writer.print("{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{ hour, minute, second, millisecond });
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         },
+    //         .long => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0N");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0W");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0W");
+    //             } else {
+    //                 try writer.print("{d}", .{value});
+    //             }
+    //         },
+    //         .long_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`long$()");
+    //             } else {
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         try writer.print("{d} ", .{value});
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0N");
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0W");
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0W");
+    //                 } else {
+    //                     try writer.print("{d}", .{value});
+    //                 }
+    //             }
+    //         },
+    //         .timestamp => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Np");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wp");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wp");
+    //             } else {
+    //                 try writer.print("{d}p", .{value}); // TODO: NYI
+    //             }
+    //         },
+    //         .timestamp_list => unreachable,
+    //         .timespan => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Nn");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0Wn");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0Wn");
+    //             } else {
+    //                 try writer.print("{d}n", .{value}); // TODO: NYI
+    //             }
+    //         },
+    //         .timespan_list => unreachable,
+    //         .real => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0Ne");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0We");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0We");
+    //             } else {
+    //                 try writer.print("{d}e", .{value});
+    //             }
+    //         },
+    //         .real_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`real$()");
+    //             } else {
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         try writer.writeAll("0N ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         try writer.writeAll("0W ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         try writer.writeAll("-0W ");
+    //                     } else {
+    //                         try writer.print("{d} ", .{value});
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0Ne");
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0We");
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0We");
+    //                 } else {
+    //                     try writer.print("{d}e", .{value});
+    //                 }
+    //             }
+    //         },
+    //         .float => |value| {
+    //             if (utils.isNull(value)) {
+    //                 try writer.writeAll("0n");
+    //             } else if (utils.isPositiveInf(value)) {
+    //                 try writer.writeAll("0w");
+    //             } else if (utils.isNegativeInf(value)) {
+    //                 try writer.writeAll("-0w");
+    //             } else if (@floor(value) == value) {
+    //                 try writer.print("{d}f", .{value});
+    //             } else {
+    //                 try writer.print("{d}", .{value});
+    //             }
+    //         },
+    //         .float_list => |values| {
+    //             if (values.len == 0) {
+    //                 try writer.writeAll("`float$()");
+    //             } else {
+    //                 var requires_suffix = true;
+    //                 for (values[0 .. values.len - 1]) |value| {
+    //                     if (utils.isNull(value)) {
+    //                         requires_suffix = false;
+    //                         try writer.writeAll("0n ");
+    //                     } else if (utils.isPositiveInf(value)) {
+    //                         requires_suffix = false;
+    //                         try writer.writeAll("0w ");
+    //                     } else if (utils.isNegativeInf(value)) {
+    //                         requires_suffix = false;
+    //                         try writer.writeAll("-0w ");
+    //                     } else {
+    //                         requires_suffix = requires_suffix and @floor(value) == value;
+    //                         try writer.print("{d} ", .{value});
+    //                     }
+    //                 }
+    //                 const value = values[values.len - 1];
+    //                 if (utils.isNull(value)) {
+    //                     try writer.writeAll("0n");
+    //                 } else if (utils.isPositiveInf(value)) {
+    //                     try writer.writeAll("0w");
+    //                 } else if (utils.isNegativeInf(value)) {
+    //                     try writer.writeAll("-0w");
+    //                 } else if (requires_suffix and @floor(value) == value) {
+    //                     try writer.print("{d}f", .{value});
+    //                 } else {
+    //                     try writer.print("{d}", .{value});
+    //                 }
+    //             }
+    //         },
+    //         .datetime => unreachable,
+    //         .datetime_list => unreachable,
+    //     }
+    // }
 };
 
 const ParseResult = struct {

@@ -2032,7 +2032,7 @@ fn testTokenizeMode(
     const gpa = std.testing.allocator;
 
     var tokenizer = Tokenizer.init(source, mode);
-    var tokens: std.ArrayList(Token.Tag) = .init(gpa);
+    var tokens: std.array_list.Managed(Token.Tag) = .init(gpa);
     defer tokens.deinit();
     const last_token = while (true) {
         const token = tokenizer.next();
