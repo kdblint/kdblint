@@ -6,7 +6,7 @@ const zls = @import("zls");
 const Color = std.zig.Color;
 const known_folders = @import("known_folders");
 
-const kdb = @import("kdb");
+const kdb = @import("kdb/root.zig");
 const DocumentScope = kdb.DocumentScope;
 const build_options = @import("build_options");
 
