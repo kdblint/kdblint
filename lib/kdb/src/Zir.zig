@@ -698,7 +698,7 @@ pub const Inst = struct {
             warn,
             note,
 
-            pub fn color(self: Kind) std.io.tty.Color {
+            pub fn color(self: Kind) std.Io.tty.Color {
                 return switch (self) {
                     .@"error" => .red,
                     .warn => .yellow,

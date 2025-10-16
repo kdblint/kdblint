@@ -10,7 +10,7 @@ const kdb = @import("kdb");
 const Ast = kdb.Ast;
 const DocumentScope = kdb.DocumentScope;
 
-const fatal = @import("main.zig").fatal;
+const fatal = std.process.fatal;
 
 const usage_fmt =
     \\Usage: kdblint fmt [file]...
@@ -43,27 +43,24 @@ const Fmt = struct {
     color: Color,
     gpa: Allocator,
     arena: Allocator,
-    out_buffer: std.ArrayList(u8),
+    out_buffer: std.Io.Writer.Allocating,
+    stdout_writer: *fs.File.Writer,
     indent_char: u8,
     indent_delta: usize,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn run(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
     var check_ast_flag: bool = false;
     var prefer_tabs: bool = false;
     var indent_size: usize = 2;
-    var input_files = std.ArrayList([]const u8).init(gpa);
+    var input_files: std.array_list.Managed([]const u8) = .init(gpa);
     defer input_files.deinit();
-    var excluded_files = std.ArrayList([]const u8).init(gpa);
+    var excluded_files: std.array_list.Managed([]const u8) = .init(gpa);
     defer excluded_files.deinit();
 
     {
@@ -72,8 +69,7 @@ pub fn run(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
-                    try stdout.writeAll(usage_fmt);
+                    try std.fs.File.stdout().writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
@@ -120,15 +116,13 @@ pub fn run(
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = std.io.getStdIn();
-        const source_code = std.zig.readSourceFileToEndAlloc(
-            arena,
-            stdin,
-            null,
-        ) catch |err| {
+        const stdin: fs.File = .stdin();
+        var stdio_buffer: [1024]u8 = undefined;
+        var file_reader = stdin.reader(&stdio_buffer);
+        const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
-        defer arena.free(source_code);
+        defer gpa.free(source_code);
 
         var tree = kdb.Ast.parse(gpa, source_code, .{
             .mode = .q,
@@ -158,7 +152,7 @@ pub fn run(
             try kdb.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        const formatted = try tree.render(gpa, .{
+        const formatted = try tree.renderAlloc(gpa, .{
             .indent_char = if (prefer_tabs) '\t' else ' ',
             .indent_delta = indent_size,
         });
@@ -169,21 +163,25 @@ pub fn run(
             process.exit(code);
         }
 
-        return std.io.getStdOut().writeAll(formatted);
+        return fs.File.stdout().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
         fatal("expected at least one source file argument", .{});
     }
 
-    var fmt = Fmt{
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+
+    var fmt: Fmt = .{
         .gpa = gpa,
         .arena = arena,
-        .seen = Fmt.SeenMap.init(gpa),
+        .seen = .init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
         .color = color,
-        .out_buffer = std.ArrayList(u8).init(gpa),
+        .out_buffer = .init(gpa),
+        .stdout_writer = &stdout_writer,
         .indent_char = if (prefer_tabs) '\t' else ' ',
         .indent_delta = indent_size,
     };
@@ -209,60 +207,15 @@ pub fn run(
     for (input_files.items) |file_path| {
         try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
     }
+    try fmt.stdout_writer.interface.flush();
     if (fmt.any_error) {
         process.exit(1);
     }
 }
 
-const FmtError = error{
-    SystemResources,
-    OperationAborted,
-    IoPending,
-    BrokenPipe,
-    Unexpected,
-    WouldBlock,
-    Canceled,
-    FileClosed,
-    DestinationAddressRequired,
-    DiskQuota,
-    FileTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    AccessDenied,
-    OutOfMemory,
-    RenameAcrossMountPoints,
-    ReadOnlyFileSystem,
-    LinkQuotaExceeded,
-    FileBusy,
-    EndOfStream,
-    Unseekable,
-    NotOpenForWriting,
-    UnsupportedEncoding,
-    ConnectionResetByPeer,
-    SocketNotConnected,
-    LockViolation,
-    NetNameDeleted,
-    InvalidArgument,
-    ProcessNotFound,
-    InvalidEncoding,
-    MessageTooBig,
-} || fs.File.OpenError;
-
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
-    fmtPathFile(
-        fmt,
-        file_path,
-        check_mode,
-        dir,
-        sub_path,
-    ) catch |err| switch (err) {
-        error.IsDir, error.AccessDenied => return fmtPathDir(
-            fmt,
-            file_path,
-            check_mode,
-            dir,
-            sub_path,
-        ),
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) !void {
+    fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
+        error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
             std.log.err("unable to format '{s}': {s}", .{ file_path, @errorName(err) });
             fmt.any_error = true;
@@ -277,7 +230,7 @@ fn fmtPathDir(
     check_mode: bool,
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
-) FmtError!void {
+) !void {
     var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
     defer dir.close();
 
@@ -291,28 +244,15 @@ fn fmtPathDir(
         if (mem.startsWith(u8, entry.name, ".")) continue;
 
         if (is_dir or entry.kind == .file and
-            (mem.endsWith(u8, entry.name, ".k") or
-                mem.endsWith(u8, entry.name, ".q")))
+            (mem.endsWith(u8, entry.name, ".k") or mem.endsWith(u8, entry.name, ".q")))
         {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
             defer fmt.gpa.free(full_path);
 
             if (is_dir) {
-                try fmtPathDir(
-                    fmt,
-                    full_path,
-                    check_mode,
-                    dir,
-                    entry.name,
-                );
+                try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
             } else {
-                fmtPathFile(
-                    fmt,
-                    full_path,
-                    check_mode,
-                    dir,
-                    entry.name,
-                ) catch |err| {
+                fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
                     std.log.err("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
                     fmt.any_error = true;
                     return;
@@ -328,7 +268,7 @@ fn fmtPathFile(
     check_mode: bool,
     dir: fs.Dir,
     sub_path: []const u8,
-) FmtError!void {
+) !void {
     const source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();
@@ -338,13 +278,16 @@ fn fmtPathFile(
     if (stat.kind == .directory)
         return error.IsDir;
 
+    var read_buffer: [1024]u8 = undefined;
+    var file_reader = source_file.reader(&read_buffer);
+    file_reader.size = stat.size;
+
     const gpa = fmt.gpa;
-    const source_code = try std.zig.readSourceFileToEndAlloc(
-        fmt.arena,
-        source_file,
-        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
-    );
-    defer fmt.arena.free(source_code);
+    const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
+    defer gpa.free(source_code);
 
     source_file.close();
     file_closed = true;
@@ -352,8 +295,10 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
+    const mode: kdb.Ast.Mode = if (mem.endsWith(u8, sub_path, ".k")) .k else .q;
+
     var tree = try kdb.Ast.parse(gpa, source_code, .{
-        .mode = if (mem.endsWith(u8, sub_path, ".k")) .k else .q,
+        .mode = mode,
         .version = .@"4.0",
     });
     defer tree.deinit(gpa);
@@ -386,27 +331,27 @@ fn fmtPathFile(
     }
 
     // As a heuristic, we make enough capacity for the same as the input source.
-    fmt.out_buffer.shrinkRetainingCapacity(0);
+    fmt.out_buffer.clearRetainingCapacity();
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer, .{
+    tree.render(gpa, &fmt.out_buffer.writer, .{
         .indent_char = fmt.indent_char,
         .indent_delta = fmt.indent_delta,
-    });
-    if (mem.eql(u8, fmt.out_buffer.items, source_code))
+    }) catch |err| switch (err) {
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+    if (mem.eql(u8, fmt.out_buffer.written(), source_code))
         return;
 
     if (check_mode) {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
-        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
+        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode, .write_buffer = &.{} });
         defer af.deinit();
 
-        try af.file.writeAll(fmt.out_buffer.items);
+        try af.file_writer.interface.writeAll(fmt.out_buffer.written());
         try af.finish();
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }
 }
