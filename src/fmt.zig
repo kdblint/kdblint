@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Color = std.zig.Color;
 
-const kdb = @import("kdb");
+const kdb = @import("kdb/root.zig");
 const Ast = kdb.Ast;
 const DocumentScope = kdb.DocumentScope;
 

@@ -6380,7 +6380,7 @@ test "rewrite expressions to reduce parens" {
 fn testRender(file_path: []const u8) !void {
     const gpa = std.testing.allocator;
 
-    var dir = try std.fs.openDirAbsolute(@import("test_options").path, .{});
+    var dir = try std.fs.openDirAbsolute(@import("build_options").tests_path, .{});
     defer dir.close();
     const source_code = try dir.readFileAllocOptions(file_path, gpa, .unlimited, .of(u8), 0);
     defer gpa.free(source_code);

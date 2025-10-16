@@ -3,9 +3,6 @@
     .version = "0.1.0",
     .fingerprint = 0x8d3aa34075cd4f20,
     .dependencies = .{
-        .kdb = .{
-            .path = "lib/kdb",
-        },
         .zls = .{
             .url = "git+https://github.com/zigtools/zls#f486e884f479dd816f1c57a4be7f445f3d3b279c",
             .hash = "zls-0.16.0-dev-rmm5fsRDJAAjh1f510eVF3vkDMBp3UGY7HZ6lYKoZ09V",
