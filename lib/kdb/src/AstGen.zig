@@ -105,7 +105,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
     }
 }
 
-pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) !Zir {
+pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.Error!Zir {
     const tree = context.tree;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -2635,15 +2635,16 @@ test "scan decls" {
     try testScanExprs("([]((((:))[x;(a:1),1])))", &.{"a:1"});
 }
 
-fn lowerAstErrors(astgen: *AstGen) !void {
+fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
     const tree = astgen.context.tree;
     assert(tree.errors.len > 0);
 
     const gpa = astgen.gpa;
     const parse_err = tree.errors[0];
 
-    var msg: std.ArrayListUnmanaged(u8) = .empty;
-    defer msg.deinit(gpa);
+    var msg: std.Io.Writer.Allocating = .init(gpa);
+    defer msg.deinit();
+    const msg_w = &msg.writer;
 
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
@@ -2651,25 +2652,14 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     for (tree.errors[1..]) |note| {
         if (!note.is_note) break;
 
+        tree.renderError(note, msg_w) catch return error.OutOfMemory;
+        try notes.append(gpa, try astgen.errNoteTok(note.token, "{s}", .{msg.written()}));
         msg.clearRetainingCapacity();
-        try tree.renderError(note, msg.writer(gpa));
-        try notes.append(
-            gpa,
-            try astgen.errNoteTok(note.token, "{s}", .{msg.items}),
-        );
     }
 
     const extra_offset = tree.errorOffset(parse_err);
-    msg.clearRetainingCapacity();
-    try tree.renderError(parse_err, msg.writer(gpa));
-    try astgen.appendErrorTokNotesOff(
-        parse_err.token,
-        extra_offset,
-        "{s}",
-        .{msg.items},
-        notes.items,
-        .@"error",
-    );
+    tree.renderError(parse_err, msg_w) catch return error.OutOfMemory;
+    try astgen.appendErrorTokNotesOff(parse_err.token, extra_offset, "{s}", .{msg.written()}, notes.items, .@"error");
 }
 
 const Scope = struct {
@@ -3406,7 +3396,7 @@ fn appendErrorNodeNotes(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
@@ -3538,7 +3528,7 @@ fn appendErrorTokNotesOff(
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
@@ -3580,7 +3570,7 @@ fn errNoteTokOff(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = .none,
@@ -3600,7 +3590,7 @@ fn errNoteNode(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = node.toOptional(),
