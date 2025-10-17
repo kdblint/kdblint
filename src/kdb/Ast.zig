@@ -6451,12 +6451,10 @@ test "render number_literal.q" {
 test "render call.q" {
     try testRender("call_0.q");
     try testRender("call_1.q");
-    if (true) return error.SkipZigTest;
     try testRender("call_2.q");
 }
 
 test "render nested_lambdas_with_comments_and_newlines.q" {
-    if (true) return error.SkipZigTest;
     try testRender("nested_lambdas_with_comments_and_newlines.q");
 }
 
@@ -6465,7 +6463,6 @@ test "render nested_if_with_comments_and_newlines.q" {
 }
 
 test "render nested_call_with_comments_and_newlines.q" {
-    if (true) return error.SkipZigTest;
     try testRender("nested_call_with_comments_and_newlines.q");
 }
 
