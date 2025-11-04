@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 const zls = @import("zls");
 const Color = std.zig.Color;
@@ -115,29 +116,29 @@ fn logFn(
     }
 }
 
-fn defaultLogFilePath(allocator: std.mem.Allocator) std.mem.Allocator.Error!?[]const u8 {
+fn defaultLogFilePath(gpa: Allocator, io: Io) Allocator.Error!?[]const u8 {
     if (builtin.target.os.tag == .wasi) return null;
-    const cache_path = known_folders.getPath(allocator, .cache) catch |err| switch (err) {
+    const cache_path = known_folders.getPath(io, gpa, .cache) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => return null,
     } orelse return null;
-    defer allocator.free(cache_path);
-    return try std.fs.path.join(allocator, &.{ cache_path, "kdblint", "kdblint.log" });
+    defer gpa.free(cache_path);
+    return try std.fs.path.join(gpa, &.{ cache_path, "kdblint", "kdblint.log" });
 }
 
-fn createLogFile(allocator: std.mem.Allocator, override_log_file_path: ?[]const u8) ?struct { std.fs.File, []const u8 } {
+fn createLogFile(gpa: Allocator, io: Io, override_log_file_path: ?[]const u8) ?struct { std.fs.File, []const u8 } {
     const log_file_path = if (override_log_file_path) |log_file_path|
-        allocator.dupe(u8, log_file_path) catch return null
+        gpa.dupe(u8, log_file_path) catch return null
     else
-        defaultLogFilePath(allocator) catch null orelse return null;
-    errdefer allocator.free(log_file_path);
+        defaultLogFilePath(gpa, io) catch null orelse return null;
+    errdefer gpa.free(log_file_path);
 
     if (std.fs.path.dirname(log_file_path)) |dirname| {
         std.fs.cwd().makePath(dirname) catch {};
     }
 
     const file = std.fs.cwd().createFile(log_file_path, .{ .truncate = false }) catch {
-        allocator.free(log_file_path);
+        gpa.free(log_file_path);
         return null;
     };
     errdefer file.close();
@@ -176,10 +177,14 @@ pub fn main() !void {
         wasi_preopens = try std.fs.wasi.preopensAlloc(arena);
     }
 
-    return mainArgs(gpa, arena, args);
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    return mainArgs(gpa, arena, io, args);
 }
 
-fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn mainArgs(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !void {
     if (args.len <= 1) {
         log.info("{s}", .{usage});
         fatal("expected command argument", .{});
@@ -188,11 +193,11 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const cmd = args[1];
     const cmd_args = args[2..];
     if (std.mem.eql(u8, cmd, "lsp")) {
-        return cmdLsp(gpa, args[0], cmd_args);
+        return cmdLsp(gpa, io, args[0], cmd_args);
     } else if (std.mem.eql(u8, cmd, "ast-check")) {
-        return cmdAstCheck(gpa, arena, cmd_args);
+        return cmdAstCheck(gpa, arena, io, cmd_args);
     } else if (std.mem.eql(u8, cmd, "fmt")) {
-        return @import("fmt.zig").run(gpa, arena, cmd_args);
+        return @import("fmt.zig").run(gpa, arena, io, cmd_args);
     } else if (std.mem.eql(u8, cmd, "version")) {
         return std.fs.File.stdout().writeAll(build_options.version_string ++ "\n");
     } else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "-h") or std.mem.eql(u8, cmd, "--help")) {
@@ -223,7 +228,7 @@ const usage_ast_check =
     \\
 ;
 
-fn cmdAstCheck(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !void {
     var color: Color = .auto;
     var want_output_text = false;
     var kdb_source_path: ?[]const u8 = null;
@@ -264,7 +269,7 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, args: []const []const u8) !void
             };
         } else std.fs.File.stdin();
         defer if (kdb_source_path != null) f.close();
-        var file_reader = f.reader(&stdin_buffer);
+        var file_reader = f.reader(io, &stdin_buffer);
         break :s std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err| {
             fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
         };
@@ -352,7 +357,7 @@ const usage_lsp =
     \\
 ;
 
-fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
+fn cmdLsp(gpa: Allocator, io: Io, binary: []const u8, args: []const []const u8) !void {
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -373,7 +378,7 @@ fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
         log.warn("Did you mean to run 'kdblint --help'?", .{});
     }
 
-    log_file, const log_file_path = createLogFile(gpa, null) orelse .{ null, null };
+    log_file, const log_file_path = createLogFile(gpa, io, null) orelse .{ null, null };
     defer if (log_file_path) |path| gpa.free(path);
     defer if (log_file) |file| {
         file.close();
@@ -381,7 +386,7 @@ fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
     };
 
     var read_buffer: [256]u8 = undefined;
-    var stdio_transport: zls.lsp.Transport.Stdio = .init(&read_buffer, .stdin(), .stdout());
+    var stdio_transport: zls.lsp.Transport.Stdio = .init(io, &read_buffer, .stdin(), .stdout());
 
     var thread_safe_transport: zls.lsp.ThreadSafeTransport(.{
         .thread_safe_read = false,
@@ -406,6 +411,7 @@ fn cmdLsp(gpa: Allocator, binary: []const u8, args: []const []const u8) !void {
     }
 
     const server: *zls.Server = try .create(.{
+        .io = io,
         .allocator = gpa,
         .transport = transport,
         .config = null,

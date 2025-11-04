@@ -3,6 +3,7 @@ const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 const Color = std.zig.Color;
 
@@ -43,6 +44,7 @@ const Fmt = struct {
     color: Color,
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     out_buffer: std.Io.Writer.Allocating,
     stdout_writer: *fs.File.Writer,
     indent_char: u8,
@@ -51,7 +53,7 @@ const Fmt = struct {
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+pub fn run(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
@@ -118,7 +120,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
         const stdin: fs.File = .stdin();
         var stdio_buffer: [1024]u8 = undefined;
-        var file_reader = stdin.reader(&stdio_buffer);
+        var file_reader = stdin.reader(io, &stdio_buffer);
         const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
@@ -176,6 +178,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var fmt: Fmt = .{
         .gpa = gpa,
         .arena = arena,
+        .io = io,
         .seen = .init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
@@ -279,7 +282,7 @@ fn fmtPathFile(
         return error.IsDir;
 
     var read_buffer: [1024]u8 = undefined;
-    var file_reader = source_file.reader(&read_buffer);
+    var file_reader = source_file.reader(fmt.io, &read_buffer);
     file_reader.size = stat.size;
 
     const gpa = fmt.gpa;
