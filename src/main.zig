@@ -2,16 +2,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const assert = std.debug.assert;
-const zls = @import("zls");
 const Color = std.zig.Color;
-const known_folders = @import("known_folders");
+const assert = std.debug.assert;
+
+const lsp = @import("lsp");
 
 const kdb = @import("kdb/root.zig");
 const DocumentScope = kdb.DocumentScope;
 const build_options = @import("build_options");
-
-const Server = @import("lsp/Server.zig");
 
 const log = std.log.scoped(.main);
 
@@ -35,10 +33,6 @@ const usage =
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
-    // Always set this to debug to make std.log call into our handler, then control the runtime
-    // value in logFn itself
-    .log_level = .debug,
-    .logFn = logFn,
 };
 
 var wasi_preopens: std.fs.wasi.Preopens = undefined;
@@ -47,103 +41,6 @@ pub fn wasi_cwd() std.os.wasi.fd_t {
     const cwd_fd: std.posix.fd_t = 3;
     assert(std.mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
     return cwd_fd;
-}
-
-/// Log messages with the LSP 'window/logMessage' message.
-var log_transport: ?*zls.lsp.Transport = null;
-/// Log messages to stderr.
-var log_stderr: bool = true;
-/// Log messages to the given file.
-var log_file: ?std.fs.File = null;
-var log_level: std.log.Level = if (builtin.mode == .Debug) .debug else .info;
-
-fn logFn(
-    comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    var buffer: [4096]u8 = undefined;
-    comptime std.debug.assert(buffer.len >= zls.lsp.minimum_logging_buffer_size);
-
-    if (log_transport) |transport| {
-        const lsp_message_type: zls.lsp.types.MessageType = switch (level) {
-            .err => .Error,
-            .warn => .Warning,
-            .info => .Info,
-            .debug => .Debug,
-        };
-        const json_message = zls.lsp.bufPrintLogMessage(&buffer, lsp_message_type, format, args);
-        transport.writeJsonMessage(json_message) catch {};
-    }
-
-    if (@intFromEnum(level) > @intFromEnum(log_level)) return;
-    if (!log_stderr and log_file == null) return;
-
-    const level_txt: []const u8 = switch (level) {
-        .err => "error",
-        .warn => "warn ",
-        .info => "info ",
-        .debug => "debug",
-    };
-    const scope_txt: []const u8 = comptime @tagName(scope);
-
-    var writer: std.Io.Writer = .fixed(&buffer);
-    const no_space_left = blk: {
-        writer.print("{s} ({s:^6}): ", .{ level_txt, scope_txt }) catch break :blk true;
-        writer.print(format, args) catch break :blk true;
-        writer.writeByte('\n') catch break :blk true;
-        break :blk false;
-    };
-    if (no_space_left) {
-        const trailing = "...\n".*;
-        writer.undo(trailing.len -| writer.unusedCapacityLen());
-        (writer.writableArray(trailing.len) catch unreachable).* = trailing;
-    }
-
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-
-    if (log_stderr) {
-        var stderr_writer = std.fs.File.stderr().writer(&.{});
-        stderr_writer.interface.writeAll(writer.buffered()) catch {};
-    }
-
-    if (log_file) |file| {
-        var log_writer = file.writerStreaming(&.{});
-        file.seekFromEnd(0) catch {};
-        log_writer.interface.writeAll(writer.buffered()) catch {};
-    }
-}
-
-fn defaultLogFilePath(gpa: Allocator, io: Io) Allocator.Error!?[]const u8 {
-    if (builtin.target.os.tag == .wasi) return null;
-    const cache_path = known_folders.getPath(io, gpa, .cache) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => return null,
-    } orelse return null;
-    defer gpa.free(cache_path);
-    return try std.fs.path.join(gpa, &.{ cache_path, "kdblint", "kdblint.log" });
-}
-
-fn createLogFile(gpa: Allocator, io: Io, override_log_file_path: ?[]const u8) ?struct { std.fs.File, []const u8 } {
-    const log_file_path = if (override_log_file_path) |log_file_path|
-        gpa.dupe(u8, log_file_path) catch return null
-    else
-        defaultLogFilePath(gpa, io) catch null orelse return null;
-    errdefer gpa.free(log_file_path);
-
-    if (std.fs.path.dirname(log_file_path)) |dirname| {
-        std.fs.cwd().makePath(dirname) catch {};
-    }
-
-    const file = std.fs.cwd().createFile(log_file_path, .{ .truncate = false }) catch {
-        gpa.free(log_file_path);
-        return null;
-    };
-    errdefer file.close();
-
-    return .{ file, log_file_path };
 }
 
 const fatal = std.process.fatal;
@@ -193,7 +90,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
     const cmd = args[1];
     const cmd_args = args[2..];
     if (std.mem.eql(u8, cmd, "lsp")) {
-        return cmdLsp(gpa, io, args[0], cmd_args);
+        return cmdLsp(gpa, io, cmd_args);
     } else if (std.mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(gpa, arena, io, cmd_args);
     } else if (std.mem.eql(u8, cmd, "fmt")) {
@@ -206,10 +103,6 @@ fn mainArgs(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
         try std.fs.File.stdout().writeAll(usage ++ "\n");
         fatal("unknown command: {s}", .{cmd});
     }
-}
-
-test {
-    @import("std").testing.refAllDecls(@This());
 }
 
 const usage_ast_check =
@@ -357,7 +250,7 @@ const usage_lsp =
     \\
 ;
 
-fn cmdLsp(gpa: Allocator, io: Io, binary: []const u8, args: []const []const u8) !void {
+fn cmdLsp(gpa: Allocator, io: Io, args: []const []const u8) !void {
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -373,56 +266,148 @@ fn cmdLsp(gpa: Allocator, io: Io, binary: []const u8, args: []const []const u8) 
         }
     }
 
-    if (std.fs.File.stdin().isTty()) {
-        log.warn("kdblint lsp is not a CLI tool, it communicates over the Language Server Protocol.", .{});
-        log.warn("Did you mean to run 'kdblint --help'?", .{});
-    }
-
-    log_file, const log_file_path = createLogFile(gpa, io, null) orelse .{ null, null };
-    defer if (log_file_path) |path| gpa.free(path);
-    defer if (log_file) |file| {
-        file.close();
-        log_file = null;
-    };
-
     var read_buffer: [256]u8 = undefined;
-    var stdio_transport: zls.lsp.Transport.Stdio = .init(io, &read_buffer, .stdin(), .stdout());
+    var stdio_transport: lsp.Transport.Stdio = .init(io, &read_buffer, .stdin(), .stdout());
+    const transport = &stdio_transport.transport;
 
-    var thread_safe_transport: zls.lsp.ThreadSafeTransport(.{
-        .thread_safe_read = false,
-        .thread_safe_write = true,
-    }) = .init(&stdio_transport.transport);
+    var handler: Handler = .init(gpa);
+    defer handler.deinit();
 
-    const transport: *zls.lsp.Transport = &thread_safe_transport.transport;
+    try lsp.basic_server.run(gpa, transport, &handler, std.log.err);
+}
 
-    log_transport = transport;
-    log_stderr = false;
-    log_level = log_level;
-    defer {
-        log_transport = null;
-        log_stderr = true;
+const Handler = struct {
+    gpa: Allocator,
+    files: std.StringHashMapUnmanaged([]u8),
+    offset_encoding: lsp.offsets.Encoding,
+
+    fn init(gpa: Allocator) Handler {
+        return .{
+            .gpa = gpa,
+            .files = .empty,
+            .offset_encoding = .@"utf-16",
+        };
     }
 
-    log.info("Starting kdblint {s} @ '{s}'", .{ build_options.version_string, binary });
-    if (log_file_path) |path| {
-        log.info("Log File:        {s} ({t})", .{ path, log_level });
-    } else {
-        log.info("Log File:        none", .{});
+    fn deinit(handler: *Handler) void {
+        var file_it = handler.files.iterator();
+        while (file_it.next()) |entry| {
+            handler.gpa.free(entry.key_ptr.*);
+            handler.gpa.free(entry.value_ptr.*);
+        }
+        handler.files.deinit(handler.gpa);
+        handler.* = undefined;
     }
 
-    const server: *zls.Server = try .create(.{
-        .io = io,
-        .allocator = gpa,
-        .transport = transport,
-        .config = null,
-    });
-    defer server.destroy();
+    pub fn initialize(handler: *Handler, _: Allocator, params: lsp.types.InitializeParams) lsp.types.InitializeResult {
+        std.log.info("kdblint {s} {t} {t}-{t}", .{
+            build_options.version_string,
+            builtin.mode,
+            builtin.cpu.arch,
+            builtin.os.tag,
+        });
 
-    try server.loop();
+        if (params.clientInfo) |client_info| {
+            std.log.info("The client is '{s}' ({s})", .{
+                client_info.name,
+                client_info.version orelse "unknown version",
+            });
+        }
 
-    switch (server.status) {
-        .exiting_failure => std.process.exit(1),
-        .exiting_success => std.process.cleanExit(),
-        else => unreachable,
+        const client_capabilities = params.capabilities;
+        if (client_capabilities.general) |general| {
+            if (general.positionEncodings) |position_encodings| {
+                for (position_encodings) |encoding| {
+                    handler.offset_encoding = switch (encoding) {
+                        .@"utf-8" => .@"utf-8",
+                        .@"utf-16" => .@"utf-16",
+                        .@"utf-32" => .@"utf-32",
+                        .custom_value => continue,
+                    };
+                    break;
+                }
+            }
+        }
+
+        const server_capabilities: lsp.types.ServerCapabilities = .{
+            .positionEncoding = switch (handler.offset_encoding) {
+                .@"utf-8" => .@"utf-8",
+                .@"utf-16" => .@"utf-16",
+                .@"utf-32" => .@"utf-32",
+            },
+            .textDocumentSync = .{
+                .TextDocumentSyncOptions = .{
+                    .openClose = true,
+                    .change = .Full,
+                },
+            },
+        };
+
+        if (builtin.mode == .Debug) {
+            lsp.basic_server.validateServerCapabilities(Handler, server_capabilities);
+        }
+
+        return .{
+            .capabilities = server_capabilities,
+            .serverInfo = .{
+                .name = "kdblint Language Server",
+                .version = build_options.version_string,
+            },
+        };
     }
+
+    pub fn initialized(handler: *Handler, gpa: Allocator, params: lsp.types.InitializedParams) void {
+        _ = handler; // autofix
+        _ = gpa; // autofix
+        _ = params; // autofix
+        std.log.debug(@src().fn_name, .{});
+    }
+
+    pub fn shutdown(handler: *Handler, gpa: Allocator, params: void) ?void {
+        _ = handler; // autofix
+        _ = gpa; // autofix
+        _ = params; // autofix
+        std.log.debug(@src().fn_name, .{});
+    }
+
+    pub fn exit(handler: *Handler, gpa: Allocator, params: void) void {
+        _ = handler; // autofix
+        _ = gpa; // autofix
+        _ = params; // autofix
+        std.log.debug(@src().fn_name, .{});
+    }
+
+    pub fn @"textDocument/didOpen"(handler: *Handler, _: Allocator, params: lsp.types.DidOpenTextDocumentParams) !void {
+        _ = handler; // autofix
+        _ = params; // autofix
+        std.log.debug(@src().fn_name, .{});
+    }
+
+    pub fn @"textDocument/didChange"(
+        handler: *Handler,
+        _: Allocator,
+        params: lsp.types.DidChangeTextDocumentParams,
+    ) !void {
+        _ = handler; // autofix
+        _ = params; // autofix
+        std.log.debug(@src().fn_name, .{});
+    }
+
+    pub fn @"textDocument/didClose"(
+        handler: *Handler,
+        _: Allocator,
+        params: lsp.types.DidCloseTextDocumentParams,
+    ) !void {
+        _ = handler; // autofix
+        _ = params; // autofix
+        std.log.debug(@src().fn_name, .{});
+    }
+
+    pub fn onResponse(_: *Handler, _: Allocator, response: lsp.JsonRPCMessage.Response) void {
+        std.log.warn("received unexpected response from client with id '{?}'", .{response.id});
+    }
+};
+
+test {
+    @import("std").testing.refAllDecls(@This());
 }

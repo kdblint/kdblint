@@ -13,21 +13,17 @@ pub fn build(b: *std.Build) !void {
     options.addOption([:0]const u8, "version_string", try b.allocator.dupeZ(u8, version));
     options.addOptionPath("tests_path", b.path("tests"));
 
-    const zls_dep = b.dependency("zls", .{
-        .@"version-string" = "0.1.0",
-    });
-    const zls_mod = zls_dep.module("zls");
-
-    const known_folders = zls_dep.builder.dependency("known_folders", .{});
-    const known_folders_module = known_folders.module("known-folders");
+    const lsp = b.dependency("lsp_kit", .{});
+    const lsp_mod = lsp.module("lsp");
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "lsp", .module = lsp_mod },
+        },
     });
-    exe_mod.addImport("zls", zls_mod);
-    exe_mod.addImport("known_folders", known_folders_module);
     exe_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
