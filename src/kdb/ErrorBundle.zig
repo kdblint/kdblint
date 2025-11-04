@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 const RenderOptions = std.zig.ErrorBundle.RenderOptions;
 const Writer = std.Io.Writer;
@@ -158,17 +159,17 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
     return string_bytes[index..end :0];
 }
 
-pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
+pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions, color: std.zig.Color) void {
     var buffer: [256]u8 = undefined;
-    const w = std.debug.lockStderrWriter(&buffer);
+    const w, const ttyconf = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
-    renderToWriter(eb, options, w) catch return;
+    renderToWriter(eb, options, w, color.getTtyConf(ttyconf)) catch return;
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer) (Writer.Error || std.posix.UnexpectedError)!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer, ttyconf: Io.tty.Config) (Writer.Error || std.posix.UnexpectedError)!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, options, err_msg, w, 0);
+        try renderErrorMessageToWriter(eb, options, err_msg, w, ttyconf, 0);
     }
 
     if (options.include_log_text) {
@@ -185,9 +186,9 @@ fn renderErrorMessageToWriter(
     options: RenderOptions,
     err_msg_index: MessageIndex,
     w: *Writer,
+    ttyconf: Io.tty.Config,
     indent: usize,
 ) (Writer.Error || std.posix.UnexpectedError)!void {
-    const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
     const color = err_msg.kind.color();
     const kind = @tagName(err_msg.kind);
@@ -246,7 +247,7 @@ fn renderErrorMessageToWriter(
             try ttyconf.setColor(w, .reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, w, indent);
+            try renderErrorMessageToWriter(eb, options, note, w, ttyconf, indent);
         }
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
             try ttyconf.setColor(w, .reset);
@@ -295,7 +296,7 @@ fn renderErrorMessageToWriter(
         }
         try ttyconf.setColor(w, .reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, w, indent + 4);
+            try renderErrorMessageToWriter(eb, options, note, w, ttyconf, indent + 4);
         }
     }
 }

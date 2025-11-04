@@ -664,7 +664,7 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
 
     var output: std.Io.Writer.Allocating = .init(gpa);
     defer output.deinit();
-    try error_bundle.renderToWriter(.{ .ttyconf = .no_color }, &output.writer);
+    try error_bundle.renderToWriter(.{}, &output.writer, .no_color);
 
     try renderAsText(gpa, tree, zir, &output.writer);
 
@@ -714,7 +714,7 @@ fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
 
     var output: std.Io.Writer.Allocating = .init(gpa);
     defer output.deinit();
-    try error_bundle.renderToWriter(.{ .ttyconf = .no_color }, &output.writer);
+    try error_bundle.renderToWriter(.{}, &output.writer, .no_color);
 
     const written = output.written();
     try std.testing.expectEqualStrings(expected, written[0 .. written.len - 1]);
