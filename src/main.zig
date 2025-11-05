@@ -6,6 +6,7 @@ const Color = std.zig.Color;
 const assert = std.debug.assert;
 
 const lsp = @import("lsp");
+const Server = @import("lsp/Server.zig");
 
 const kdb = @import("kdb/root.zig");
 const DocumentScope = kdb.DocumentScope;
@@ -268,145 +269,25 @@ fn cmdLsp(gpa: Allocator, io: Io, args: []const []const u8) !void {
 
     var read_buffer: [256]u8 = undefined;
     var stdio_transport: lsp.Transport.Stdio = .init(io, &read_buffer, .stdin(), .stdout());
-    const transport = &stdio_transport.transport;
 
-    var handler: Handler = .init(gpa);
-    defer handler.deinit();
+    var thread_safe_transport: lsp.ThreadSafeTransport(.{
+        .thread_safe_read = false,
+        .thread_safe_write = true,
+    }) = .init(&stdio_transport.transport);
 
-    try lsp.basic_server.run(gpa, transport, &handler, std.log.err);
+    const transport = &thread_safe_transport.transport;
+
+    const server: *Server = try .create(io, gpa, transport);
+    defer server.destroy();
+
+    try server.loop();
+
+    switch (server.status) {
+        .exiting_failure => std.process.exit(1),
+        .exiting_success => cleanExit(),
+        else => unreachable,
+    }
 }
-
-const Handler = struct {
-    gpa: Allocator,
-    files: std.StringHashMapUnmanaged([]u8),
-    offset_encoding: lsp.offsets.Encoding,
-
-    fn init(gpa: Allocator) Handler {
-        return .{
-            .gpa = gpa,
-            .files = .empty,
-            .offset_encoding = .@"utf-16",
-        };
-    }
-
-    fn deinit(handler: *Handler) void {
-        var file_it = handler.files.iterator();
-        while (file_it.next()) |entry| {
-            handler.gpa.free(entry.key_ptr.*);
-            handler.gpa.free(entry.value_ptr.*);
-        }
-        handler.files.deinit(handler.gpa);
-        handler.* = undefined;
-    }
-
-    pub fn initialize(handler: *Handler, _: Allocator, params: lsp.types.InitializeParams) lsp.types.InitializeResult {
-        std.log.info("kdblint {s} {t} {t}-{t}", .{
-            build_options.version_string,
-            builtin.mode,
-            builtin.cpu.arch,
-            builtin.os.tag,
-        });
-
-        if (params.clientInfo) |client_info| {
-            std.log.info("The client is '{s}' ({s})", .{
-                client_info.name,
-                client_info.version orelse "unknown version",
-            });
-        }
-
-        const client_capabilities = params.capabilities;
-        if (client_capabilities.general) |general| {
-            if (general.positionEncodings) |position_encodings| {
-                for (position_encodings) |encoding| {
-                    handler.offset_encoding = switch (encoding) {
-                        .@"utf-8" => .@"utf-8",
-                        .@"utf-16" => .@"utf-16",
-                        .@"utf-32" => .@"utf-32",
-                        .custom_value => continue,
-                    };
-                    break;
-                }
-            }
-        }
-
-        const server_capabilities: lsp.types.ServerCapabilities = .{
-            .positionEncoding = switch (handler.offset_encoding) {
-                .@"utf-8" => .@"utf-8",
-                .@"utf-16" => .@"utf-16",
-                .@"utf-32" => .@"utf-32",
-            },
-            .textDocumentSync = .{
-                .TextDocumentSyncOptions = .{
-                    .openClose = true,
-                    .change = .Full,
-                },
-            },
-        };
-
-        if (builtin.mode == .Debug) {
-            lsp.basic_server.validateServerCapabilities(Handler, server_capabilities);
-        }
-
-        return .{
-            .capabilities = server_capabilities,
-            .serverInfo = .{
-                .name = "kdblint Language Server",
-                .version = build_options.version_string,
-            },
-        };
-    }
-
-    pub fn initialized(handler: *Handler, gpa: Allocator, params: lsp.types.InitializedParams) void {
-        _ = handler; // autofix
-        _ = gpa; // autofix
-        _ = params; // autofix
-        std.log.debug(@src().fn_name, .{});
-    }
-
-    pub fn shutdown(handler: *Handler, gpa: Allocator, params: void) ?void {
-        _ = handler; // autofix
-        _ = gpa; // autofix
-        _ = params; // autofix
-        std.log.debug(@src().fn_name, .{});
-    }
-
-    pub fn exit(handler: *Handler, gpa: Allocator, params: void) void {
-        _ = handler; // autofix
-        _ = gpa; // autofix
-        _ = params; // autofix
-        std.log.debug(@src().fn_name, .{});
-    }
-
-    pub fn @"textDocument/didOpen"(handler: *Handler, _: Allocator, params: lsp.types.DidOpenTextDocumentParams) !void {
-        _ = handler; // autofix
-        _ = params; // autofix
-        std.log.debug(@src().fn_name, .{});
-    }
-
-    pub fn @"textDocument/didChange"(
-        handler: *Handler,
-        _: Allocator,
-        params: lsp.types.DidChangeTextDocumentParams,
-    ) !void {
-        _ = handler; // autofix
-        _ = params; // autofix
-        std.log.debug(@src().fn_name, .{});
-    }
-
-    pub fn @"textDocument/didClose"(
-        handler: *Handler,
-        _: Allocator,
-        params: lsp.types.DidCloseTextDocumentParams,
-    ) !void {
-        _ = handler; // autofix
-        _ = params; // autofix
-        std.log.debug(@src().fn_name, .{});
-    }
-
-    pub fn onResponse(_: *Handler, _: Allocator, response: lsp.JsonRPCMessage.Response) void {
-        std.log.warn("received unexpected response from client with id '{?}'", .{response.id});
-    }
-};
 
 test {
     @import("std").testing.refAllDecls(@This());
