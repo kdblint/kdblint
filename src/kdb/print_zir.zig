@@ -8,7 +8,6 @@ const kdb = @import("root.zig");
 const Ast = kdb.Ast;
 const AstGen = kdb.AstGen;
 const Zir = kdb.Zir;
-const File = kdb.File;
 const DocumentScope = kdb.DocumentScope;
 
 /// Write human-readable, debug formatted ZIR code.
