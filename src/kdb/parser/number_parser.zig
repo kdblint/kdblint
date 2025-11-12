@@ -418,16 +418,16 @@ pub const Value = union(ValueType) {
     datetime: f64,
     datetime_list: []f64,
 
-    pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: Value, gpa: Allocator) void {
         switch (self) {
-            .boolean_list => |value| allocator.free(value),
-            .guid_list => |value| allocator.free(value),
-            .byte_list, .char_list => |value| allocator.free(value),
-            .short_list => |value| allocator.free(value),
-            .int_list, .month_list, .date_list, .minute_list, .second_list, .time_list => |value| allocator.free(value),
-            .long_list, .timestamp_list, .timespan_list => |value| allocator.free(value),
-            .real_list => |value| allocator.free(value),
-            .float_list, .datetime_list => |value| allocator.free(value),
+            .boolean_list => |value| gpa.free(value),
+            .guid_list => |value| gpa.free(value),
+            .byte_list, .char_list => |value| gpa.free(value),
+            .short_list => |value| gpa.free(value),
+            .int_list, .month_list, .date_list, .minute_list, .second_list, .time_list => |value| gpa.free(value),
+            .long_list, .timestamp_list, .timespan_list => |value| gpa.free(value),
+            .real_list => |value| gpa.free(value),
+            .float_list, .datetime_list => |value| gpa.free(value),
             else => {},
         }
     }
@@ -1068,8 +1068,8 @@ const ParseResult = struct {
     value: Value,
     has_suffix: bool,
 
-    pub fn deinit(self: ParseResult, allocator: std.mem.Allocator) void {
-        self.value.deinit(allocator);
+    pub fn deinit(self: ParseResult, gpa: Allocator) void {
+        self.value.deinit(gpa);
     }
 
     pub fn tag(self: ParseResult) Ast.Node.Tag {
@@ -1078,12 +1078,12 @@ const ParseResult = struct {
 };
 
 const NumberParser = struct {
-    allocator: Allocator,
+    gpa: Allocator,
     str: []const u8 = undefined,
 
-    pub fn init(allocator: Allocator) NumberParser {
+    pub fn init(gpa: Allocator) NumberParser {
         return .{
-            .allocator = allocator,
+            .gpa = gpa,
         };
     }
 
@@ -1395,7 +1395,7 @@ const NumberParser = struct {
         if (index == 1) {
             return .{ .boolean = self.str[0] == '1' };
         } else {
-            const list = self.allocator.alloc(bool, index) catch panic("Failed to allocate memory.", .{});
+            const list = self.gpa.alloc(bool, index) catch panic("Failed to allocate memory.", .{});
             for (self.str[0..index], 0..) |c, i| {
                 list[i] = c == '1';
             }
@@ -1414,7 +1414,7 @@ const NumberParser = struct {
         }
 
         var i: usize = 2;
-        var list = std.ArrayList(u8).init(self.allocator);
+        var list = std.ArrayList(u8).init(self.gpa);
         defer list.deinit();
         while (i < self.str.len) : (i += 2) {
             const c1 = try std.fmt.charToDigit(self.str[i], 16);

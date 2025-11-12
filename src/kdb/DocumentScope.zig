@@ -289,22 +289,22 @@ pub const ScopeContext = struct {
 
             const context = pushed.context;
             const doc_scope = context.doc_scope;
-            const allocator = context.gpa;
+            const gpa = context.gpa;
 
-            const gop = try doc_scope.declaration_lookup_map.getOrPut(allocator, .{
+            const gop = try doc_scope.declaration_lookup_map.getOrPut(gpa, .{
                 .scope = pushed.scope,
                 .name = name,
             });
             if (gop.found_existing) return;
 
-            try doc_scope.declarations.append(allocator, declaration);
+            try doc_scope.declarations.append(gpa, declaration);
             const declaration_index: Declaration.Index = @enumFromInt(doc_scope.declarations.len - 1);
 
             const data = &doc_scope.scopes.items(.data)[@intFromEnum(pushed.scope)];
             const child_declarations = &doc_scope.scopes.items(.child_declarations)[@intFromEnum(pushed.scope)];
 
             if (!data.is_child_decls_small) {
-                try context.child_declarations_scratch.append(allocator, declaration_index);
+                try context.child_declarations_scratch.append(gpa, declaration_index);
                 return;
             }
 
@@ -316,7 +316,7 @@ pub const ScopeContext = struct {
             } else {
                 data.is_child_decls_small = false;
 
-                try context.child_declarations_scratch.ensureUnusedCapacity(allocator, Scope.ChildDeclarations.small_size + 1);
+                try context.child_declarations_scratch.ensureUnusedCapacity(gpa, Scope.ChildDeclarations.small_size + 1);
                 context.child_declarations_scratch.appendSliceAssumeCapacity(@ptrCast(&child_declarations.small));
                 context.child_declarations_scratch.appendAssumeCapacity(declaration_index);
             }
@@ -324,14 +324,14 @@ pub const ScopeContext = struct {
 
         pub fn finalize(pushed: PushedScope) error{OutOfMemory}!void {
             const context = pushed.context;
-            const allocator = context.gpa;
+            const gpa = context.gpa;
 
             const slice = context.doc_scope.scopes.slice();
             const data = slice.items(.data)[@intFromEnum(pushed.scope)];
 
             if (!data.is_child_decls_small) {
                 const declaration_start = context.doc_scope.extra.items.len;
-                try context.doc_scope.extra.appendSlice(allocator, @ptrCast(context.child_declarations_scratch.items[pushed.declarations_start..]));
+                try context.doc_scope.extra.appendSlice(gpa, @ptrCast(context.child_declarations_scratch.items[pushed.declarations_start..]));
                 const declaration_end = context.doc_scope.extra.items.len;
                 context.child_declarations_scratch.items.len = pushed.declarations_start;
 
@@ -345,7 +345,7 @@ pub const ScopeContext = struct {
 
             if (!data.is_child_scopes_small) {
                 const scope_start = context.doc_scope.extra.items.len;
-                try context.doc_scope.extra.appendSlice(allocator, @ptrCast(context.child_scopes_scratch.items[pushed.scopes_start..]));
+                try context.doc_scope.extra.appendSlice(gpa, @ptrCast(context.child_scopes_scratch.items[pushed.scopes_start..]));
                 const scope_end = context.doc_scope.extra.items.len;
                 context.child_scopes_scratch.items.len = pushed.scopes_start;
 
@@ -401,13 +401,13 @@ pub const ScopeContext = struct {
         child_scope_index: Scope.Index,
     ) error{OutOfMemory}!void {
         const doc_scope = context.doc_scope;
-        const allocator = context.gpa;
+        const gpa = context.gpa;
 
         const data = &doc_scope.scopes.items(.data)[@intFromEnum(scope_index)];
         const child_scopes = &doc_scope.scopes.items(.child_scopes)[@intFromEnum(scope_index)];
 
         if (!data.is_child_scopes_small) {
-            try context.child_scopes_scratch.append(allocator, child_scope_index);
+            try context.child_scopes_scratch.append(gpa, child_scope_index);
             return;
         }
 
@@ -419,19 +419,19 @@ pub const ScopeContext = struct {
         } else {
             data.is_child_scopes_small = false;
 
-            try context.child_scopes_scratch.ensureUnusedCapacity(allocator, Scope.ChildScopes.small_size + 1);
+            try context.child_scopes_scratch.ensureUnusedCapacity(gpa, Scope.ChildScopes.small_size + 1);
             context.child_scopes_scratch.appendSliceAssumeCapacity(@ptrCast(&child_scopes.small));
             context.child_scopes_scratch.appendAssumeCapacity(child_scope_index);
         }
     }
 };
 
-pub fn init(allocator: Allocator, tree: Ast) error{OutOfMemory}!DocumentScope {
+pub fn init(gpa: Allocator, tree: Ast) error{OutOfMemory}!DocumentScope {
     var document_scope: DocumentScope = .{};
-    errdefer document_scope.deinit(allocator);
+    errdefer document_scope.deinit(gpa);
 
     var context = ScopeContext{
-        .gpa = allocator,
+        .gpa = gpa,
         .tree = tree,
         .doc_scope = &document_scope,
     };
@@ -453,14 +453,14 @@ pub fn init(allocator: Allocator, tree: Ast) error{OutOfMemory}!DocumentScope {
     return document_scope;
 }
 
-pub fn deinit(scope: *DocumentScope, allocator: Allocator) void {
-    scope.scopes.deinit(allocator);
-    scope.declarations.deinit(allocator);
-    scope.declaration_lookup_map.deinit(allocator);
-    scope.extra.deinit(allocator);
+pub fn deinit(scope: *DocumentScope, gpa: Allocator) void {
+    scope.scopes.deinit(gpa);
+    scope.declarations.deinit(gpa);
+    scope.declaration_lookup_map.deinit(gpa);
+    scope.extra.deinit(gpa);
 
-    scope.global_enum_set.deinit(allocator);
-    scope.global_error_set.deinit(allocator);
+    scope.global_enum_set.deinit(gpa);
+    scope.global_error_set.deinit(gpa);
 }
 
 fn locToSmallLoc(loc: Ast.Token.Loc) Scope.SmallLoc {
@@ -556,7 +556,7 @@ fn walkNode(
         => walkSwitchNode(context, tree, node_idx),
         .@"errdefer" => walkErrdeferNode(context, tree, node_idx),
 
-        .@"usingnamespace",
+        .usingnamespace,
         .field_access,
         .unwrap_optional,
         .bool_not,
@@ -565,7 +565,7 @@ fn walkNode(
         .negation_wrap,
         .address_of,
         .@"try",
-        .@"await",
+        .await,
         .optional_type,
         .deref,
         .@"suspend",
@@ -711,7 +711,7 @@ noinline fn walkContainerDecl(
     tree: Ast,
     node_idx: Ast.Node.Index,
 ) error{OutOfMemory}!void {
-    const allocator = context.gpa;
+    const gpa = context.gpa;
     const tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
 
@@ -738,14 +738,14 @@ noinline fn walkContainerDecl(
     );
 
     var uses = std.ArrayListUnmanaged(Ast.Node.Index){};
-    defer uses.deinit(allocator);
+    defer uses.deinit(gpa);
 
     for (container_decl.ast.members) |decl| {
         try walkNode(context, tree, decl);
 
         switch (tags[decl]) {
-            .@"usingnamespace" => {
-                try uses.append(allocator, decl);
+            .usingnamespace => {
+                try uses.append(gpa, decl);
             },
             .test_decl,
             .@"comptime",
@@ -811,7 +811,7 @@ noinline fn walkContainerDecl(
         scope_data.tag = .container_usingnamespace;
         scope_data.data = .{ .container_usingnamespace = @intCast(context.doc_scope.extra.items.len) };
 
-        try context.doc_scope.extra.ensureUnusedCapacity(allocator, uses.items.len + 2);
+        try context.doc_scope.extra.ensureUnusedCapacity(gpa, uses.items.len + 2);
         context.doc_scope.extra.appendAssumeCapacity(node_idx);
         context.doc_scope.extra.appendAssumeCapacity(@intCast(uses.items.len));
         context.doc_scope.extra.appendSliceAssumeCapacity(uses.items);
