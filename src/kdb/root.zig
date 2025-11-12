@@ -16,13 +16,6 @@ pub const print_zir = @import("print_zir.zig");
 pub const DocumentScope = @import("DocumentScope.zig");
 pub const InternPool = @import("InternPool.zig");
 
-pub const File = struct {
-    sub_file_path: []const u8,
-    source: ?[:0]const u8,
-    tree: ?Ast,
-    zir: ?Zir,
-};
-
 pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
     var wip_errors: ErrorBundle.Wip = undefined;
     try wip_errors.init(gpa);
