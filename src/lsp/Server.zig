@@ -2,21 +2,34 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+const Uri = std.Uri;
 const assert = std.debug.assert;
 const lsp = @import("lsp");
 const types = lsp.types;
 const build_options = @import("build_options");
 
+const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
+const DocumentStore = @import("DocumentStore.zig");
+const diagnostics_gen = @import("features/diagnostics.zig");
+const diff = @import("diff.zig");
+
 const Server = @This();
 
 io: Io,
-allocator: Allocator,
+gpa: Allocator,
+document_store: DocumentStore,
+diagnostics_collection: DiagnosticsCollection,
 transport: *lsp.Transport,
 offset_encoding: lsp.offsets.Encoding = .@"utf-16",
 status: Status = .uninitialized,
 
 thread_pool: std.Thread.Pool,
 wait_group: std.Thread.WaitGroup = .{},
+client_capabilities: ClientCapabilities = .{},
+
+const ClientCapabilities = struct {
+    supports_publish_diagnostics: bool = false,
+};
 
 pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
     const server = try gpa.create(Server);
@@ -24,7 +37,16 @@ pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
 
     server.* = .{
         .io = io,
-        .allocator = gpa,
+        .gpa = gpa,
+        .document_store = .{
+            .io = io,
+            .gpa = gpa,
+            .thread_pool = &server.thread_pool,
+        },
+        .diagnostics_collection = .{
+            .gpa = gpa,
+            .transport = transport,
+        },
         .transport = transport,
         .thread_pool = undefined, // set below
     };
@@ -40,7 +62,8 @@ pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
 
 pub fn destroy(server: *Server) void {
     server.thread_pool.deinit();
-    server.allocator.destroy(server);
+    server.document_store.deinit();
+    server.gpa.destroy(server);
 }
 
 pub fn keepRunning(server: Server) bool {
@@ -52,10 +75,10 @@ pub fn keepRunning(server: Server) bool {
 
 pub fn loop(server: *Server) !void {
     while (server.keepRunning()) {
-        const json_message = try server.transport.readJsonMessage(server.allocator);
-        defer server.allocator.free(json_message);
+        const json_message = try server.transport.readJsonMessage(server.gpa);
+        defer server.gpa.free(json_message);
 
-        var arena_allocator: std.heap.ArenaAllocator = .init(server.allocator);
+        var arena_allocator: std.heap.ArenaAllocator = .init(server.gpa);
         errdefer arena_allocator.deinit();
 
         const message = Message.parseFromSliceLeaky(
@@ -106,7 +129,12 @@ fn initialize(
                     .custom_value => {},
                 }
             } else server.offset_encoding;
+            server.diagnostics_collection.offset_encoding = server.offset_encoding;
         }
+    }
+
+    if (request.capabilities.textDocument) |text_document| {
+        server.client_capabilities.supports_publish_diagnostics = text_document.publishDiagnostics != null;
     }
 
     return .{
@@ -165,22 +193,34 @@ fn exit(
 
 fn @"textDocument/didOpen"(
     server: *Server,
-    arena: Allocator,
+    _: Allocator,
     notification: types.DidOpenTextDocumentParams,
 ) !void {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = notification; // autofix
+    const document_uri = Uri.parse(notification.textDocument.uri) catch return error.InvalidParams;
+    try server.document_store.openLspSyncedDocument(document_uri, notification.textDocument.text);
+    server.generateDiagnostics(server.document_store.getHandle(document_uri).?);
 }
 
 fn @"textDocument/didChange"(
     server: *Server,
-    arena: Allocator,
+    _: Allocator,
     notification: types.DidChangeTextDocumentParams,
 ) !void {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = notification; // autofix
+    if (notification.contentChanges.len == 0) return;
+
+    const document_uri = Uri.parse(notification.textDocument.uri) catch return error.InvalidParams;
+    const handle = server.document_store.getHandle(document_uri) orelse return;
+
+    const new_text = try diff.applyContentChanges(
+        server.gpa,
+        handle.tree.source,
+        notification.contentChanges,
+        server.offset_encoding,
+    );
+    errdefer server.gpa.free(new_text);
+
+    try server.document_store.refreshLspSyncedDocument(handle.uri, new_text);
+    server.generateDiagnostics(handle);
 }
 
 fn @"textDocument/didSave"(
@@ -195,12 +235,18 @@ fn @"textDocument/didSave"(
 
 fn @"textDocument/didClose"(
     server: *Server,
-    arena: Allocator,
+    _: Allocator,
     notification: types.DidCloseTextDocumentParams,
 ) !void {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = notification; // autofix
+    const document_uri = Uri.parse(notification.textDocument.uri) catch return error.InvalidParams;
+    server.document_store.closeLspSyncedDocument(document_uri);
+
+    if (server.client_capabilities.supports_publish_diagnostics) {
+        server.diagnostics_collection.clearSingleDocumentDiagnostics(document_uri);
+        server.diagnostics_collection.publishDiagnostics() catch |err| {
+            std.log.err("failed to publish diagnostics: {t}", .{err});
+        };
+    }
 }
 
 fn @"workspace/didChangeWatchedFiles"(
@@ -231,6 +277,19 @@ fn @"workspace/didChangeConfiguration"(
     _ = server; // autofix
     _ = arena; // autofix
     _ = notification; // autofix
+}
+
+fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
+    if (!server.client_capabilities.supports_publish_diagnostics) return;
+    const do = struct {
+        fn do(param_server: *Server, param_handle: *DocumentStore.Handle) void {
+            diagnostics_gen.generateDiagnostics(param_server, param_handle) catch |err| switch (err) {
+                error.OutOfMemory => {},
+                error.WriteFailed => {},
+            };
+        }
+    }.do;
+    server.thread_pool.spawnWg(&server.wait_group, do, .{ server, handle });
 }
 
 const HandledRequestParams = union(enum) {
@@ -338,7 +397,7 @@ fn sendToClientResponse(server: *Server, id: lsp.JsonRPCMessage.ID, result: anyt
         .id = id,
         .result_or_error = .{ .result = result },
     };
-    return sendToClientInternal(server.allocator, server.transport, response);
+    return sendToClientInternal(server.gpa, server.transport, response);
 }
 
 fn sendToClientRequest(server: *Server, id: lsp.JsonRPCMessage.ID, method: []const u8, params: anytype) ![]u8 {
@@ -351,7 +410,7 @@ fn sendToClientRequest(server: *Server, id: lsp.JsonRPCMessage.ID, method: []con
         .method = method,
         .params = params,
     };
-    return sendToClientInternal(server.allocator, server.transport, request);
+    return sendToClientInternal(server.gpa, server.transport, request);
 }
 
 fn sendToClientNotification(server: *Server, method: []const u8, params: anytype) ![]u8 {
@@ -363,7 +422,7 @@ fn sendToClientNotification(server: *Server, method: []const u8, params: anytype
         .method = method,
         .params = params,
     };
-    return sendToClientInternal(server.allocator, server.transport, notification);
+    return sendToClientInternal(server.gpa, server.transport, notification);
 }
 
 fn sendToClientResponseError(server: *Server, id: lsp.JsonRPCMessage.ID, err: lsp.JsonRPCMessage.Response.Error) ![]u8 {
@@ -371,14 +430,14 @@ fn sendToClientResponseError(server: *Server, id: lsp.JsonRPCMessage.ID, err: ls
         .response = .{ .id = id, .result_or_error = .{ .@"error" = err } },
     };
 
-    return sendToClientInternal(server.allocator, server.transport, response);
+    return sendToClientInternal(server.gpa, server.transport, response);
 }
 
-fn sendToClientInternal(allocator: std.mem.Allocator, transport: ?*lsp.Transport, message: anytype) error{OutOfMemory}![]u8 {
-    const message_stringified = try std.json.Stringify.valueAlloc(allocator, message, .{
+fn sendToClientInternal(gpa: Allocator, transport: ?*lsp.Transport, message: anytype) error{OutOfMemory}![]u8 {
+    const message_stringified = try std.json.Stringify.valueAlloc(gpa, message, .{
         .emit_null_optional_fields = false,
     });
-    errdefer allocator.free(message_stringified);
+    errdefer gpa.free(message_stringified);
 
     if (transport) |t| {
         t.writeJsonMessage(message_stringified) catch |err| {
@@ -391,7 +450,7 @@ fn sendToClientInternal(allocator: std.mem.Allocator, transport: ?*lsp.Transport
 
 pub fn sendJsonMessageSync(server: *Server, json_message: []const u8) !?[]u8 {
     const parsed_message = Message.parseFromSlice(
-        server.allocator,
+        server.gpa,
         json_message,
         .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
     ) catch return error.ParseError;
@@ -401,7 +460,7 @@ pub fn sendJsonMessageSync(server: *Server, json_message: []const u8) !?[]u8 {
 
 pub fn sendRequestSync(
     server: *Server,
-    arena: std.mem.Allocator,
+    arena: Allocator,
     comptime method: []const u8,
     params: lsp.ParamsType(method),
 ) !lsp.ResultType(method) {
@@ -419,7 +478,7 @@ pub fn sendRequestSync(
 
 pub fn sendNotificationSync(
     server: *Server,
-    arena: std.mem.Allocator,
+    arena: Allocator,
     comptime method: []const u8,
     params: lsp.ParamsType(method),
 ) !void {
@@ -444,7 +503,7 @@ pub fn sendNotificationSync(
 
 pub fn sendMessageSync(
     server: *Server,
-    arena: std.mem.Allocator,
+    arena: Allocator,
     comptime method: []const u8,
     params: lsp.ParamsType(method),
 ) !lsp.ResultType(method) {
@@ -457,7 +516,7 @@ pub fn sendMessageSync(
     } else unreachable;
 }
 
-fn processMessage(server: *Server, arena: std.mem.Allocator, message: Message) Error!?[]u8 {
+fn processMessage(server: *Server, arena: Allocator, message: Message) Error!?[]u8 {
     try server.validateMessage(message);
 
     std.log.debug("{f}", .{fmtMessage(message)});
@@ -480,11 +539,11 @@ fn processMessage(server: *Server, arena: std.mem.Allocator, message: Message) E
 }
 
 fn processMessageReportError(server: *Server, arena_state: std.heap.ArenaAllocator.State, message: Message) void {
-    var arena_allocator = arena_state.promote(server.allocator);
+    var arena_allocator = arena_state.promote(server.gpa);
     defer arena_allocator.deinit();
 
     if (server.processMessage(arena_allocator.allocator(), message)) |json_message| {
-        server.allocator.free(json_message orelse return);
+        server.gpa.free(json_message orelse return);
     } else |err| {
         std.log.err("failed to process {f}: {}", .{ fmtMessage(message), err });
         if (@errorReturnTrace()) |trace| {
@@ -509,7 +568,7 @@ fn processMessageReportError(server: *Server, arena_state: std.heap.ArenaAllocat
                     }),
                     .message = @errorName(err),
                 }) catch return;
-                server.allocator.free(json_message);
+                server.gpa.free(json_message);
             },
             .notification, .response => return,
         }
