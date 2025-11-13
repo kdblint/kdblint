@@ -33,4 +33,6 @@ jobs:
         with:
           name: log-files
           path: ./**/*.log
-          
+      - name: find
+        if: always()
+        run: find .
