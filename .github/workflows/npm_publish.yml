@@ -16,6 +16,8 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         with:
           cache: false
+      - name: Zig version
+        run: zig version
       - name: Run tests
         run: zig build test --summary new
       - name: Build wasm32-wasi
