@@ -1,7 +1,8 @@
 .{
     .name = .zig_kdblint,
     .version = "0.1.0",
-    .fingerprint = 0x8d3aa34075cd4f20,
+    .fingerprint = 0x8d3aa34045837994, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.16.0-dev.1303+ee0a0f119",
     .dependencies = .{
         .lsp_kit = .{
             .url = "git+https://github.com/zigtools/lsp-kit#c46ac866dda11ab58e4ba71ed0d8ba21f43e81db",
