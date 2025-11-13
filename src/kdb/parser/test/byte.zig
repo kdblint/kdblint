@@ -5,6 +5,19 @@ const testNumberParserError = number_parser.testNumberParserError;
 const testParse = Parse.testParse;
 
 test "valid byte inputs" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testNumberParser("0x0", .byte, 0);
     try testNumberParser("0x00", .byte, 0);
     try testNumberParser("0x1", .byte, 1);
@@ -46,6 +59,19 @@ test "valid byte inputs" {
 }
 
 test "invalid byte inputs" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testNumberParserError("0X", error.InvalidCharacter);
     try testNumberParserError("0xg", error.InvalidCharacter);
     try testNumberParserError("0xG", error.InvalidCharacter);

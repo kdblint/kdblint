@@ -1496,10 +1496,36 @@ pub const Tokenizer = struct {
 };
 
 test "invalid literal/comment characters" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("\"\x00\"", &.{.invalid});
 }
 
 test "line comment followed by identifier" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize(
         \\    Unexpected,
         \\    // another
@@ -1508,21 +1534,73 @@ test "line comment followed by identifier" {
 }
 
 test "null byte before eof" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("123 \x00 456", &.{ .number_literal, .invalid });
     try testTokenize("\x00", &.{.invalid});
 }
 
 test "fuzzable properties upheld" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return std.testing.fuzz({}, testPropertiesUpheld, .{});
 }
 
 test "trailing whitespace" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("1;\n2", &.{ .number_literal, .semicolon, .number_literal });
     try testTokenize("1;\n2\n", &.{ .number_literal, .semicolon, .number_literal });
     try testTokenize("1;\n2\n\n", &.{ .number_literal, .semicolon, .number_literal });
 }
 
 test "symbols" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("`", &.{.symbol_literal});
     try testTokenize("`a", &.{.symbol_literal});
     try testTokenize("`symbol", &.{.symbol_literal});
@@ -1589,6 +1667,19 @@ test "symbols" {
 }
 
 test "identifiers" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("a", &.{.identifier});
     try testTokenize("identifier", &.{.identifier});
     try testTokenize("test1", &.{.identifier});
@@ -1617,6 +1708,19 @@ test "identifiers" {
 }
 
 test "strings" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize(
         \\"this is a string"
     , &.{.string_literal});
@@ -1663,6 +1767,19 @@ test "strings" {
 }
 
 test "negative number literals" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("-1", &.{.number_literal});
     try testTokenize("--1", &.{ .minus, .number_literal });
     try testTokenize("---1", &.{ .minus, .minus, .number_literal });
@@ -1682,6 +1799,19 @@ test "negative number literals" {
 }
 
 test "tokenize blocks" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("1", &.{.number_literal});
     try testTokenize("1\n", &.{.number_literal});
     try testTokenize("1\n2", &.{ .number_literal, .number_literal });
@@ -1732,6 +1862,19 @@ test "tokenize blocks" {
 }
 
 test "tokenize starting comment" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize(
         \\ this is a starting
         \\ comment that spans
@@ -1768,6 +1911,19 @@ test "tokenize starting comment" {
 }
 
 test "tokenize block comment" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize(
         \\1
         \\/
@@ -1811,6 +1967,19 @@ test "tokenize block comment" {
 }
 
 test "tokenize line comment" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("1 /line comment", &.{.number_literal});
     try testTokenize("1 / line comment", &.{.number_literal});
     try testTokenize("1/not a line comment", &.{
@@ -1866,6 +2035,19 @@ test "tokenize line comment" {
 }
 
 test "tokenize trailing comment" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize(
         \\1
         \\\
@@ -1880,6 +2062,19 @@ test "tokenize trailing comment" {
 }
 
 test "tokenize system commands" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize(
         \\\ls
     , &.{.system});
@@ -1987,6 +2182,19 @@ test "tokenize system commands" {
 }
 
 test "number literals" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("123e+e", &.{ .number_literal, .plus, .identifier });
     try testTokenize("123e-e", &.{ .number_literal, .minus, .identifier });
     try testTokenize("123e45", &.{.number_literal});
@@ -1997,6 +2205,19 @@ test "number literals" {
 }
 
 test "symbol literals" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testTokenize("`symbol", &.{.symbol_literal});
     try testTokenize("`symbol:colon", &.{.symbol_literal});
     try testTokenize("`symbol:colon:colon", &.{.symbol_literal});

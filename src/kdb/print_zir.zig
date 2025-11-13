@@ -811,6 +811,19 @@ fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
 }
 
 test "fuzzable properties upheld" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return std.testing.fuzz({}, testPropertiesUpheld, .{
         .corpus = &.{
             "{[]x:}",
@@ -819,6 +832,19 @@ test "fuzzable properties upheld" {
 }
 
 test "print" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("1",
         \\%0 = file({
         \\  %1 = print(@one)
@@ -846,6 +872,19 @@ test "print" {
 }
 
 test "discard" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("1;",
         \\%0 = file({
         \\  %1 = discard(@one)
@@ -872,6 +911,19 @@ test "discard" {
 }
 
 test "empty" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{[x;y]x+y}[1;]",
         \\%0 = file({
         \\  %1 = lambda({
@@ -887,6 +939,19 @@ test "empty" {
 }
 
 test "grouped expression" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("3*4+5",
         \\%0 = file({
         \\  %1 = long(5)
@@ -910,6 +975,19 @@ test "grouped expression" {
 }
 
 test "empty list" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("()",
         \\%0 = file({
         \\  %1 = print(@empty_list)
@@ -932,6 +1010,19 @@ test "empty list" {
 }
 
 test "list" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("(1;2;3;4;5)",
         \\%0 = file({
         \\  %1 = long(5)
@@ -954,6 +1045,19 @@ test "list" {
 }
 
 test "table literal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("([]())",
         \\%0 = file({
         \\  %1 = table("" = @empty_list) node_offset:1:1 to :1:7
@@ -1564,11 +1668,37 @@ test "table literal" {
 
 // TODO: https://kdblint.atlassian.net/browse/KLS-313
 test "table literal - length check" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     if (true) return error.SkipZigTest;
     try failZir("([a:1 1 1]())", "");
 }
 
 test "lambda" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -1803,6 +1933,19 @@ test "lambda" {
 }
 
 test "lambda semicolon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{;}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2037,6 +2180,19 @@ test "lambda semicolon" {
 }
 
 test "expr block" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("[]",
         \\%0 = file({
         \\  %1 = print(@null)
@@ -2117,6 +2273,19 @@ test "expr block" {
 }
 
 test "return" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir(
         \\{[]
         \\  :1
@@ -2146,6 +2315,19 @@ test "return" {
 }
 
 test "signal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("'`signal",
         \\%0 = file({
         \\  %1 = sym("signal") token_offset:1:2 to :1:9
@@ -2178,6 +2360,19 @@ test "signal" {
 // TODO: invalid assignment target
 
 test "top-level assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("x:1",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:1 to :1:2
@@ -2234,6 +2429,19 @@ test "top-level assign" {
 }
 
 test "top-level global assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("x::1",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:1 to :1:2
@@ -2290,6 +2498,19 @@ test "top-level global assign" {
 }
 
 test "top-level namespace assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir(".ns:1",
         \\%0 = file({
         \\  %1 = identifier(".ns") token_offset:1:1 to :1:4
@@ -2398,6 +2619,19 @@ test "top-level namespace assign" {
 }
 
 test "top-level namespace global assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir(".ns::1",
         \\%0 = file({
         \\  %1 = identifier(".ns") token_offset:1:1 to :1:4
@@ -2506,6 +2740,19 @@ test "top-level namespace global assign" {
 }
 
 test "lambda assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{[]x:1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2594,6 +2841,19 @@ test "lambda assign" {
 }
 
 test "lambda global assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{[]x::1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2682,6 +2942,19 @@ test "lambda global assign" {
 }
 
 test "lambda namespace assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{[].ns:1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2854,6 +3127,19 @@ test "lambda namespace assign" {
 }
 
 test "lambda namespace global assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{[].ns::1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -3026,6 +3312,19 @@ test "lambda namespace global assign" {
 }
 
 test "assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("x:x:1",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:3 to :1:4
@@ -3161,6 +3460,19 @@ test "assign" {
 }
 
 test "global assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("x::1",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:1 to :1:2
@@ -3261,10 +3573,36 @@ test "global assign" {
 }
 
 test "view" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir(":",
         \\%0 = file({
         \\  %1 = print(@assign)
@@ -3425,202 +3763,852 @@ test "colon" {
 }
 
 test "colon colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "plus" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "plus colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "minus" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "minus colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "asterisk" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "asterisk colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "percent" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "percent colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "ampersand" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "ampersand colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "pipe" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "pipe colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "caret" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "caret colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "equal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "equal colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "angle bracket left" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "angle bracket left colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "angle bracket left equal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "angle bracket left right" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "angle bracket right" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "angle bracket right colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "angle bracket right equal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "dollar" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "dollar colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "comma" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "comma colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "hash" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "hash colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "underscore" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "underscore colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "tilde" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "tilde colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "bang" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "bang colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "question mark" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "question mark colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "at" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "at colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "period" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "period colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "zero colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "zero colon colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "one colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "one colon colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "two colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "apostrophe" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "apostrophe colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "slash" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     // TODO: a{[x]}/b
     try testZir("a+/",
         \\%0 = file({
@@ -3656,18 +4644,70 @@ test "slash" {
 }
 
 test "slash colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "backslash" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "backslash colon" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "call" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try failZir(":[]",
         \\test:1:2: error: expected 2 argument(s), found 1
         \\:[]
@@ -3759,6 +4799,19 @@ test "call" {
 }
 
 test "apply unary" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("f x",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:3 to :1:4
@@ -3770,6 +4823,19 @@ test "apply unary" {
 }
 
 test "apply binary" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("x+1",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:1 to :1:2
@@ -3809,6 +4875,19 @@ test "apply binary" {
 }
 
 test "number literal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     if (true) return error.SkipZigTest;
     try testZir("10:00",
         \\%0 = file({
@@ -3818,14 +4897,53 @@ test "number literal" {
 }
 
 test "number list literal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "string literal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "symbol literal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("`symbol123",
         \\%0 = file({
         \\  %1 = sym("symbol123") token_offset:1:1 to :1:11
@@ -3835,6 +4953,19 @@ test "symbol literal" {
 }
 
 test "symbol list literal" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("`abc`def",
         \\%0 = file({
         \\  %1 = sym_list("abc", "def") node_offset:1:1 to :1:9
@@ -3844,6 +4975,19 @@ test "symbol list literal" {
 }
 
 test "identifier" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("a",
         \\%0 = file({
         \\  %1 = identifier("a") token_offset:1:1 to :1:2
@@ -3853,6 +4997,19 @@ test "identifier" {
 }
 
 test "builtin" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("value x",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:7 to :1:8
@@ -3890,38 +5047,155 @@ test "builtin" {
 }
 
 test "select" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "exec" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "update" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "delete rows" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "delete cols" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "do" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "if" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "while" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 
 test "cond" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     if (true) return error.SkipZigTest;
 
     try testZir("{$[x;a:1;a]}", "");
@@ -3938,6 +5212,19 @@ test "cond" {
 }
 
 test "too many parameters" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{[a;b;c;d;e;f;g;h]}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -3967,6 +5254,19 @@ test "too many parameters" {
 }
 
 test "declared after use / use of undeclared identifier" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     // TODO: remove multiple identifier instrs
     try testZir("{[]a::a+1}",
         \\%0 = file({
@@ -4022,6 +5322,19 @@ test "declared after use / use of undeclared identifier" {
 }
 
 test "unused function parameter" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try warnZir("{[x]}",
         \\test:1:3: warn: unused function parameter
         \\{[x]}
@@ -4053,6 +5366,19 @@ test "unused function parameter" {
 }
 
 test "unused implicit function parameter" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testZir("{}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -4175,6 +5501,19 @@ test "unused implicit function parameter" {
 }
 
 test "unused local variable" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try warnZir(
         \\{[]
         \\  a:1;
@@ -4235,6 +5574,19 @@ test "unused local variable" {
 }
 
 test "redeclaration of function parameter" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try warnZir("{[a;a]}",
         \\test:1:5: warn: redeclaration of function parameter 'a'
         \\{[a;a]}
@@ -4271,6 +5623,19 @@ test "redeclaration of function parameter" {
 }
 
 test "global used as local" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try failZir("{[]a::1;a:1}",
         \\test:1:9: error: global variable 'a' used as local
         \\{[]a::1;a:1}
@@ -4304,6 +5669,19 @@ test "global used as local" {
 }
 
 test "misleading global assign" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try warnZir("{[]x::x:1}",
         \\test:1:5: warn: misleading global-assign of local variable 'x'
         \\{[]x::x:1}
@@ -4379,6 +5757,19 @@ test "misleading global assign" {
 }
 
 test "unreachable code" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try warnZir(
         \\{[]
         \\  :1;

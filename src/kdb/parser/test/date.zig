@@ -8,6 +8,19 @@ const null_int = number_parser.null_int;
 const inf_int = number_parser.inf_int;
 
 test "valid date inputs" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testNumberParser("1999.12.31", .date, -1);
     try testNumberParser("2000.01.01", .date, 0);
     try testNumberParser("2000.01.02", .date, 1);
@@ -330,6 +343,19 @@ test "valid date inputs" {
 }
 
 test "invalid date inputs" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testNumberParserError("0000.01.01", error.Overflow);
     try testNumberParserError("0001.00.01", error.Overflow);
     try testNumberParserError("0001.01.00", error.Overflow);

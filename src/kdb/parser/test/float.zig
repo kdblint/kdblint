@@ -7,6 +7,19 @@ const null_float = number_parser.null_float;
 const inf_float = number_parser.inf_float;
 
 test "valid float inputs" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testNumberParser("0f", .float, @as(f64, 0));
     try testNumberParser("1f", .float, @as(f64, 1));
     try testNumberParser("-1f", .float, @as(f64, -1));
@@ -501,6 +514,19 @@ test "valid float inputs" {
 }
 
 test "invalid float inputs" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testNumberParserError("0ff", error.InvalidCharacter);
     try testNumberParserError("1ff", error.InvalidCharacter);
     try testNumberParserError("-1ff", error.InvalidCharacter);
@@ -513,6 +539,19 @@ test "invalid float inputs" {
 }
 
 test "float scientific notation" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     return error.SkipZigTest;
 }
 

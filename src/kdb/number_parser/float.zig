@@ -110,6 +110,19 @@ pub fn parseFloat(bytes: []const u8, allow_suffix: bool) Result {
 }
 
 test "parse number literal - float" {
+    const _std = @import("std");
+    const _clock: _std.Io.Clock = .real;
+    const _start = try _clock.now(_std.testing.io);
+    const _file: _std.fs.File = .adaptFromNewApi(try _std.Io.Dir.cwd().createFile(_std.testing.io, @src().fn_name ++ ".log", .{}));
+    defer _file.close();
+    var _file_writer = _file.writer(&.{});
+    const _writer = &_file_writer.interface;
+    try _writer.writeAll(@src().fn_name);
+    try _writer.flush();
+    defer {
+        _writer.print(": {d}ms\n", .{_start.durationTo(_clock.now(_std.testing.io) catch unreachable).toMilliseconds()}) catch unreachable;
+        _writer.flush() catch unreachable;
+    }
     try testParse("0n", .float, false, .{ .float = null_float });
     try testParse("0N", .float, false, .{ .float = null_float });
     try testParse("0w", .float, false, .{ .float = inf_float });
