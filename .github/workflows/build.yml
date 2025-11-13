@@ -36,3 +36,6 @@ jobs:
       - name: find
         if: always()
         run: find .
+      - name: Run
+        if: always()
+        run: zig build run

@@ -73,6 +73,12 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
+    const path = try std.fs.cwd().realpathAlloc(gpa, ".");
+    defer gpa.free(path);
+
+    std.log.debug("path: {s}", .{path});
+    if (true) return;
+
     const args = try std.process.argsAlloc(arena);
 
     if (builtin.os.tag == .wasi) {
