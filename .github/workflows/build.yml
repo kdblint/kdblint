@@ -32,5 +32,5 @@ jobs:
         if: always()
         with:
           name: log-files
-          path: ./*.log
+          path: '**/*.log'
           
