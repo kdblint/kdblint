@@ -34,9 +34,7 @@ pub fn build(b: *std.Build) !void {
     const install_exe = b.addInstallArtifact(exe, .{
         .dest_dir = .{
             .override = .{
-                .custom = b.fmt("../dist/{s}/{s}", .{
-                    @tagName(target.result.os.tag), @tagName(target.result.cpu.arch),
-                }),
+                .custom = b.fmt("../dist/{t}/{t}", .{ target.result.os.tag, target.result.cpu.arch }),
             },
         },
     });
@@ -53,9 +51,6 @@ pub fn build(b: *std.Build) !void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
-
-    const check_step = b.step("check", "Check");
-    check_step.dependOn(&exe.step);
 
     const test_filters = b.option(
         []const []const u8,
