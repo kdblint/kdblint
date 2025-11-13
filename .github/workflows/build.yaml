@@ -1,0 +1,30 @@
+name: Build & test project
+on:
+  pull_request:
+    branches: main
+jobs:
+  npm_publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          cache: false
+      - name: Run tests
+        run: zig build test --summary new
+      - name: Build wasm32-wasi
+        run: zig build --summary new --release=small -Dtarget=wasm32-wasi
+      - name: Build x86_64-linux
+        run: zig build --summary new --release=small -Dtarget=x86_64-linux
+      - name: Build aarch64-linux
+        run: zig build --summary new --release=small -Dtarget=aarch64-linux
+      - name: Build x86_64-macos
+        run: zig build --summary new --release=small -Dtarget=x86_64-macos
+      - name: Build aarch64-macos
+        run: zig build --summary new --release=small -Dtarget=aarch64-macos
+      - name: Build x86_64-windows
+        run: zig build --summary new --release=small -Dtarget=x86_64-windows
+      - name: Build aarch64-windows
+        run: zig build --summary new --release=small -Dtarget=aarch64-windows
