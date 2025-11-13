@@ -1,0 +1,3 @@
+[submodule "libs/lsp-kit"]
+	path = libs/lsp-kit
+	url = https://github.com/zigtools/lsp-kit.git
