@@ -12,7 +12,6 @@ pub fn build(b: *std.Build) !void {
     options.addOption(std.SemanticVersion, "version", try .parse(version));
     options.addOption([:0]const u8, "version_string", try b.allocator.dupeZ(u8, version));
     options.addOptionPath("tests_path", b.path("tests"));
-    options.addOption(bool, "this_is_a_test", true);
 
     const lsp = b.dependency("lsp_kit", .{});
     const lsp_mod = lsp.module("lsp");
