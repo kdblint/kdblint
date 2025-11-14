@@ -7,6 +7,7 @@ const kdb = @import("../kdb/root.zig");
 const Ast = kdb.Ast;
 const Zir = kdb.Zir;
 const AstGen = kdb.AstGen;
+const DocumentScope = kdb.DocumentScope;
 
 const DocumentStore = @This();
 
@@ -98,7 +99,16 @@ pub const Handle = struct {
             }
             defer self.impl.lazy_condition.broadcast();
 
-            self.impl.zir = try AstGen.generate(gpa, undefined); // TODO: DocumentScope
+            var doc_scope: DocumentScope = .{};
+            defer doc_scope.deinit(gpa);
+            var context: DocumentScope.ScopeContext = .{
+                .gpa = gpa,
+                .tree = self.tree,
+                .doc_scope = &doc_scope,
+            };
+            defer context.deinit();
+
+            self.impl.zir = try AstGen.generate(gpa, &context);
             errdefer comptime unreachable;
 
             const old_has_data = self.impl.status.bitSet(@bitOffsetOf(Status, "has_zir"), .release);
