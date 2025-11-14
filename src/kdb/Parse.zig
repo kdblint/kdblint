@@ -287,14 +287,13 @@ fn expectExpr(p: *Parse, comptime sql_identifier: ?SqlIdentifier) !Node.Index {
 ///      / IDENTIFIER) Iterator*
 fn parseNoun(p: *Parse) !Node.OptionalIndex {
     const noun: Node.Index = switch (p.peekTag()) {
-        .l_paren,
-        => try p.parseGroup(),
-
-        .l_brace,
-        => try p.parseLambda(),
-
-        .l_bracket,
-        => try p.parseExprBlock(),
+        .l_paren => try p.parseGroup(),
+        .r_paren => return .none,
+        .l_brace => try p.parseLambda(),
+        .r_brace => return .none,
+        .l_bracket => try p.parseExprBlock(),
+        .r_bracket => return .none,
+        .semicolon => return .none,
 
         .colon,
         .colon_colon,
@@ -354,37 +353,22 @@ fn parseNoun(p: *Parse) !Node.OptionalIndex {
         .backslash_colon,
         => try p.parseIterator(.none),
 
-        .number_literal,
-        => try p.parseNumberLiteral(),
+        .number_literal => try p.parseNumberLiteral(),
+        .string_literal => try p.parseToken(.string_literal, .string_literal),
+        .symbol_literal => try p.parseSymbolLiteral(),
+        .identifier => try p.parseToken(.identifier, .identifier),
+        .prefix_builtin => try p.parseToken(.prefix_builtin, .builtin),
+        .infix_builtin => try p.parseToken(.infix_builtin, .builtin),
+        .system => try p.parseToken(.system, .system),
 
-        .string_literal,
-        => try p.parseToken(.string_literal, .string_literal),
+        .invalid => return .none,
+        .eob => return .none,
+        .eof => return .none,
 
-        .symbol_literal,
-        => try p.parseSymbolLiteral(),
-
-        .identifier,
-        => try p.parseToken(.identifier, .identifier),
-
-        .prefix_builtin,
-        => try p.parseToken(.prefix_builtin, .builtin),
-
-        .infix_builtin,
-        => try p.parseToken(.infix_builtin, .builtin),
-
-        .keyword_select,
-        => try p.parseSelect(),
-
-        .keyword_exec,
-        => try p.parseExec(),
-
-        .keyword_update,
-        => try p.parseUpdate(),
-
-        .keyword_delete,
-        => try p.parseDelete(),
-
-        else => return .none,
+        .keyword_select => try p.parseSelect(),
+        .keyword_exec => try p.parseExec(),
+        .keyword_update => try p.parseUpdate(),
+        .keyword_delete => try p.parseDelete(),
     };
     return .fromIndex(try p.parseCall(noun));
 }

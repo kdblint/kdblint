@@ -371,6 +371,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .symbol_list_literal,
         .identifier,
         .builtin,
+        .system,
         => return tree.nodeMainToken(n) - end_offset,
 
         .select,
@@ -491,6 +492,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .symbol_literal,
         .identifier,
         .builtin,
+        .system,
         => return tree.nodeMainToken(n) + end_offset,
 
         .number_list_literal,
@@ -556,23 +558,15 @@ pub fn renderError(tree: Ast, parse_error: Error, writer: *std.Io.Writer) !void 
         .cannot_define_where_cond_in_delete_cols,
         => try writer.writeAll("Cannot define where condition in delete columns statement"),
 
-        .expected_qsql_token => {
-            const found_tag = token_tags[parse_error.token];
-            const expected_string = parse_error.extra.expected_string;
-            switch (found_tag) {
-                .invalid => return writer.print("expected '{s}', found invalid bytes", .{expected_string}),
-                else => return writer.print("expected '{s}', found '{s}'", .{ expected_string, found_tag.symbol() }),
-            }
-        },
+        .expected_qsql_token => try writer.print("expected '{s}', found '{s}'", .{
+            parse_error.extra.expected_string,
+            token_tags[parse_error.token].symbol(),
+        }),
 
-        .expected_token => {
-            const found_tag = token_tags[parse_error.token];
-            const expected_symbol = parse_error.extra.expected_tag.symbol();
-            switch (found_tag) {
-                .invalid => return writer.print("expected '{s}', found invalid bytes", .{expected_symbol}),
-                else => return writer.print("expected '{s}', found '{s}'", .{ expected_symbol, found_tag.symbol() }),
-            }
-        },
+        .expected_token => try writer.print("expected '{s}', found '{s}'", .{
+            parse_error.extra.expected_tag.symbol(),
+            token_tags[parse_error.token].symbol(),
+        }),
     }
 }
 
@@ -1367,6 +1361,8 @@ pub const Node = struct {
         identifier,
         /// The `main_token` field is the builtin token.
         builtin,
+        /// The `main_token` field is the system token.
+        system,
 
         /// `select ...`.
         ///
@@ -1493,6 +1489,7 @@ pub const Node = struct {
                 .symbol_list_literal,
                 .identifier,
                 .builtin,
+                .system,
                 => .other,
 
                 .select,

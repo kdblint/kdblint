@@ -273,6 +273,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .symbol_literal,
         .identifier,
         .builtin,
+        .system,
         => return renderToken(r, tree.nodeMainToken(node), space),
 
         .number_list_literal,

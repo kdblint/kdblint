@@ -359,6 +359,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .symbol_list_literal => return .{ try symbolListLiteral(gz, node), scope },
         .identifier => return identifier(gz, scope, node),
         .builtin => return .{ try builtin(gz, node), scope },
+        .system => return .{ try system(gz, node), scope },
 
         .select => return select(gz, scope, node),
         .exec => return exec(gz, scope, node),
@@ -2282,6 +2283,12 @@ fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const builtin_name = try astgen.tokenAsString(builtin_token);
 
     return gz.addStrTok(.builtin, builtin_name, builtin_token);
+}
+
+fn system(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    _ = gz; // autofix
+    _ = node; // autofix
+    return .nyi;
 }
 
 fn select(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
