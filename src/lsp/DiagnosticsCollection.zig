@@ -1,7 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Uri = std.Uri;
 const lsp = @import("lsp");
+
+const Uri = @import("Uri.zig");
 
 const kdb = @import("../kdb/root.zig");
 const ErrorBundle = kdb.ErrorBundle;
@@ -16,25 +17,15 @@ tag_set: std.AutoArrayHashMapUnmanaged(Tag, struct {
     /// Used to store diagnostics from `pushErrorBundle`
     error_bundle: ErrorBundle = .empty,
     /// Used to store diagnostics from `pushSingleDocumentDiagnostics`
-    diagnostics_set: std.ArrayHashMapUnmanaged(Uri, struct {
+    diagnostics_set: Uri.ArrayHashMap(struct {
         arena: std.heap.ArenaAllocator.State = .{},
         diagnostics: []lsp.types.Diagnostic = &.{},
         error_bundle: ErrorBundle = .empty,
-    }, Context, true) = .empty,
+    }) = .empty,
 }) = .empty,
-outdated_files: std.ArrayHashMapUnmanaged(Uri, void, Context, true) = .empty,
+outdated_files: Uri.ArrayHashMap(void) = .empty,
 transport: *lsp.Transport,
 offset_encoding: lsp.offsets.Encoding = .@"utf-16",
-
-const Context = struct {
-    pub fn hash(_: Context, key: Uri) u32 {
-        return std.array_hash_map.hashString(key.path.percent_encoded);
-    }
-
-    pub fn eql(_: Context, a: Uri, b: Uri, _: usize) bool {
-        return std.array_hash_map.eqlString(a.path.percent_encoded, b.path.percent_encoded);
-    }
-};
 
 pub const Tag = enum(u32) {
     parse,
@@ -116,7 +107,7 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
             const notification: lsp.TypedJsonRPCNotification(lsp.types.PublishDiagnosticsParams) = .{
                 .method = "textDocument/publishDiagnostics",
                 .params = .{
-                    .uri = uri.path.percent_encoded,
+                    .uri = uri.percent_encoded,
                     .diagnostics = diagnostics.items,
                 },
             };
@@ -186,7 +177,7 @@ fn convertErrorBundleToLspDiagnostics(
 
         if (!is_single_document) {
             const src_uri = try pathToUri(arena, error_bundle_src_base_path, src_path) orelse continue;
-            if (!std.mem.eql(u8, document_uri.path.percent_encoded, src_uri.path.percent_encoded)) continue;
+            if (!std.mem.eql(u8, document_uri.percent_encoded, src_uri.percent_encoded)) continue;
         }
 
         const src_range = errorBundleSourceLocationToRange(eb, src_loc, offset_encoding);
@@ -209,7 +200,7 @@ fn convertErrorBundleToLspDiagnostics(
 
                 lsp_note.* = .{
                     .location = .{
-                        .uri = note_uri.path.percent_encoded,
+                        .uri = note_uri.percent_encoded,
                         .range = note_src_range,
                     },
                     .message = eb.nullTerminatedString(eb_note.msg),
@@ -273,11 +264,11 @@ fn errorBundleSourceLocationToRange(
 
 fn pathToUri(gpa: Allocator, base_path: ?[]const u8, src_path: []const u8) !?Uri {
     if (std.fs.path.isAbsolute(src_path)) {
-        return try .parse(src_path);
+        return try .parse(gpa, src_path);
     }
     const base = base_path orelse return null;
     const absolute_src_path = try std.fs.path.join(gpa, &.{ base, src_path });
     defer gpa.free(absolute_src_path);
 
-    return try .parse(absolute_src_path);
+    return try .parse(gpa, absolute_src_path);
 }

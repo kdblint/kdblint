@@ -1,7 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Uri = std.Uri;
 const assert = std.debug.assert;
+
+const Uri = @import("Uri.zig");
 
 const kdb = @import("../kdb/root.zig");
 const Ast = kdb.Ast;
@@ -15,7 +16,7 @@ io: std.Io,
 gpa: Allocator,
 lock: std.Thread.RwLock = .{},
 thread_pool: *std.Thread.Pool,
-handles: std.ArrayHashMapUnmanaged(Uri, *Handle, Context, true) = .empty,
+handles: Uri.ArrayHashMap(*Handle) = .empty,
 
 pub const Handle = struct {
     uri: Uri,
@@ -44,7 +45,7 @@ pub const Handle = struct {
 
     /// Takes ownership of `source` on success.
     pub fn init(gpa: Allocator, uri: Uri, source: [:0]const u8, lsp_synced: bool) !Handle {
-        const mode: Ast.Mode = if (std.mem.eql(u8, std.fs.path.extension(uri.path.percent_encoded), ".k")) .k else .q;
+        const mode: Ast.Mode = if (std.mem.eql(u8, std.fs.path.extension(uri.percent_encoded), ".k")) .k else .q;
         const tree: Ast = try .parse(gpa, source, .{
             .mode = mode,
             .version = .@"4.0",
@@ -63,6 +64,8 @@ pub const Handle = struct {
     }
 
     pub fn deinit(self: *Handle, gpa: Allocator) void {
+        const status = self.getStatus();
+        if (status.has_zir) self.impl.zir.deinit(gpa);
         gpa.free(self.tree.source);
         self.tree.deinit(gpa);
         self.* = undefined;
@@ -118,22 +121,14 @@ pub const Handle = struct {
     }
 };
 
-const Context = struct {
-    pub fn hash(_: Context, key: Uri) u32 {
-        return std.array_hash_map.hashString(key.path.percent_encoded);
-    }
-
-    pub fn eql(_: Context, a: Uri, b: Uri, _: usize) bool {
-        return std.array_hash_map.eqlString(a.path.percent_encoded, b.path.percent_encoded);
-    }
-};
-
 pub fn deinit(self: *DocumentStore) void {
-    for (self.handles.values()) |handle| {
+    for (self.handles.keys(), self.handles.values()) |uri, handle| {
         handle.deinit(self.gpa);
         self.gpa.destroy(handle);
+        uri.deinit(self.gpa);
     }
     self.handles.deinit(self.gpa);
+    self.* = undefined;
 }
 
 pub fn getHandle(self: *DocumentStore, uri: Uri) ?*Handle {
@@ -143,8 +138,10 @@ pub fn getHandle(self: *DocumentStore, uri: Uri) ?*Handle {
 }
 
 pub fn openLspSyncedDocument(self: *DocumentStore, uri: Uri, text: []const u8) !void {
-    if (self.handles.contains(uri)) {
-        std.log.warn("Document already open: {s}", .{uri.path.percent_encoded});
+    if (self.handles.get(uri)) |handle| {
+        if (handle.isLspSynced()) {
+            std.log.warn("Document already open: {s}", .{uri.percent_encoded});
+        }
     }
 
     const duped_text = try self.gpa.dupeZ(u8, text);
@@ -153,13 +150,14 @@ pub fn openLspSyncedDocument(self: *DocumentStore, uri: Uri, text: []const u8) !
 
 pub fn closeLspSyncedDocument(self: *DocumentStore, uri: Uri) void {
     const kv = self.handles.fetchSwapRemove(uri) orelse {
-        std.log.warn("Document not found: {s}", .{uri.path.percent_encoded});
+        std.log.warn("Document not found: {s}", .{uri.percent_encoded});
         return;
     };
     if (!kv.value.isLspSynced()) {
-        std.log.warn("Document already closed: {s}", .{uri.path.percent_encoded});
+        std.log.warn("Document already closed: {s}", .{uri.percent_encoded});
     }
 
+    kv.key.deinit(self.gpa);
     kv.value.deinit(self.gpa);
     self.gpa.destroy(kv.value);
 }
@@ -167,10 +165,10 @@ pub fn closeLspSyncedDocument(self: *DocumentStore, uri: Uri) void {
 pub fn refreshLspSyncedDocument(self: *DocumentStore, uri: Uri, new_text: [:0]const u8) !void {
     if (self.handles.get(uri)) |handle| {
         if (!handle.isLspSynced()) {
-            std.log.warn("Document modified without being opened: {s}", .{uri.path.percent_encoded});
+            std.log.warn("Document modified without being opened: {s}", .{uri.percent_encoded});
         }
     } else {
-        std.log.warn("Document modified without being opened: {s}", .{uri.path.percent_encoded});
+        std.log.warn("Document modified without being opened: {s}", .{uri.percent_encoded});
     }
 
     _ = try self.createAndStoreDocument(uri, new_text, true);
@@ -192,14 +190,16 @@ fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, 
 
     if (gop.found_existing) {
         if (lsp_synced) {
-            gop.value_ptr.*.deinit(self.gpa);
-
             new_handle.uri = gop.key_ptr.*;
+            gop.value_ptr.*.deinit(self.gpa);
             gop.value_ptr.*.* = new_handle;
         } else {
             new_handle.deinit(self.gpa);
         }
     } else {
+        gop.key_ptr.* = try uri.dupe(self.gpa);
+        errdefer gop.key_ptr.*.deinit(self.gpa);
+
         gop.value_ptr.* = try self.gpa.create(Handle);
         errdefer comptime unreachable;
 

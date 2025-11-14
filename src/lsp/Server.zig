@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
-const Uri = std.Uri;
 const assert = std.debug.assert;
 const lsp = @import("lsp");
 const types = lsp.types;
@@ -12,6 +11,7 @@ const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
 const DocumentStore = @import("DocumentStore.zig");
 const diagnostics_gen = @import("features/diagnostics.zig");
 const diff = @import("diff.zig");
+const Uri = @import("Uri.zig");
 
 const Server = @This();
 
@@ -193,22 +193,22 @@ fn exit(
 
 fn @"textDocument/didOpen"(
     server: *Server,
-    _: Allocator,
+    arena: Allocator,
     notification: types.DidOpenTextDocumentParams,
 ) !void {
-    const document_uri = Uri.parse(notification.textDocument.uri) catch return error.InvalidParams;
+    const document_uri = Uri.parse(arena, notification.textDocument.uri) catch return error.InvalidParams;
     try server.document_store.openLspSyncedDocument(document_uri, notification.textDocument.text);
     server.generateDiagnostics(server.document_store.getHandle(document_uri).?);
 }
 
 fn @"textDocument/didChange"(
     server: *Server,
-    _: Allocator,
+    arena: Allocator,
     notification: types.DidChangeTextDocumentParams,
 ) !void {
     if (notification.contentChanges.len == 0) return;
 
-    const document_uri = Uri.parse(notification.textDocument.uri) catch return error.InvalidParams;
+    const document_uri = Uri.parse(arena, notification.textDocument.uri) catch return error.InvalidParams;
     const handle = server.document_store.getHandle(document_uri) orelse return;
 
     const new_text = try diff.applyContentChanges(
@@ -235,10 +235,10 @@ fn @"textDocument/didSave"(
 
 fn @"textDocument/didClose"(
     server: *Server,
-    _: Allocator,
+    arena: Allocator,
     notification: types.DidCloseTextDocumentParams,
 ) !void {
-    const document_uri = Uri.parse(notification.textDocument.uri) catch return error.InvalidParams;
+    const document_uri = Uri.parse(arena, notification.textDocument.uri) catch return error.InvalidParams;
     server.document_store.closeLspSyncedDocument(document_uri);
 
     if (server.client_capabilities.supports_publish_diagnostics) {
