@@ -360,6 +360,7 @@ fn parseNoun(p: *Parse) !Node.OptionalIndex {
         .prefix_builtin => try p.parseToken(.prefix_builtin, .builtin),
         .infix_builtin => try p.parseToken(.infix_builtin, .builtin),
         .system => try p.parseToken(.system, .system),
+        .dsl => try p.parseToken(.dsl, .dsl),
 
         .invalid => return .none,
         .eob => return .none,

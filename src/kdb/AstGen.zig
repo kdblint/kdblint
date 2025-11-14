@@ -360,6 +360,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .identifier => return identifier(gz, scope, node),
         .builtin => return .{ try builtin(gz, node), scope },
         .system => return .{ try system(gz, node), scope },
+        .dsl => return .{ try dsl(gz, node), scope },
 
         .select => return select(gz, scope, node),
         .exec => return exec(gz, scope, node),
@@ -2286,6 +2287,12 @@ fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
 }
 
 fn system(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    _ = gz; // autofix
+    _ = node; // autofix
+    return .nyi;
+}
+
+fn dsl(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     _ = gz; // autofix
     _ = node; // autofix
     return .nyi;

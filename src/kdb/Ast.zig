@@ -373,6 +373,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .identifier,
         .builtin,
         .system,
+        .dsl,
         => return tree.nodeMainToken(n) - end_offset,
 
         .select,
@@ -494,6 +495,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .identifier,
         .builtin,
         .system,
+        .dsl,
         => return tree.nodeMainToken(n) + end_offset,
 
         .number_list_literal,
@@ -1364,6 +1366,8 @@ pub const Node = struct {
         builtin,
         /// The `main_token` field is the system token.
         system,
+        /// The `main_token` field is the dsl token.
+        dsl,
 
         /// `select ...`.
         ///
@@ -1491,6 +1495,7 @@ pub const Node = struct {
                 .identifier,
                 .builtin,
                 .system,
+                .dsl,
                 => .other,
 
                 .select,

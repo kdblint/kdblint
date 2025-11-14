@@ -286,6 +286,7 @@ pub const Token = struct {
         prefix_builtin,
         infix_builtin,
         system,
+        dsl,
 
         // Miscellaneous
         invalid,
@@ -375,6 +376,7 @@ pub const Token = struct {
                 .prefix_builtin,
                 .infix_builtin,
                 .system,
+                .dsl,
                 => null,
 
                 // Miscellaneous
@@ -408,6 +410,7 @@ pub const Token = struct {
                 .identifier => "an identifier",
                 .prefix_builtin, .infix_builtin => "a builtin function",
                 .system => "a system command",
+                .dsl => "a dsl token",
                 .invalid => "invalid bytes",
                 .eob => "EOB",
                 .eof => "EOF",
@@ -687,8 +690,13 @@ pub const Tokenizer = struct {
                     continue :state .number_literal;
                 },
                 'a'...'z', 'A'...'Z' => {
-                    result.tag = .identifier;
-                    continue :state .identifier;
+                    if ((self.index == 0 or self.buffer[self.index - 1] == '\n') and self.buffer[self.index + 1] == ')') {
+                        result.tag = .dsl;
+                        self.index += 2;
+                    } else {
+                        result.tag = .identifier;
+                        continue :state .identifier;
+                    }
                 },
                 ':' => continue :state .colon,
                 '+' => continue :state .plus,
