@@ -214,10 +214,10 @@ pub const Token = struct {
         // Punctuation
         l_paren,
         r_paren,
-        l_brace,
-        r_brace,
         l_bracket,
         r_bracket,
+        l_brace,
+        r_brace,
         semicolon,
 
         // Verbs
@@ -422,6 +422,16 @@ pub const Token = struct {
             }
         }
     };
+
+    fn eof(index: usize) Token {
+        return .{
+            .tag = .eof,
+            .loc = .{
+                .start = index,
+                .end = index,
+            },
+        };
+    }
 };
 
 pub const Tokenizer = struct {
@@ -430,99 +440,113 @@ pub const Tokenizer = struct {
     index: usize,
     prev_tag: Token.Tag = undefined,
 
-    /// For debugging purposes.
-    pub fn dump(self: *Tokenizer, token: *const Token) void {
-        std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.loc.start..token.loc.end] });
-    }
-
     pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
         // Skip the UTF-8 BOM if present.
-        const slice = buffer[if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0..];
-        var index: usize = 0;
-        state: switch (StartState.start) {
-            .start => switch (slice[index]) {
-                0 => {},
-                ' ', '\t', '\r' => {
-                    index += 1;
-                    continue :state .skip_line;
-                },
-                '\n' => {
-                    index += 1;
-                    continue :state .start;
-                },
-                '/' => {
-                    index += 1;
-                    continue :state .comment;
-                },
-                else => {},
-            },
-
-            .skip_line => switch (slice[index]) {
-                0 => {},
-                '\n' => {
-                    index += 1;
-                    continue :state .start;
-                },
-                else => {
-                    index += 1;
-                    continue :state .skip_line;
-                },
-            },
-
-            .comment => switch (slice[index]) {
-                0 => {},
-                ' ', '\t', '\r' => {
-                    index += 1;
-                    continue :state .comment;
-                },
-                '\n' => {
-                    index += 1;
-                    continue :state .block_comment;
-                },
-                else => {
-                    index += 1;
-                    continue :state .skip_line;
-                },
-            },
-
-            .block_comment => switch (slice[index]) {
-                0 => {},
-                '\n' => {
-                    index += 1;
-                    continue :state .end_block_comment;
-                },
-                else => {
-                    index += 1;
-                    continue :state .block_comment;
-                },
-            },
-
-            .end_block_comment => switch (slice[index]) {
-                0 => {},
-                '\\' => {
-                    index += 1;
-                    continue :state .skip_line;
-                },
-                else => {
-                    index += 1;
-                    continue :state .block_comment;
-                },
-            },
-        }
         return .{
-            .buffer = slice,
-            .index = index,
+            .buffer = buffer[if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0..],
+            .index = 0,
             .mode = mode,
         };
     }
 
-    const StartState = enum {
+    const SkipState = enum {
         start,
         skip_line,
         comment,
         block_comment,
-        end_block_comment,
+        maybe_block_comment_end,
+        block_comment_end,
     };
+
+    pub fn skipComments(self: *Tokenizer) void {
+        state: switch (SkipState.start) {
+            .start => switch (self.buffer[self.index]) {
+                '\r' => if (self.buffer[self.index + 1] == '\n') {
+                    self.index += 2;
+                    continue :state .start;
+                },
+                '\n' => {
+                    self.index += 1;
+                    continue :state .start;
+                },
+                ' ', '\t' => continue :state .skip_line,
+                '/' => continue :state .comment,
+                else => {},
+            },
+
+            .skip_line => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 2;
+                        continue :state .start;
+                    },
+                    '\n' => {
+                        self.index += 1;
+                        continue :state .start;
+                    },
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {},
+                    else => continue :state .skip_line,
+                }
+            },
+
+            .comment => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .block_comment;
+                    },
+                    '\n' => continue :state .block_comment,
+                    ' ', '\t' => continue :state .comment,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {},
+                    else => continue :state .skip_line,
+                }
+            },
+            .block_comment => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => {},
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_block_comment_end;
+                    },
+                    '\n' => continue :state .maybe_block_comment_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {},
+                    else => continue :state .block_comment,
+                }
+            },
+            .maybe_block_comment_end => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_block_comment_end;
+                    },
+                    '\n' => continue :state .maybe_block_comment_end,
+                    '\\' => continue :state .block_comment_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {},
+                    else => continue :state .block_comment,
+                }
+            },
+            .block_comment_end => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 2;
+                        continue :state .start;
+                    },
+                    '\n' => {
+                        self.index += 1;
+                        continue :state .start;
+                    },
+                    ' ', '\t' => continue :state .block_comment_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {},
+                    else => continue :state .block_comment,
+                }
+            },
+        }
+    }
 
     const State = enum {
         start,
@@ -556,6 +580,7 @@ pub const Tokenizer = struct {
         line_comment,
         block_comment_start,
         block_comment,
+        maybe_block_comment_end,
         block_comment_end,
         backslash,
         maybe_system,
@@ -563,18 +588,17 @@ pub const Tokenizer = struct {
         trailing_comment,
         negative,
         negative_period,
-        int,
+        number_literal,
         time,
         string_literal,
+        string_literal_newline,
         string_literal_backslash,
         octal_char_start,
         octal_char_end,
-        multiline_string_literal,
         symbol_literal_start,
         symbol_literal,
         file_handle,
         identifier,
-        expect_newline,
         invalid,
     };
 
@@ -586,6 +610,7 @@ pub const Tokenizer = struct {
         return token;
     }
 
+    // TODO: Handle horizontal tab (0x09)
     fn nextImpl(self: *Tokenizer) Token {
         var result: Token = .{
             .tag = undefined,
@@ -598,29 +623,16 @@ pub const Tokenizer = struct {
             .start => switch (self.buffer[self.index]) {
                 0 => if (self.index != self.buffer.len) {
                     continue :state .invalid;
-                } else return .{
-                    .tag = .eof,
-                    .loc = .{
-                        .start = self.index,
-                        .end = self.index,
-                    },
-                },
-                ' ', '\n', '\t', '\r' => {
+                } else return .eof(self.buffer.len),
+                '\r' => if (self.buffer[self.index + 1] == '\n') {
+                    self.index += 2;
+                    result.loc.start = self.index;
+                    continue :state .start;
+                } else continue :state .invalid,
+                ' ', '\n', '\t' => {
                     self.index += 1;
                     result.loc.start = self.index;
                     continue :state .start;
-                },
-                '"' => {
-                    result.tag = .string_literal;
-                    continue :state .string_literal;
-                },
-                '`' => {
-                    result.tag = .symbol_literal;
-                    continue :state .symbol_literal_start;
-                },
-                'a'...'z', 'A'...'Z' => {
-                    result.tag = .identifier;
-                    continue :state .identifier;
                 },
                 '(' => {
                     result.tag = .l_paren;
@@ -628,14 +640,6 @@ pub const Tokenizer = struct {
                 },
                 ')' => {
                     result.tag = .r_paren;
-                    self.index += 1;
-                },
-                '{' => {
-                    result.tag = .l_brace;
-                    self.index += 1;
-                },
-                '}' => {
-                    result.tag = .r_brace;
                     self.index += 1;
                 },
                 '[' => {
@@ -646,9 +650,45 @@ pub const Tokenizer = struct {
                     result.tag = .r_bracket;
                     self.index += 1;
                 },
+                '{' => {
+                    result.tag = .l_brace;
+                    self.index += 1;
+                },
+                '}' => {
+                    result.tag = .r_brace;
+                    self.index += 1;
+                },
                 ';' => {
                     result.tag = .semicolon;
                     self.index += 1;
+                },
+                '"' => {
+                    result.tag = .string_literal;
+                    continue :state .string_literal;
+                },
+                '`' => {
+                    result.tag = .symbol_literal;
+                    continue :state .symbol_literal_start;
+                },
+                '0' => {
+                    result.tag = .number_literal;
+                    continue :state .zero;
+                },
+                '1' => {
+                    result.tag = .number_literal;
+                    continue :state .one;
+                },
+                '2' => {
+                    result.tag = .number_literal;
+                    continue :state .two;
+                },
+                '3'...'9' => {
+                    result.tag = .number_literal;
+                    continue :state .number_literal;
+                },
+                'a'...'z', 'A'...'Z' => {
+                    result.tag = .identifier;
+                    continue :state .identifier;
                 },
                 ':' => continue :state .colon,
                 '+' => continue :state .plus,
@@ -740,29 +780,198 @@ pub const Tokenizer = struct {
                 '?' => continue :state .question_mark,
                 '@' => continue :state .at,
                 '.' => continue :state .period,
-                '0' => {
-                    result.tag = .number_literal;
-                    continue :state .zero;
-                },
-                '1' => {
-                    result.tag = .number_literal;
-                    continue :state .one;
-                },
-                '2' => {
-                    result.tag = .number_literal;
-                    continue :state .two;
-                },
                 '\'' => continue :state .apostrophe,
                 '/' => continue :state .slash,
-                '\\' => {
-                    if (self.index == 0 or self.buffer[self.index - 1] == '\n') continue :state .maybe_system;
-                    continue :state .backslash;
-                },
-                '3'...'9' => {
-                    result.tag = .number_literal;
-                    continue :state .int;
-                },
+                '\\' => if (self.index == 0 or self.buffer[self.index - 1] == '\n')
+                    continue :state .maybe_system
+                else
+                    continue :state .backslash,
                 else => continue :state .invalid,
+            },
+
+            .string_literal => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .string_literal_newline;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .string_literal_newline,
+                    '\\' => continue :state .string_literal_backslash,
+                    '"' => self.index += 1,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => continue :state .string_literal,
+                }
+            },
+            .string_literal_newline => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .string_literal_newline;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .string_literal_newline,
+                    ' ', '\t' => continue :state .string_literal,
+                    else => continue :state .invalid,
+                }
+            },
+            .string_literal_backslash => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '"', '\\', 'n', 'r', 't' => continue :state .string_literal,
+                    '0'...'9' => continue :state .octal_char_start,
+                    else => continue :state .invalid,
+                }
+            },
+            .octal_char_start => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '0'...'9' => continue :state .octal_char_end,
+                    else => continue :state .invalid,
+                }
+            },
+            .octal_char_end => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        result.tag = .invalid;
+                    } else continue :state .invalid,
+                    '0'...'9' => continue :state .string_literal,
+                    else => continue :state .invalid,
+                }
+            },
+
+            .symbol_literal_start => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    ':' => continue :state .file_handle,
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .symbol_literal,
+                    else => {},
+                }
+            },
+            .symbol_literal => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    ':' => continue :state .file_handle,
+                    '_' => if (self.mode == .q) continue :state .symbol_literal,
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .symbol_literal,
+                    else => {},
+                }
+            },
+            .file_handle => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '_' => if (self.mode == .q) continue :state .file_handle,
+                    'a'...'z', 'A'...'Z', '0'...'9', '.', '/', ':' => continue :state .file_handle,
+                    else => {},
+                }
+            },
+
+            .zero => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    ':' => continue :state .zero_colon,
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .number_literal,
+                    else => {},
+                }
+            },
+            .zero_colon => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    ':' => {
+                        result.tag = .zero_colon_colon;
+                        self.index += 1;
+                    },
+                    else => result.tag = .zero_colon,
+                }
+            },
+
+            .one => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    ':' => continue :state .one_colon,
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .number_literal,
+                    else => {},
+                }
+            },
+            .one_colon => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    ':' => {
+                        result.tag = .one_colon_colon;
+                        self.index += 1;
+                    },
+                    else => result.tag = .one_colon,
+                }
+            },
+
+            .two => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    ':' => {
+                        result.tag = .two_colon;
+                        self.index += 1;
+                    },
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .number_literal,
+                    else => {},
+                }
+            },
+
+            .number_literal => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    'e' => {
+                        if (self.index + 1 < self.buffer.len) switch (self.buffer[self.index + 1]) {
+                            '+', '-' => switch (self.buffer[self.index + 2]) {
+                                '0'...'9' => self.index += 2,
+                                else => {},
+                            },
+                            else => {},
+                        };
+                        continue :state .number_literal;
+                    },
+                    ':' => continue :state .time,
+                    '0'...'9', 'a'...'d', 'f'...'z', 'A'...'Z', '.' => continue :state .number_literal,
+                    else => {},
+                }
+            },
+            .time => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '0'...'9', 'a'...'z', 'A'...'Z', '.', ':' => continue :state .time,
+                    else => {},
+                }
+            },
+
+            .identifier => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '_' => if (self.mode == .q) continue :state .identifier,
+                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .identifier,
+                    else => {
+                        const ident = self.buffer[result.loc.start..self.index];
+                        if (Token.getKeyword(ident)) |tag| {
+                            result.tag = tag;
+                        } else if (Token.getBuiltin(ident)) |builtin_type| {
+                            result.tag = switch (builtin_type) {
+                                .prefix => .prefix_builtin,
+                                .infix => .infix_builtin,
+                            };
+                        }
+                    },
+                }
             },
 
             .colon => {
@@ -999,70 +1208,9 @@ pub const Tokenizer = struct {
                     },
                     '0'...'9' => {
                         result.tag = .number_literal;
-                        continue :state .int;
+                        continue :state .number_literal;
                     },
                     else => result.tag = .period,
-                }
-            },
-
-            .zero => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    },
-                    ':' => continue :state .zero_colon,
-                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
-                    else => {},
-                }
-            },
-
-            .zero_colon => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    ':' => {
-                        result.tag = .zero_colon_colon;
-                        self.index += 1;
-                    },
-                    else => result.tag = .zero_colon,
-                }
-            },
-
-            .one => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    },
-                    ':' => continue :state .one_colon,
-                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
-                    else => {},
-                }
-            },
-
-            .one_colon => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    ':' => {
-                        result.tag = .one_colon_colon;
-                        self.index += 1;
-                    },
-                    else => result.tag = .one_colon,
-                }
-            },
-
-            .two => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    },
-                    ':' => {
-                        result.tag = .two_colon;
-                        self.index += 1;
-                    },
-                    '0'...'9', 'a'...'z', 'A'...'Z', '.' => continue :state .int,
-                    else => {},
                 }
             },
 
@@ -1085,7 +1233,7 @@ pub const Tokenizer = struct {
                     },
                     else => switch (self.buffer[self.index - 1]) {
                         ' ', '\t' => continue :state .line_comment,
-                        '\r' => continue :state .invalid,
+                        '\r' => unreachable,
                         '\n' => continue :state .block_comment_start,
                         else => {
                             result.tag = .slash;
@@ -1100,22 +1248,18 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.index,
-                            .end = self.index,
-                        },
+                    } else return .eof(self.buffer.len),
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 2;
+                        result.loc.start = self.index;
+                        continue :state .start;
                     },
                     '\n' => {
                         self.index += 1;
                         result.loc.start = self.index;
                         continue :state .start;
                     },
-                    '\r' => continue :state .expect_newline,
-                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
-                        continue :state .invalid;
-                    },
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
                     else => continue :state .line_comment,
                 }
             },
@@ -1125,61 +1269,66 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.index,
-                            .end = self.index,
-                        },
-                    },
+                    } else return .eof(self.buffer.len),
                     ' ', '\t' => continue :state .block_comment_start,
                     '\r' => if (self.buffer[self.index + 1] == '\n') {
                         self.index += 1;
                         continue :state .block_comment;
                     } else continue :state .invalid,
                     '\n' => continue :state .block_comment,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
                     else => continue :state .line_comment,
                 }
             },
-
             .block_comment => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.index,
-                            .end = self.index,
-                        },
-                    },
-                    '\\' => if (self.buffer[self.index - 1] == '\n') {
-                        continue :state .block_comment_end;
-                    } else continue :state .block_comment,
+                    } else return .eof(self.buffer.len),
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_block_comment_end;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .maybe_block_comment_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
                     else => continue :state .block_comment,
                 }
             },
-
+            .maybe_block_comment_end => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index != self.buffer.len) {
+                        continue :state .invalid;
+                    } else return .eof(self.buffer.len),
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_block_comment_end;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .maybe_block_comment_end,
+                    '\\' => continue :state .block_comment_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => continue :state .block_comment,
+                }
+            },
             .block_comment_end => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.index,
-                            .end = self.index,
-                        },
-                    },
+                    } else return .eof(self.buffer.len),
                     ' ', '\t' => continue :state .block_comment_end,
-                    '\r' => continue :state .expect_newline,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 2;
+                        result.loc.start = self.index;
+                        continue :state .start;
+                    } else continue :state .invalid,
                     '\n' => {
                         self.index += 1;
                         result.loc.start = self.index;
                         continue :state .start;
                     },
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
                     else => continue :state .block_comment,
                 }
             },
@@ -1200,44 +1349,28 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.buffer.len,
-                            .end = self.buffer.len,
-                        },
-                    },
+                    } else return .eof(self.buffer.len),
                     ' ', '\t' => continue :state .trailing_comment,
                     '\r' => if (self.buffer[self.index + 1] != '\n') {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.buffer.len,
-                            .end = self.buffer.len,
-                        },
-                    },
-                    '\n' => return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.buffer.len,
-                            .end = self.buffer.len,
-                        },
-                    },
+                    } else return .eof(self.buffer.len),
+                    '\n' => return .eof(self.buffer.len),
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
                     else => {
                         result.tag = .system;
                         continue :state .system;
                     },
                 }
             },
-
             .system => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
                     },
+                    '\r' => if (self.buffer[self.index + 1] != '\n') continue :state .invalid,
                     '\n' => {},
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
                     else => continue :state .system,
                 }
             },
@@ -1247,64 +1380,13 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.index,
-                            .end = self.index,
-                        },
-                    },
+                    } else return .eof(self.buffer.len),
                     ' ', '\t' => continue :state .trailing_comment,
                     '\r' => if (self.buffer[self.index + 1] != '\n') {
                         continue :state .invalid;
-                    } else return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.buffer.len,
-                            .end = self.buffer.len,
-                        },
-                    },
-                    '\n' => return .{
-                        .tag = .eof,
-                        .loc = .{
-                            .start = self.buffer.len,
-                            .end = self.buffer.len,
-                        },
-                    },
+                    } else return .eof(self.buffer.len),
+                    '\n' => return .eof(self.buffer.len),
                     else => continue :state .invalid,
-                }
-            },
-
-            .int => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    },
-                    'e' => {
-                        if (self.index + 1 < self.buffer.len) switch (self.buffer[self.index + 1]) {
-                            '+', '-' => switch (self.buffer[self.index + 2]) {
-                                '0'...'9' => self.index += 2,
-                                else => {},
-                            },
-                            else => {},
-                        };
-                        continue :state .int;
-                    },
-                    ':' => continue :state .time,
-                    '0'...'9', 'a'...'d', 'f'...'z', 'A'...'Z', '.' => continue :state .int,
-                    else => {},
-                }
-            },
-
-            .time => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    },
-                    '0'...'9', 'a'...'z', 'A'...'Z', '.', ':' => continue :state .time,
-                    else => {},
                 }
             },
 
@@ -1317,7 +1399,7 @@ pub const Tokenizer = struct {
                     },
                     '0'...'9' => {
                         result.tag = .number_literal;
-                        continue :state .int;
+                        continue :state .number_literal;
                     },
                     ':' => {
                         result.tag = .minus_colon;
@@ -1331,150 +1413,9 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     '0'...'9' => {
                         result.tag = .number_literal;
-                        continue :state .int;
+                        continue :state .number_literal;
                     },
                     else => self.index -= 1,
-                }
-            },
-
-            .string_literal => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index == self.buffer.len) {
-                        result.tag = .invalid;
-                    } else continue :state .invalid,
-                    '\n' => continue :state .multiline_string_literal,
-                    '\\' => continue :state .string_literal_backslash,
-                    '"' => self.index += 1,
-                    0x01...0x09, 0x0b...0x1f, 0x7f => continue :state .invalid,
-                    else => continue :state .string_literal,
-                }
-            },
-
-            .string_literal_backslash => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index == self.buffer.len) {
-                        result.tag = .invalid;
-                    } else continue :state .invalid,
-                    '"', '\\', 'n', 'r', 't' => continue :state .string_literal,
-                    '0'...'9' => continue :state .octal_char_start,
-                    else => continue :state .invalid,
-                }
-            },
-
-            .octal_char_start => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index == self.buffer.len) {
-                        result.tag = .invalid;
-                    } else continue :state .invalid,
-                    '0'...'9' => continue :state .octal_char_end,
-                    else => continue :state .invalid,
-                }
-            },
-
-            .octal_char_end => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index == self.buffer.len) {
-                        result.tag = .invalid;
-                    } else continue :state .invalid,
-                    '0'...'9' => continue :state .string_literal,
-                    else => continue :state .invalid,
-                }
-            },
-
-            .multiline_string_literal => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index == self.buffer.len) {
-                        result.tag = .invalid;
-                    } else continue :state .invalid,
-                    ' ', '\t' => continue :state .string_literal,
-                    '\r' => if (self.buffer[self.index + 1] == '\n') {
-                        self.index += 1;
-                        continue :state .multiline_string_literal;
-                    } else continue :state .invalid,
-                    '\n' => continue :state .multiline_string_literal,
-                    else => continue :state .invalid,
-                }
-            },
-
-            .symbol_literal_start => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        result.tag = .invalid;
-                    },
-                    ':' => continue :state .file_handle,
-                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .symbol_literal,
-                    else => {},
-                }
-            },
-
-            .symbol_literal => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        result.tag = .invalid;
-                    },
-                    ':' => continue :state .file_handle,
-                    '_' => if (self.mode == .q) {
-                        continue :state .symbol_literal;
-                    },
-                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .symbol_literal,
-                    else => {},
-                }
-            },
-
-            .file_handle => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        result.tag = .invalid;
-                    },
-                    '_' => if (self.mode == .q) {
-                        continue :state .file_handle;
-                    },
-                    'a'...'z', 'A'...'Z', '0'...'9', '.', '/', ':' => continue :state .file_handle,
-                    else => {},
-                }
-            },
-
-            .identifier => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    '_' => if (self.mode == .q) {
-                        continue :state .identifier;
-                    },
-                    'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .identifier,
-                    else => {
-                        const ident = self.buffer[result.loc.start..self.index];
-                        if (Token.getKeyword(ident)) |tag| {
-                            result.tag = tag;
-                        } else if (Token.getBuiltin(ident)) |builtin_type| {
-                            result.tag = switch (builtin_type) {
-                                .prefix => .prefix_builtin,
-                                .infix => .infix_builtin,
-                            };
-                        }
-                    },
-                }
-            },
-
-            .expect_newline => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index == self.buffer.len) {
-                        result.tag = .invalid;
-                    } else continue :state .invalid,
-                    '\n' => {
-                        self.index += 1;
-                        result.loc.start = self.index;
-                        continue :state .start;
-                    },
-                    else => continue :state .invalid,
                 }
             },
 
@@ -1483,7 +1424,7 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     0 => if (self.index == self.buffer.len) {
                         result.tag = .invalid;
-                    },
+                    } else continue :state .invalid,
                     '\n' => result.tag = .invalid,
                     else => continue :state .invalid,
                 }
@@ -2031,8 +1972,9 @@ fn testTokenizeMode(
 ) !void {
     const gpa = std.testing.allocator;
 
-    var tokenizer = Tokenizer.init(source, mode);
-    var tokens: std.array_list.Managed(Token.Tag) = .init(gpa);
+    var tokenizer: Tokenizer = .init(source, mode);
+    tokenizer.skipComments();
+    var tokens: std.ArrayList(Token.Tag) = .init(gpa);
     defer tokens.deinit();
     const last_token = while (true) {
         const token = tokenizer.next();
@@ -2053,7 +1995,8 @@ fn testTokenizeMode(
 fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
     const source0 = try std.testing.allocator.dupeZ(u8, source);
     defer std.testing.allocator.free(source0);
-    var tokenizer = Tokenizer.init(source0, .q);
+    var tokenizer: Tokenizer = .init(source0, .q);
+    tokenizer.skipComments();
     var tokenization_failed = false;
     while (true) {
         const token = tokenizer.next();

@@ -152,7 +152,8 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast
 
     const tokenize_duration: u64 = tokenize: {
         var timer = Timer.start() catch null;
-        var tokenizer = Tokenizer.init(source, settings.mode);
+        var tokenizer: Tokenizer = .init(source, settings.mode);
+        tokenizer.skipComments();
         while (true) {
             const token = tokenizer.next();
             try tokens.append(gpa, token);
