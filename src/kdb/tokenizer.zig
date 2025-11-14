@@ -464,6 +464,7 @@ pub const Tokenizer = struct {
     pub fn skipComments(self: *Tokenizer) void {
         state: switch (SkipState.start) {
             .start => switch (self.buffer[self.index]) {
+                0 => {},
                 '\r' => if (self.buffer[self.index + 1] == '\n') {
                     self.index += 2;
                     continue :state .start;
@@ -480,6 +481,7 @@ pub const Tokenizer = struct {
             .skip_line => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
+                    0 => {},
                     '\r' => if (self.buffer[self.index + 1] == '\n') {
                         self.index += 2;
                         continue :state .start;
@@ -496,6 +498,7 @@ pub const Tokenizer = struct {
             .comment => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
+                    0 => {},
                     '\r' => if (self.buffer[self.index + 1] == '\n') {
                         self.index += 1;
                         continue :state .block_comment;
@@ -522,6 +525,7 @@ pub const Tokenizer = struct {
             .maybe_block_comment_end => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
+                    0 => {},
                     '\r' => if (self.buffer[self.index + 1] == '\n') {
                         self.index += 1;
                         continue :state .maybe_block_comment_end;
@@ -535,6 +539,7 @@ pub const Tokenizer = struct {
             .block_comment_end => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
+                    0 => {},
                     '\r' => if (self.buffer[self.index + 1] == '\n') {
                         self.index += 2;
                         continue :state .start;
