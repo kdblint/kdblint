@@ -1733,6 +1733,8 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    if (true) return .nyi;
+
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.context.tree;
@@ -2129,6 +2131,8 @@ fn failWithNumberError(
 }
 
 fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    if (true) return .nyi;
+
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.context.tree;
