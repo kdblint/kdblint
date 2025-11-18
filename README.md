@@ -4,7 +4,7 @@
 
 ## License
 
-`kdblint` is closed-source software licensed under the MIT License.
+`kdblint` is open-source software licensed under the MIT License.
 
 See the [LICENSE](LICENSE) file for more details.
 
