@@ -1733,7 +1733,7 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
-    if (true) return .nyi;
+    if (!@import("builtin").is_test) return .nyi;
 
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
@@ -2131,7 +2131,7 @@ fn failWithNumberError(
 }
 
 fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
-    if (true) return .nyi;
+    if (!@import("builtin").is_test) return .nyi;
 
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
