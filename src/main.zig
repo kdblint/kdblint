@@ -182,9 +182,8 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
     const stdout_bw = &stdout_writer.interface;
 
     var document_scope: DocumentScope = .{};
-    defer document_scope.deinit(gpa);
     var context: DocumentScope.ScopeContext = .{
-        .gpa = gpa,
+        .gpa = arena,
         .tree = tree,
         .doc_scope = &document_scope,
     };

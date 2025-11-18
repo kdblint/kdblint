@@ -63,6 +63,7 @@ pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
 pub fn destroy(server: *Server) void {
     server.thread_pool.deinit();
     server.document_store.deinit();
+    server.diagnostics_collection.deinit();
     server.gpa.destroy(server);
 }
 

@@ -32,6 +32,23 @@ pub const Tag = enum(u32) {
     _,
 };
 
+pub fn deinit(collection: *DiagnosticsCollection) void {
+    for (collection.tag_set.values()) |*entry| {
+        entry.error_bundle.deinit(collection.gpa);
+        if (entry.error_bundle_src_base_path) |src_path| collection.gpa.free(src_path);
+        for (entry.diagnostics_set.keys(), entry.diagnostics_set.values()) |uri, *lsp_diagnostic| {
+            uri.deinit(collection.gpa);
+            lsp_diagnostic.arena.promote(collection.gpa).deinit();
+            lsp_diagnostic.error_bundle.deinit(collection.gpa);
+        }
+        entry.diagnostics_set.deinit(collection.gpa);
+    }
+    collection.tag_set.deinit(collection.gpa);
+    for (collection.outdated_files.keys()) |uri| uri.deinit(collection.gpa);
+    collection.outdated_files.deinit(collection.gpa);
+    collection.* = undefined;
+}
+
 pub fn pushSingleDocumentDiagnostics(
     collection: *DiagnosticsCollection,
     tag: Tag,
@@ -49,12 +66,21 @@ pub fn pushSingleDocumentDiagnostics(
 
     const gop_tag = try collection.tag_set.getOrPutValue(collection.gpa, tag, .{});
 
-    try collection.outdated_files.put(collection.gpa, document_uri, {});
+    {
+        try collection.outdated_files.ensureUnusedCapacity(collection.gpa, 1);
+        const duped_uri = try document_uri.dupe(collection.gpa);
+        if (collection.outdated_files.fetchPutAssumeCapacity(duped_uri, {})) |_| duped_uri.deinit(collection.gpa);
+    }
 
-    const gop_file = try gop_tag.value_ptr.diagnostics_set.getOrPut(collection.gpa, document_uri);
-    if (!gop_file.found_existing) {
+    try gop_tag.value_ptr.diagnostics_set.ensureUnusedCapacity(collection.gpa, 1);
+    const duped_uri = try document_uri.dupe(collection.gpa);
+    const gop_file = gop_tag.value_ptr.diagnostics_set.getOrPutAssumeCapacity(duped_uri);
+    if (gop_file.found_existing) {
+        duped_uri.deinit(collection.gpa);
+    } else {
         gop_file.value_ptr.* = .{};
     }
+
     errdefer comptime unreachable;
 
     switch (diagnostics) {
@@ -78,7 +104,12 @@ pub fn clearSingleDocumentDiagnostics(collection: *DiagnosticsCollection, docume
         var kv = item.diagnostics_set.fetchSwapRemove(document_uri) orelse continue;
         kv.value.arena.promote(collection.gpa).deinit();
         kv.value.error_bundle.deinit(collection.gpa);
-        collection.outdated_files.put(collection.gpa, document_uri, {}) catch {};
+
+        const gop = collection.outdated_files.getOrPut(collection.gpa, kv.key) catch {
+            kv.key.deinit(collection.gpa);
+            continue;
+        };
+        if (gop.found_existing) kv.key.deinit(collection.gpa);
     }
 }
 
@@ -92,6 +123,7 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
             defer collection.mutex.unlock();
 
             const entry = collection.outdated_files.pop() orelse break;
+            defer entry.key.deinit(collection.gpa);
             const uri = entry.key;
 
             _ = arena_allocator.reset(.retain_capacity);
@@ -177,7 +209,7 @@ fn convertErrorBundleToLspDiagnostics(
 
         if (!is_single_document) {
             const src_uri = try pathToUri(arena, error_bundle_src_base_path, src_path) orelse continue;
-            if (!std.mem.eql(u8, document_uri.percent_encoded, src_uri.percent_encoded)) continue;
+            if (!document_uri.eql(src_uri)) continue;
         }
 
         const src_range = errorBundleSourceLocationToRange(eb, src_loc, offset_encoding);
@@ -209,20 +241,15 @@ fn convertErrorBundleToLspDiagnostics(
             break :blk lsp_notes;
         };
 
-        var tags: std.ArrayList(lsp.types.DiagnosticTag) = .empty;
-
-        const message = eb.nullTerminatedString(err.msg);
-
-        if (std.mem.startsWith(u8, message, "unused ")) {
-            try tags.append(arena, lsp.types.DiagnosticTag.Unnecessary);
-        }
-
         try diagnostics.append(arena, .{
             .range = src_range,
-            .severity = .Error,
+            .severity = switch (err.kind) {
+                .@"error" => .Error,
+                .warn => .Warning,
+                .note => .Information,
+            },
             .source = "kdblint",
-            .message = message,
-            .tags = if (tags.items.len != 0) tags.items else null,
+            .message = eb.nullTerminatedString(err.msg),
             .relatedInformation = related_information,
         });
     }
