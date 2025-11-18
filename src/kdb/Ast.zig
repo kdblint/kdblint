@@ -96,6 +96,10 @@ pub fn tokenEnd(tree: *const Ast, token_index: TokenIndex) ByteOffset {
     return @intCast(tree.tokens.items(.loc)[token_index].end);
 }
 
+pub fn tokenLoc(tree: *const Ast, token_index: TokenIndex) Token.Loc {
+    return tree.tokens.items(.loc)[token_index];
+}
+
 pub fn nodeTag(tree: *const Ast, node: Node.Index) Node.Tag {
     return tree.nodes.items(.tag)[@intFromEnum(node)];
 }

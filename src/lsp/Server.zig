@@ -10,6 +10,7 @@ const build_options = @import("build_options");
 const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
 const DocumentStore = @import("DocumentStore.zig");
 const diagnostics_gen = @import("features/diagnostics.zig");
+const semantic_tokens = @import("features/semantic_tokens.zig");
 const diff = @import("diff.zig");
 const Uri = @import("Uri.zig");
 
@@ -29,6 +30,7 @@ client_capabilities: ClientCapabilities = .{},
 
 const ClientCapabilities = struct {
     supports_publish_diagnostics: bool = false,
+    supports_semantic_tokens_overlapping: bool = false,
 };
 
 pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
@@ -136,6 +138,10 @@ fn initialize(
 
     if (request.capabilities.textDocument) |text_document| {
         server.client_capabilities.supports_publish_diagnostics = text_document.publishDiagnostics != null;
+
+        if (text_document.semanticTokens) |semanticTokens| {
+            server.client_capabilities.supports_semantic_tokens_overlapping = semanticTokens.overlappingTokenSupport orelse false;
+        }
     }
 
     return .{
@@ -159,6 +165,15 @@ fn initialize(
                 .workspaceFolders = .{
                     .supported = true,
                     .changeNotifications = .{ .bool = true },
+                },
+            },
+            .semanticTokensProvider = .{
+                .SemanticTokensOptions = .{
+                    .legend = .{
+                        .tokenTypes = std.meta.fieldNames(semantic_tokens.TokenType),
+                        .tokenModifiers = &.{},
+                    },
+                    .full = .{ .bool = true },
                 },
             },
         },
@@ -280,6 +295,22 @@ fn @"workspace/didChangeConfiguration"(
     _ = notification; // autofix
 }
 
+fn @"textDocument/semanticTokens/full"(
+    server: *Server,
+    arena: Allocator,
+    request: types.SemanticTokensParams,
+) !?lsp.types.SemanticTokens {
+    const document_uri = Uri.parse(arena, request.textDocument.uri) catch return error.InvalidParams;
+    const handle = server.document_store.getHandle(document_uri) orelse return null;
+
+    return try semantic_tokens.writeSemanticTokens(
+        arena,
+        handle,
+        server.offset_encoding,
+        server.client_capabilities.supports_semantic_tokens_overlapping,
+    );
+}
+
 fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
     if (!server.client_capabilities.supports_publish_diagnostics) return;
     const do = struct {
@@ -296,6 +327,7 @@ fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
 const HandledRequestParams = union(enum) {
     initialize: types.InitializeParams,
     shutdown,
+    @"textDocument/semanticTokens/full": types.SemanticTokensParams,
     other: lsp.MethodWithParams,
 };
 
@@ -318,6 +350,8 @@ fn isBlockingMessage(message: Message) bool {
     return switch (message) {
         .request => |request| switch (request.params) {
             .initialize, .shutdown => true,
+            .@"textDocument/semanticTokens/full",
+            => false,
             .other => false,
         },
         .notification => |notification| switch (notification.params) {
@@ -473,6 +507,7 @@ pub fn sendRequestSync(
     return switch (@field(Params, method)) {
         .initialize => try server.initialize(arena, params),
         .shutdown => try server.shutdown(arena, params),
+        .@"textDocument/semanticTokens/full" => try server.@"textDocument/semanticTokens/full"(arena, params),
         .other => return null,
     };
 }
