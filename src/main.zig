@@ -34,10 +34,7 @@ const usage =
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
-    .log_level = switch (builtin.mode) {
-        .Debug, .ReleaseSafe => .debug,
-        .ReleaseFast, .ReleaseSmall => .info,
-    },
+    .log_level = .debug,
 };
 
 var wasi_preopens: std.fs.wasi.Preopens = undefined;
