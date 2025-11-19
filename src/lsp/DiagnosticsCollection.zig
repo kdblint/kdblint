@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const lsp = @import("lsp");
+const types = lsp.types;
+const offsets = lsp.offsets;
 
 const Uri = @import("Uri.zig");
 
@@ -19,13 +21,13 @@ tag_set: std.AutoArrayHashMapUnmanaged(Tag, struct {
     /// Used to store diagnostics from `pushSingleDocumentDiagnostics`
     diagnostics_set: Uri.ArrayHashMap(struct {
         arena: std.heap.ArenaAllocator.State = .{},
-        diagnostics: []lsp.types.Diagnostic = &.{},
+        diagnostics: []types.Diagnostic = &.{},
         error_bundle: ErrorBundle = .empty,
     }) = .empty,
 }) = .empty,
 outdated_files: Uri.ArrayHashMap(void) = .empty,
 transport: *lsp.Transport,
-offset_encoding: lsp.offsets.Encoding = .@"utf-16",
+offset_encoding: offsets.Encoding = .@"utf-16",
 
 pub const Tag = enum(u32) {
     parse,
@@ -56,7 +58,7 @@ pub fn pushSingleDocumentDiagnostics(
     diagnostics: union(enum) {
         lsp: struct {
             arena: std.heap.ArenaAllocator.State,
-            diagnostics: []lsp.types.Diagnostic,
+            diagnostics: []types.Diagnostic,
         },
         error_bundle: ErrorBundle,
     },
@@ -128,7 +130,7 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
 
             _ = arena_allocator.reset(.retain_capacity);
 
-            var diagnostics: std.ArrayList(lsp.types.Diagnostic) = .empty;
+            var diagnostics: std.ArrayList(types.Diagnostic) = .empty;
             try collection.collectLspDiagnosticsForDocument(
                 uri,
                 collection.offset_encoding,
@@ -136,7 +138,7 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
                 &diagnostics,
             );
 
-            const notification: lsp.TypedJsonRPCNotification(lsp.types.PublishDiagnosticsParams) = .{
+            const notification: lsp.TypedJsonRPCNotification(types.publish_diagnostics.Params) = .{
                 .method = "textDocument/publishDiagnostics",
                 .params = .{
                     .uri = uri.percent_encoded,
@@ -159,9 +161,9 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
 fn collectLspDiagnosticsForDocument(
     collection: *DiagnosticsCollection,
     document_uri: Uri,
-    offset_encoding: lsp.offsets.Encoding,
+    offset_encoding: offsets.Encoding,
     arena: Allocator,
-    diagnostics: *std.ArrayList(lsp.types.Diagnostic),
+    diagnostics: *std.ArrayList(types.Diagnostic),
 ) !void {
     for (collection.tag_set.values()) |entry| {
         if (entry.diagnostics_set.get(document_uri)) |per_document| {
@@ -194,9 +196,9 @@ fn convertErrorBundleToLspDiagnostics(
     eb: ErrorBundle,
     error_bundle_src_base_path: ?[]const u8,
     document_uri: Uri,
-    offset_encoding: lsp.offsets.Encoding,
+    offset_encoding: offsets.Encoding,
     arena: Allocator,
-    diagnostics: *std.ArrayList(lsp.types.Diagnostic),
+    diagnostics: *std.ArrayList(types.Diagnostic),
     is_single_document: bool,
 ) !void {
     if (eb.errorMessageCount() == 0) return; // `getMessages` can't be called on an empty ErrorBundle
@@ -216,7 +218,7 @@ fn convertErrorBundleToLspDiagnostics(
 
         const eb_notes = eb.getNotes(msg_index);
         const related_information = if (eb_notes.len == 0) null else blk: {
-            const lsp_notes = try arena.alloc(lsp.types.DiagnosticRelatedInformation, eb_notes.len);
+            const lsp_notes = try arena.alloc(types.Diagnostic.RelatedInformation, eb_notes.len);
             for (lsp_notes, eb_notes) |*lsp_note, eb_note_index| {
                 const eb_note = eb.getErrorMessage(eb_note_index);
                 if (eb_note.src_loc == .none) continue;
@@ -258,10 +260,10 @@ fn convertErrorBundleToLspDiagnostics(
 fn errorBundleSourceLocationToRange(
     error_bundle: ErrorBundle,
     src_loc: ErrorBundle.SourceLocation,
-    offset_encoding: lsp.offsets.Encoding,
-) lsp.types.Range {
+    offset_encoding: offsets.Encoding,
+) types.Range {
     // We assume that the span is inside of the source line
-    const source_line_range_utf8: lsp.types.Range = .{
+    const source_line_range_utf8: types.Range = .{
         .start = .{ .line = 0, .character = src_loc.column - (src_loc.span_main - src_loc.span_start) },
         .end = .{ .line = 0, .character = src_loc.column + (src_loc.span_end - src_loc.span_main) },
     };
@@ -276,7 +278,7 @@ fn errorBundleSourceLocationToRange(
     }
 
     const source_line = error_bundle.nullTerminatedString(src_loc.source_line);
-    const source_line_range = lsp.offsets.convertRangeEncoding(
+    const source_line_range = offsets.convertRangeEncoding(
         source_line,
         source_line_range_utf8,
         .@"utf-8",

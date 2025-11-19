@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const lsp = @import("lsp");
 const types = lsp.types;
+const offsets = lsp.offsets;
 const build_options = @import("build_options");
 
 const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
@@ -21,7 +22,7 @@ gpa: Allocator,
 document_store: DocumentStore,
 diagnostics_collection: DiagnosticsCollection,
 transport: *lsp.Transport,
-offset_encoding: lsp.offsets.Encoding = .@"utf-16",
+offset_encoding: offsets.Encoding = .@"utf-16",
 status: Status = .uninitialized,
 
 thread_pool: std.Thread.Pool,
@@ -156,7 +157,7 @@ fn initialize(
                 .@"utf-32" => .@"utf-32",
             },
             .textDocumentSync = .{
-                .TextDocumentSyncOptions = .{
+                .text_document_sync_options = .{
                     .openClose = true,
                     .change = .Incremental,
                 },
@@ -168,7 +169,7 @@ fn initialize(
                 },
             },
             .semanticTokensProvider = .{
-                .SemanticTokensOptions = .{
+                .semantic_tokens_options = .{
                     .legend = .{
                         .tokenTypes = std.meta.fieldNames(semantic_tokens.TokenType),
                         .tokenModifiers = &.{},
@@ -210,7 +211,7 @@ fn exit(
 fn @"textDocument/didOpen"(
     server: *Server,
     arena: Allocator,
-    notification: types.DidOpenTextDocumentParams,
+    notification: types.TextDocument.DidOpenParams,
 ) !void {
     const document_uri = Uri.parse(arena, notification.textDocument.uri) catch return error.InvalidParams;
     try server.document_store.openLspSyncedDocument(document_uri, notification.textDocument.text);
@@ -220,7 +221,7 @@ fn @"textDocument/didOpen"(
 fn @"textDocument/didChange"(
     server: *Server,
     arena: Allocator,
-    notification: types.DidChangeTextDocumentParams,
+    notification: types.TextDocument.DidChangeParams,
 ) !void {
     if (notification.contentChanges.len == 0) return;
 
@@ -242,7 +243,7 @@ fn @"textDocument/didChange"(
 fn @"textDocument/didSave"(
     server: *Server,
     arena: Allocator,
-    notification: types.DidSaveTextDocumentParams,
+    notification: types.TextDocument.DidSaveParams,
 ) !void {
     _ = server; // autofix
     _ = arena; // autofix
@@ -252,7 +253,7 @@ fn @"textDocument/didSave"(
 fn @"textDocument/didClose"(
     server: *Server,
     arena: Allocator,
-    notification: types.DidCloseTextDocumentParams,
+    notification: types.TextDocument.DidCloseParams,
 ) !void {
     const document_uri = Uri.parse(arena, notification.textDocument.uri) catch return error.InvalidParams;
     server.document_store.closeLspSyncedDocument(document_uri);
@@ -268,7 +269,7 @@ fn @"textDocument/didClose"(
 fn @"workspace/didChangeWatchedFiles"(
     server: *Server,
     arena: Allocator,
-    notification: types.DidChangeWatchedFilesParams,
+    notification: types.workspace.did_change_watched_files.Params,
 ) !void {
     _ = server; // autofix
     _ = arena; // autofix
@@ -278,7 +279,7 @@ fn @"workspace/didChangeWatchedFiles"(
 fn @"workspace/didChangeWorkspaceFolders"(
     server: *Server,
     arena: Allocator,
-    notification: types.DidChangeWorkspaceFoldersParams,
+    notification: types.workspace.folders.DidChangeParams,
 ) !void {
     _ = server; // autofix
     _ = arena; // autofix
@@ -288,7 +289,7 @@ fn @"workspace/didChangeWorkspaceFolders"(
 fn @"workspace/didChangeConfiguration"(
     server: *Server,
     arena: Allocator,
-    notification: types.DidChangeConfigurationParams,
+    notification: types.workspace.configuration.did_change.Params,
 ) !void {
     _ = server; // autofix
     _ = arena; // autofix
@@ -298,8 +299,8 @@ fn @"workspace/didChangeConfiguration"(
 fn @"textDocument/semanticTokens/full"(
     server: *Server,
     arena: Allocator,
-    request: types.SemanticTokensParams,
-) !?lsp.types.SemanticTokens {
+    request: types.semantic_tokens.Params,
+) !?types.semantic_tokens.Result {
     const document_uri = Uri.parse(arena, request.textDocument.uri) catch return error.InvalidParams;
     const handle = server.document_store.getHandle(document_uri) orelse return null;
 
@@ -327,20 +328,20 @@ fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
 const HandledRequestParams = union(enum) {
     initialize: types.InitializeParams,
     shutdown,
-    @"textDocument/semanticTokens/full": types.SemanticTokensParams,
+    @"textDocument/semanticTokens/full": types.semantic_tokens.Params,
     other: lsp.MethodWithParams,
 };
 
 const HandledNotificationParams = union(enum) {
     initialized: types.InitializedParams,
     exit,
-    @"textDocument/didOpen": types.DidOpenTextDocumentParams,
-    @"textDocument/didChange": types.DidChangeTextDocumentParams,
-    @"textDocument/didSave": types.DidSaveTextDocumentParams,
-    @"textDocument/didClose": types.DidCloseTextDocumentParams,
-    @"workspace/didChangeWatchedFiles": types.DidChangeWatchedFilesParams,
-    @"workspace/didChangeWorkspaceFolders": types.DidChangeWorkspaceFoldersParams,
-    @"workspace/didChangeConfiguration": types.DidChangeConfigurationParams,
+    @"textDocument/didOpen": types.TextDocument.DidOpenParams,
+    @"textDocument/didChange": types.TextDocument.DidChangeParams,
+    @"textDocument/didSave": types.TextDocument.DidSaveParams,
+    @"textDocument/didClose": types.TextDocument.DidCloseParams,
+    @"workspace/didChangeWatchedFiles": types.workspace.did_change_watched_files.Params,
+    @"workspace/didChangeWorkspaceFolders": types.workspace.folders.DidChangeParams,
+    @"workspace/didChangeConfiguration": types.workspace.configuration.did_change.Params,
     other: lsp.MethodWithParams,
 };
 

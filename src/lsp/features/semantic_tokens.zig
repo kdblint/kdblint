@@ -196,7 +196,7 @@ const Builder = struct {
         }
     }
 
-    fn finish(self: *Builder) !types.SemanticTokens {
+    fn finish(self: *Builder) !types.semantic_tokens.Result {
         return .{ .data = try self.token_buffer.toOwnedSlice(self.arena) };
     }
 };
@@ -206,7 +206,7 @@ pub fn writeSemanticTokens(
     handle: *DocumentStore.Handle,
     encoding: offsets.Encoding,
     overlapping_token_support: bool,
-) !types.SemanticTokens {
+) !types.semantic_tokens.Result {
     var builder: Builder = .{
         .arena = arena,
         .handle = handle,
