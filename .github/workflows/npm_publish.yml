@@ -19,13 +19,11 @@ jobs:
           cache: false
       - name: Run tests
         run: zig build test --summary new
-      - name: Build native
-        run: zig build --summary new
       - name: Build wasm32-wasi
         run: zig build --summary new --release=small -Dtarget=wasm32-wasi
       - name: Get version
         id: version
-        run: echo "version=$(./zig-out/bin/kdblint version)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(zig build run -- version)" >> "$GITHUB_OUTPUT"
       - name: Set npm version
         run: npm version --allow-same-version --no-git-tag-version ${{ steps.version.outputs.version }}
       - name: Publish latest
