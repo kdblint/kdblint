@@ -30,18 +30,7 @@ pub fn build(b: *std.Build) !void {
         .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
         .root_module = exe_mod,
     });
-
-    const install_exe = b.addInstallArtifact(exe, .{
-        .dest_dir = .{
-            .override = .{
-                .custom = b.fmt("../dist/{t}/{t}", .{ target.result.os.tag, target.result.cpu.arch }),
-            },
-        },
-    });
-    b.getInstallStep().dependOn(&install_exe.step);
-    if (target.result.os.tag == builtin.target.os.tag and target.result.cpu.arch == builtin.target.cpu.arch) {
-        b.installArtifact(exe);
-    }
+    b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

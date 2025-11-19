@@ -13,7 +13,7 @@
   },
   "license": "MIT",
   "files": [
-    "dist",
+    "zig-out/bin/kdblint.wasm",
     "LICENSE",
     "README.md"
   ]
