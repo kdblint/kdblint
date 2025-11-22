@@ -10,7 +10,6 @@ const Ast = kdb.Ast;
 const DocumentStore = @import("../DocumentStore.zig");
 
 pub const TokenType = enum(u32) {
-    variable,
     keyword,
     comment,
     string,
@@ -20,6 +19,8 @@ pub const TokenType = enum(u32) {
     symbol,
     /// non-standard token type
     local,
+    /// non-standard token type
+    global,
 };
 
 const Builder = struct {
@@ -183,7 +184,17 @@ const Builder = struct {
                 const last_token = tree.nodeData(node).token;
                 for (first_token..last_token + 1) |token| try self.writeToken(@intCast(token), .symbol);
             },
-            .identifier => try self.writeToken(tree.nodeMainToken(node), .variable),
+            .identifier => {
+                const main_token = tree.nodeMainToken(node);
+                if (tree.tokenSlice(main_token)[0] == '.') {
+                    try self.writeToken(tree.nodeMainToken(node), .global);
+                } else {
+                    // TODO: Use ZIR to determine local/global
+                    const zir = try self.handle.getZir(self.arena);
+                    _ = zir; // autofix
+                    try self.writeToken(tree.nodeMainToken(node), .local);
+                }
+            },
             .builtin => try self.writeToken(tree.nodeMainToken(node), .keyword),
             .system => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
             .dsl => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
