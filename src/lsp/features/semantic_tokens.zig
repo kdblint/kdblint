@@ -190,8 +190,6 @@ const Builder = struct {
                     try self.writeToken(tree.nodeMainToken(node), .global);
                 } else {
                     // TODO: Use ZIR to determine local/global
-                    const zir = try self.handle.getZir(self.arena);
-                    _ = zir; // autofix
                     try self.writeToken(tree.nodeMainToken(node), .local);
                 }
             },

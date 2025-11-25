@@ -148,24 +148,26 @@ pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.
         .instructions_top = 0,
     };
 
-    const compile_duration: u64 = compile: {
+    const compile_duration: u64, const fatal = compile: {
         var timer = Timer.start() catch null;
         // The AST -> ZIR lowering process assumes an AST that does not have any
         // parse errors.
-        if (tree.errors.len == 0) {
+        const fatal = if (tree.errors.len == 0) fatal: {
             if (file(&gen_scope, &gen_scope.base)) |file_inst| {
                 assert(file_inst.toIndex().? == .file_inst);
+                break :fatal false;
             } else |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {}, // Handled via compile_errors below.
+                error.AnalysisFail => break :fatal true, // Handled via compile_errors below.
             }
-        } else {
+        } else fatal: {
             try astgen.lowerAstErrors();
-        }
+            break :fatal true;
+        };
 
         try astgen.scope.finalize();
 
-        break :compile if (timer) |*t| t.read() else 0;
+        break :compile .{ if (timer) |*t| t.read() else 0, fatal };
     };
 
     const err_index = @intFromEnum(Zir.ExtraIndex.compile_errors);
@@ -220,8 +222,8 @@ pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.
         }
     }
 
-    return Zir{
-        .instructions = astgen.instructions.toOwnedSlice(),
+    return .{
+        .instructions = if (fatal) .empty else astgen.instructions.toOwnedSlice(),
         .string_bytes = try astgen.string_bytes.toOwnedSlice(gpa),
         .extra = try astgen.extra.toOwnedSlice(gpa),
         .compile_duration = compile_duration,
