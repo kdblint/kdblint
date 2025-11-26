@@ -216,11 +216,73 @@ const Builder = struct {
             .system => try self.writeToken(tree.nodeMainToken(node), .system),
             .dsl => try self.writeToken(tree.nodeMainToken(node), .dsl),
 
-            .select => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
-            .exec => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
-            .update => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
-            .delete_rows => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
-            .delete_cols => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
+            .select => {
+                const select = tree.fullSelect(node);
+                try self.writeToken(select.select_token, .keyword);
+                if (select.limit) |limit| {
+                    if (limit.expr) |n| try self.writeNode(n);
+                    if (limit.order_column) |t| try self.writeToken(t, .operator);
+                }
+                if (select.distinct_token) |t| try self.writeToken(t, .keyword);
+                for (select.select) |n| try self.writeNode(n);
+                if (select.by) |by| {
+                    try self.writeToken(by.by_token, .keyword);
+                    for (by.exprs) |n| try self.writeNode(n);
+                }
+                try self.writeToken(select.from_token, .keyword);
+                try self.writeNode(select.from);
+                if (select.where) |where| {
+                    try self.writeToken(where.where_token, .keyword);
+                    for (where.exprs) |n| try self.writeNode(n);
+                }
+            },
+            .exec => {
+                const exec = tree.fullExec(node);
+                try self.writeToken(exec.exec_token, .keyword);
+                for (exec.select) |n| try self.writeNode(n);
+                if (exec.by) |by| {
+                    try self.writeToken(by.by_token, .keyword);
+                    for (by.exprs) |n| try self.writeNode(n);
+                }
+                try self.writeToken(exec.from_token, .keyword);
+                try self.writeNode(exec.from);
+                if (exec.where) |where| {
+                    try self.writeToken(where.where_token, .keyword);
+                    for (where.exprs) |n| try self.writeNode(n);
+                }
+            },
+            .update => {
+                const update = tree.fullUpdate(node);
+                try self.writeToken(update.update_token, .keyword);
+                for (update.select) |n| try self.writeNode(n);
+                if (update.by) |by| {
+                    try self.writeToken(by.by_token, .keyword);
+                    for (by.exprs) |n| try self.writeNode(n);
+                }
+                try self.writeToken(update.from_token, .keyword);
+                try self.writeNode(update.from);
+                if (update.where) |where| {
+                    try self.writeToken(where.where_token, .keyword);
+                    for (where.exprs) |n| try self.writeNode(n);
+                }
+            },
+            .delete_rows => {
+                const delete = tree.fullDeleteRows(node);
+                try self.writeToken(delete.delete_token, .keyword);
+                try self.writeToken(delete.from_token, .keyword);
+                try self.writeNode(delete.from);
+                if (delete.where) |where| {
+                    try self.writeToken(where.where_token, .keyword);
+                    for (where.exprs) |n| try self.writeNode(n);
+                }
+            },
+            .delete_cols => {
+                const delete = tree.fullDeleteCols(node);
+                try self.writeToken(delete.delete_token, .keyword);
+                for (delete.select_tokens) |t| try self.writeToken(t, .local);
+                try self.writeToken(delete.from_token, .keyword);
+                try self.writeNode(delete.from);
+            },
         }
     }
 
