@@ -76,7 +76,20 @@ const Builder = struct {
                 const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
                 for (nodes) |n| try self.writeNode(n);
             },
-            .table_literal => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
+            .table_literal => {
+                const table = tree.extraData(tree.nodeData(node).extra_and_token[0], Ast.Node.Table);
+                const keys = tree.extraDataSlice(.{
+                    .start = table.keys_start,
+                    .end = table.keys_end,
+                }, Ast.Node.Index);
+                const columns = tree.extraDataSlice(.{
+                    .start = table.columns_start,
+                    .end = table.columns_end,
+                }, Ast.Node.Index);
+
+                for (keys) |n| try self.writeNode(n);
+                for (columns) |n| try self.writeNode(n);
+            },
 
             .lambda => {
                 const lambda = tree.extraData(tree.nodeData(node).extra_and_token[0], Ast.Node.Lambda);
