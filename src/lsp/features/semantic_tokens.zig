@@ -21,6 +21,10 @@ pub const TokenType = enum(u32) {
     local,
     /// non-standard token type
     global,
+    /// non-standard token type
+    system,
+    /// non-standard token type
+    dsl,
 };
 
 const Builder = struct {
@@ -209,8 +213,8 @@ const Builder = struct {
                 }
             },
             .builtin => try self.writeToken(tree.nodeMainToken(node), .keyword),
-            .system => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
-            .dsl => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
+            .system => try self.writeToken(tree.nodeMainToken(node), .system),
+            .dsl => try self.writeToken(tree.nodeMainToken(node), .dsl),
 
             .select => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
             .exec => std.log.debug("NYI: {t}", .{tree.nodeTag(node)}),
