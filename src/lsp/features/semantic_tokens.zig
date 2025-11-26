@@ -167,7 +167,9 @@ const Builder = struct {
             },
             .apply_binary => {
                 const lhs, const maybe_rhs = tree.nodeData(node).node_and_opt_node;
+                const op: Ast.Node.Index = @enumFromInt(tree.nodeMainToken(node));
                 try self.writeNode(lhs);
+                try self.writeNode(op);
                 if (maybe_rhs.unwrap()) |rhs| try self.writeNode(rhs);
             },
 
