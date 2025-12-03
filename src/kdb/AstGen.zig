@@ -1186,6 +1186,36 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
             );
         },
 
+        .plus,
+        .minus,
+        .asterisk,
+        .percent,
+        .ampersand,
+        .pipe,
+        .caret,
+        .equal,
+        .angle_bracket_left,
+        .angle_bracket_left_equal,
+        .angle_bracket_left_right,
+        .angle_bracket_right,
+        .angle_bracket_right_equal,
+        .comma,
+        .hash,
+        .underscore,
+        .tilde,
+        .zero_colon,
+        .one_colon,
+        .two_colon,
+        => switch (full_call.args.len) {
+            0 => unreachable,
+            2 => {},
+            else => return astgen.failNode(
+                src_node,
+                "expected 2 argument(s), found {d}",
+                .{full_call.args.len},
+            ),
+        },
+
         .dollar => switch (full_call.args.len) {
             0 => unreachable,
             1 => return astgen.failNode(
