@@ -171,7 +171,11 @@ const Builder = struct {
             .slash_colon,
             .backslash,
             .backslash_colon,
-            => try self.writeToken(tree.nodeMainToken(node), .operator),
+            => {
+                const maybe_lhs = tree.nodeData(node).opt_node;
+                if (maybe_lhs.unwrap()) |n| try self.writeNode(n);
+                try self.writeToken(tree.nodeMainToken(node), .operator);
+            },
 
             .call => {
                 const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
