@@ -1,9 +1,10 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 const Timer = std.time.Timer;
-const Writer = std.Io.Writer;
+const Writer = Io.Writer;
 
 const kdb = @import("root.zig");
 pub const Token = kdb.Token;
@@ -210,7 +211,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast
 }
 
 pub fn renderAlloc(tree: Ast, gpa: Allocator, settings: RenderSettings) error{OutOfMemory}![]u8 {
-    var aw: std.Io.Writer.Allocating = .init(gpa);
+    var aw: Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     render(tree, gpa, &aw.writer, settings) catch |err| switch (err) {
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
@@ -550,7 +551,7 @@ pub fn getNodeSource(tree: Ast, node: Node.Index) []const u8 {
     return tree.source[start..end];
 }
 
-pub fn renderError(tree: Ast, parse_error: Error, writer: *std.Io.Writer) !void {
+pub fn renderError(tree: Ast, parse_error: Error, writer: *Io.Writer) !void {
     const token_tags: []Token.Tag = tree.tokens.items(.tag);
     switch (parse_error.tag) {
         .expected_expr => try writer.print("expected expression, found '{s}'", .{
@@ -1727,6 +1728,7 @@ fn testAstModeRender(
     expected_nodes: []const Node.Tag,
 ) !void {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
     var tree = try Ast.parse(gpa, source_code, .{
         .mode = mode,
@@ -1737,7 +1739,7 @@ fn testAstModeRender(
     // Errors
     if (tree.errors.len > 0) {
         std.debug.print("error\n", .{});
-        try kdb.printAstErrorsToStderr(gpa, tree, "test", .auto);
+        try kdb.printAstErrorsToStderr(gpa, io, tree, "test", .auto);
         return error.Unexpected;
     }
 
@@ -1773,7 +1775,7 @@ fn testAstModeRender(
     try std.testing.expectEqual(.root, tree.nodes.items(.tag)[0]);
 
     // Render
-    var actual_source: std.Io.Writer.Allocating = .init(gpa);
+    var actual_source: Io.Writer.Allocating = .init(gpa);
     defer actual_source.deinit();
     try render(tree, gpa, &actual_source.writer, .{
         .indent_char = ' ',
@@ -6386,10 +6388,11 @@ test "rewrite expressions to reduce parens" {
 
 fn testRender(file_path: []const u8) !void {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
-    var dir = try std.fs.openDirAbsolute(@import("build_options").tests_path, .{});
-    defer dir.close();
-    const source_code = try dir.readFileAllocOptions(file_path, gpa, .unlimited, .of(u8), 0);
+    var dir = try Io.Dir.openDirAbsolute(io, @import("build_options").tests_path, .{});
+    defer dir.close(io);
+    const source_code = try dir.readFileAllocOptions(io, file_path, gpa, .unlimited, .of(u8), 0);
     defer gpa.free(source_code);
     var buf: [100]u8 = undefined;
     const expected_path = try std.fmt.bufPrint(
@@ -6397,7 +6400,7 @@ fn testRender(file_path: []const u8) !void {
         "{s}.expected.q",
         .{file_path[0 .. file_path.len - 2]},
     );
-    const expected_source = try dir.readFileAlloc(expected_path, gpa, .unlimited);
+    const expected_source = try dir.readFileAlloc(io, expected_path, gpa, .unlimited);
     defer gpa.free(expected_source);
 
     var tree = try Ast.parse(gpa, source_code, .{
@@ -6413,7 +6416,7 @@ fn testRender(file_path: []const u8) !void {
     try std.testing.expectEqualSlices(Error.Tag, &.{}, actual_errors);
 
     // Render
-    var actual_source: std.Io.Writer.Allocating = .init(gpa);
+    var actual_source: Io.Writer.Allocating = .init(gpa);
     defer actual_source.deinit();
     try render(tree, gpa, &actual_source.writer, .{
         .indent_char = ' ',
@@ -6438,7 +6441,7 @@ fn testRender(file_path: []const u8) !void {
     try std.testing.expectEqualSlices(Error.Tag, &.{}, det_errors);
 
     // Render
-    var det_source: std.Io.Writer.Allocating = .init(gpa);
+    var det_source: Io.Writer.Allocating = .init(gpa);
     defer det_source.deinit();
     try render(det_tree, gpa, &det_source.writer, .{
         .indent_char = ' ',

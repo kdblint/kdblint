@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 const InternPool = @import("InternPool.zig");
 
@@ -11,7 +12,7 @@ const Zir = kdb.Zir;
 const DocumentScope = kdb.DocumentScope;
 
 /// Write human-readable, debug formatted ZIR code.
-pub fn renderAsText(gpa: Allocator, tree: ?Ast, zir: Zir, bw: *std.Io.Writer) !void {
+pub fn renderAsText(gpa: Allocator, tree: ?Ast, zir: Zir, bw: *Io.Writer) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
@@ -121,11 +122,11 @@ const Writer = struct {
         return @bitCast(offset + @as(i32, @bitCast(self.parent_decl_node)));
     }
 
-    const Error = std.Io.Writer.Error || Allocator.Error;
+    const Error = Io.Writer.Error || Allocator.Error;
 
     fn writeInstToStream(
         self: *Writer,
-        stream: *std.Io.Writer,
+        stream: *Io.Writer,
         inst: Zir.Inst.Index,
     ) Error!void {
         const tags: []Zir.Inst.Tag = self.code.instructions.items(.tag);
@@ -242,7 +243,7 @@ const Writer = struct {
 
     fn writeUnNode(
         self: *Writer,
-        stream: *std.Io.Writer,
+        stream: *Io.Writer,
         inst: Zir.Inst.Index,
     ) Error!void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
@@ -253,7 +254,7 @@ const Writer = struct {
 
     fn writeUnNodeWithoutSrc(
         self: *Writer,
-        stream: *std.Io.Writer,
+        stream: *Io.Writer,
         inst: Zir.Inst.Index,
     ) Error!void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
@@ -263,7 +264,7 @@ const Writer = struct {
 
     fn writeUnTok(
         self: *Writer,
-        stream: *std.Io.Writer,
+        stream: *Io.Writer,
         inst: Zir.Inst.Index,
     ) Error!void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].un_tok;
@@ -272,37 +273,37 @@ const Writer = struct {
         try self.writeSrcTok(stream, inst_data.src_tok);
     }
 
-    fn writeByte(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeByte(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].byte;
         try stream.print("{d})", .{inst_data});
     }
 
-    fn writeShort(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeShort(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].short;
         try stream.print("{d})", .{inst_data});
     }
 
-    fn writeInt(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeInt(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].int;
         try stream.print("{d})", .{inst_data});
     }
 
-    fn writeLong(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeLong(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].long;
         try stream.print("{d})", .{inst_data});
     }
 
-    fn writeReal(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeReal(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].real;
         try stream.print("{d})", .{inst_data});
     }
 
-    fn writeFloat(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeFloat(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].float;
         try stream.print("{d})", .{inst_data});
     }
 
-    fn writePlNodeApply(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeApply(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Apply, inst_data.payload_index);
         const args = self.code.extra[extra.end..][0..extra.data.len];
@@ -318,7 +319,7 @@ const Writer = struct {
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
-    fn writePlNodeStrList(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeStrList(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.StrList, inst_data.payload_index);
         const strs = self.code.extra[extra.end..][0..extra.data.len];
@@ -332,7 +333,7 @@ const Writer = struct {
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
-    fn writePlNodeList(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeList(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.List, inst_data.payload_index);
         const list = self.code.extra[extra.end..][0..extra.data.len];
@@ -346,7 +347,7 @@ const Writer = struct {
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
-    fn writePlNodeTable(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeTable(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Table, inst_data.payload_index);
         assert(extra.data.columns_len > 0);
@@ -377,7 +378,7 @@ const Writer = struct {
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
-    fn writePlNodeBlockWithoutSrc(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeBlockWithoutSrc(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const zir_datas: []Zir.Inst.Data = self.code.instructions.items(.data);
         const inst_data = zir_datas[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Block, inst_data.payload_index);
@@ -388,7 +389,7 @@ const Writer = struct {
 
     fn writeStrNode(
         self: *Writer,
-        stream: *std.Io.Writer,
+        stream: *Io.Writer,
         inst: Zir.Inst.Index,
     ) Error!void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str_node;
@@ -399,7 +400,7 @@ const Writer = struct {
 
     fn writeStrTok(
         self: *Writer,
-        stream: *std.Io.Writer,
+        stream: *Io.Writer,
         inst: Zir.Inst.Index,
     ) Error!void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
@@ -410,7 +411,7 @@ const Writer = struct {
 
     fn writeNode(
         self: *Writer,
-        stream: *std.Io.Writer,
+        stream: *Io.Writer,
         inst: Zir.Inst.Index,
     ) Error!void {
         const src_node = self.code.instructions.items(.data)[@intFromEnum(inst)].node;
@@ -418,7 +419,7 @@ const Writer = struct {
         try self.writeSrcNode(stream, src_node);
     }
 
-    fn writeLambda(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeLambda(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         const zir_datas: []Zir.Inst.Data = self.code.instructions.items(.data);
         const inst_data = zir_datas[@intFromEnum(inst)].lambda;
 
@@ -446,20 +447,20 @@ const Writer = struct {
         try self.writeSrcNode(stream, .zero);
     }
 
-    fn writePlNodeDo(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeDo(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         try self.writePlNodeStmt(stream, inst, Zir.Inst.Do);
     }
 
-    fn writePlNodeIf(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeIf(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         try self.writePlNodeStmt(stream, inst, Zir.Inst.If);
     }
 
-    fn writePlNodeWhile(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writePlNodeWhile(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         try self.writePlNodeStmt(stream, inst, Zir.Inst.While);
     }
 
     // TODO: Needs formatting.
-    fn writePlNodeStmt(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index, comptime T: type) !void {
+    fn writePlNodeStmt(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index, comptime T: type) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(T, inst_data.payload_index);
         const args = self.code.extra[extra.end..][0..extra.data.body_len];
@@ -475,7 +476,7 @@ const Writer = struct {
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
-    fn writeInstRef(self: *Writer, stream: *std.Io.Writer, ref: Zir.Inst.Ref) !void {
+    fn writeInstRef(self: *Writer, stream: *Io.Writer, ref: Zir.Inst.Ref) !void {
         if (ref == .none) {
             return stream.writeAll(".none");
         } else if (ref.toIndex()) |i| {
@@ -486,12 +487,12 @@ const Writer = struct {
         }
     }
 
-    fn writeInstIndex(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+    fn writeInstIndex(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
         _ = self;
         return stream.print("%{d}", .{@intFromEnum(inst)});
     }
 
-    fn writeSrcNode(self: *Writer, stream: *std.Io.Writer, src_node: Ast.Node.Offset) !void {
+    fn writeSrcNode(self: *Writer, stream: *Io.Writer, src_node: Ast.Node.Offset) !void {
         const tree = self.tree orelse return;
         const abs_node = src_node.toAbsolute(self.parent_decl_node);
         const src_span = tree.nodeToSpan(abs_node);
@@ -503,7 +504,7 @@ const Writer = struct {
         });
     }
 
-    fn writeSrcTok(self: *Writer, stream: *std.Io.Writer, src_tok: Ast.TokenOffset) !void {
+    fn writeSrcTok(self: *Writer, stream: *Io.Writer, src_tok: Ast.TokenOffset) !void {
         const tree = self.tree orelse return;
         const abs_tok = src_tok.toAbsolute(tree.firstToken(self.parent_decl_node));
         const span_start = tree.tokenStart(abs_tok);
@@ -516,7 +517,7 @@ const Writer = struct {
         });
     }
 
-    fn writeSrcTokAbs(self: *Writer, stream: *std.Io.Writer, src_tok: Ast.TokenIndex) !void {
+    fn writeSrcTokAbs(self: *Writer, stream: *Io.Writer, src_tok: Ast.TokenIndex) !void {
         const tree = self.tree orelse return;
         const span_start = tree.tokenStart(src_tok);
         const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(src_tok).len));
@@ -528,11 +529,11 @@ const Writer = struct {
         });
     }
 
-    fn writeBracedBody(self: *Writer, stream: *std.Io.Writer, body: []const Zir.Inst.Index) !void {
+    fn writeBracedBody(self: *Writer, stream: *Io.Writer, body: []const Zir.Inst.Index) !void {
         try self.writeBracedBodyConditional(stream, body, self.recurse_blocks);
     }
 
-    fn writeBracedBodyConditional(self: *Writer, stream: *std.Io.Writer, body: []const Zir.Inst.Index, enabled: bool) !void {
+    fn writeBracedBodyConditional(self: *Writer, stream: *Io.Writer, body: []const Zir.Inst.Index, enabled: bool) !void {
         if (body.len == 0) {
             try stream.writeAll("{}");
         } else if (enabled) {
@@ -561,7 +562,7 @@ const Writer = struct {
         }
     }
 
-    fn writeBody(self: *Writer, stream: *std.Io.Writer, body: []const Zir.Inst.Index) !void {
+    fn writeBody(self: *Writer, stream: *Io.Writer, body: []const Zir.Inst.Index) !void {
         for (body) |inst| {
             try stream.splatByteAll(' ', self.indent);
             try stream.print("%{d} ", .{@intFromEnum(inst)});
@@ -580,6 +581,7 @@ fn testZir(source: [:0]const u8, expected: []const u8) !void {
 
 fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
     var tree = try Ast.parse(gpa, source, .{
         .mode = mode,
@@ -602,11 +604,11 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     // Errors and TODO: warnings
     if (zir.hasCompileErrors()) {
         std.debug.print("error\n", .{});
-        try kdb.printZirErrorsToStderr(gpa, tree, zir, "test", .auto);
+        try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
         return error.Unexpected;
     }
 
-    var output: std.Io.Writer.Allocating = .init(gpa);
+    var output: Io.Writer.Allocating = .init(gpa);
     defer output.deinit();
     try renderAsText(gpa, tree, zir, &output.writer);
 
@@ -624,6 +626,7 @@ fn warnZir(source: [:0]const u8, expected: []const u8) !void {
 
 fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
     var tree = try Ast.parse(gpa, source, .{
         .mode = mode,
@@ -646,7 +649,7 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     // Errors
     if (zir.hasCompileErrors()) {
         std.debug.print("error\n", .{});
-        try kdb.printZirErrorsToStderr(gpa, tree, zir, "test", .auto);
+        try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
         return error.Unexpected;
     }
 
@@ -661,9 +664,9 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
 
-    var output: std.Io.Writer.Allocating = .init(gpa);
+    var output: Io.Writer.Allocating = .init(gpa);
     defer output.deinit();
-    try error_bundle.renderToWriter(.{}, &output.writer, .no_color);
+    try error_bundle.renderToWriter(.{}, &output.writer);
 
     try renderAsText(gpa, tree, zir, &output.writer);
 
@@ -711,9 +714,9 @@ fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
 
-    var output: std.Io.Writer.Allocating = .init(gpa);
+    var output: Io.Writer.Allocating = .init(gpa);
     defer output.deinit();
-    try error_bundle.renderToWriter(.{}, &output.writer, .no_color);
+    try error_bundle.renderToWriter(.{}, &output.writer);
 
     const written = output.written();
     try std.testing.expectEqualStrings(expected, written[0 .. written.len - 1]);

@@ -33,16 +33,16 @@ const usage =
 ;
 
 pub const std_options: std.Options = .{
-    .wasiCwd = wasi_cwd,
     .log_level = .debug,
 };
+pub const std_options_cwd = if (builtin.os.tag == .wasi) wasi_cwd else null;
 
 var wasi_preopens: std.fs.wasi.Preopens = undefined;
-pub fn wasi_cwd() std.os.wasi.fd_t {
+pub fn wasi_cwd() Io.Dir {
     // Expect the first preopen to be current working directory.
     const cwd_fd: std.posix.fd_t = 3;
     assert(std.mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
-    return cwd_fd;
+    return .{ .handle = cwd_fd };
 }
 
 const fatal = std.process.fatal;
@@ -55,35 +55,49 @@ var stdout_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
-pub fn main() !void {
-    const gpa, const is_debug = gpa: {
-        if (builtin.os.tag == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
-        break :gpa switch (builtin.mode) {
-            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
-            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
-        };
+const use_debug_allocator = builtin.os.tag != .wasi and switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
+
+pub fn main(init: std.process.Init.Minimal) !void {
+    const gpa = gpa: {
+        if (use_debug_allocator) break :gpa debug_allocator.allocator();
+        if (builtin.os.tag == .wasi) break :gpa std.heap.wasm_allocator;
+        break :gpa std.heap.smp_allocator;
     };
-    defer if (is_debug) {
+    defer if (use_debug_allocator) {
         _ = debug_allocator.deinit();
     };
     var arena_instance: std.heap.ArenaAllocator = .init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = try std.process.argsAlloc(arena);
+    const args = try init.args.toSlice(arena);
+
+    var environ_map = init.environ.createMap(arena) catch |err| fatal("failed to parse environment: {t}", .{err});
+
+    var threaded: Io.Threaded = .init(gpa, .{
+        .environ = init.environ,
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
 
     if (builtin.os.tag == .wasi) {
         wasi_preopens = try std.fs.wasi.preopensAlloc(arena);
     }
 
-    var threaded: std.Io.Threaded = .init(gpa);
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    return mainArgs(gpa, arena, io, args);
+    return mainArgs(gpa, arena, io, args, &environ_map);
 }
 
-fn mainArgs(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !void {
+fn mainArgs(
+    gpa: Allocator,
+    arena: Allocator,
+    io: Io,
+    args: []const []const u8,
+    environ_map: *std.process.Environ.Map,
+) !void {
+    _ = environ_map; // autofix
     if (args.len <= 1) {
         log.info("{s}", .{usage});
         fatal("expected command argument", .{});
@@ -98,11 +112,11 @@ fn mainArgs(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
     } else if (std.mem.eql(u8, cmd, "fmt")) {
         return @import("fmt.zig").run(gpa, arena, io, cmd_args);
     } else if (std.mem.eql(u8, cmd, "version")) {
-        return std.fs.File.stdout().writeAll(build_options.version_string ++ "\n");
+        return Io.File.stdout().writeStreamingAll(io, build_options.version_string ++ "\n");
     } else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "-h") or std.mem.eql(u8, cmd, "--help")) {
-        return std.fs.File.stdout().writeAll(usage);
+        return Io.File.stdout().writeStreamingAll(io, usage);
     } else {
-        try std.fs.File.stdout().writeAll(usage ++ "\n");
+        try Io.File.stdout().writeStreamingAll(io, usage ++ "\n");
         fatal("unknown command: {s}", .{cmd});
     }
 }
@@ -133,8 +147,8 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
         const arg = args[i];
         if (std.mem.startsWith(u8, arg, "-")) {
             if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-                try std.fs.File.stdout().writeAll(usage_ast_check);
-                return std.process.cleanExit();
+                try Io.File.stdout().writeStreamingAll(io, usage_ast_check);
+                return cleanExit(io);
             } else if (std.mem.eql(u8, arg, "-t")) {
                 want_output_text = true;
             } else if (std.mem.eql(u8, arg, "--color")) {
@@ -159,11 +173,11 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
     const display_path = kdb_source_path orelse "<stdin>";
     const source = s: {
         var f = if (kdb_source_path) |p| file: {
-            break :file std.fs.cwd().openFile(p, .{}) catch |err| {
+            break :file Io.Dir.cwd().openFile(io, p, .{}) catch |err| {
                 fatal("unable to open file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
             };
-        } else std.fs.File.stdin();
-        defer if (kdb_source_path != null) f.close();
+        } else Io.File.stdin();
+        defer if (kdb_source_path != null) f.close(io);
         var file_reader = f.reader(io, &stdin_buffer);
         break :s std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err| {
             fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
@@ -175,7 +189,7 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
         .version = .@"4.0",
     });
 
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
 
     var document_scope: DocumentScope = .{};
@@ -187,14 +201,14 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
     const zir = try kdb.AstGen.generate(arena, &context);
 
     if (zir.hasCompileErrors()) {
-        try kdb.printZirErrorsToStderr(gpa, tree, zir, display_path, color);
+        try kdb.printZirErrorsToStderr(gpa, io, tree, zir, display_path, color);
         std.process.exit(1);
     } else if (zir.hasCompileWarnings()) {
-        try kdb.printZirErrorsToStderr(gpa, tree, zir, display_path, color);
+        try kdb.printZirErrorsToStderr(gpa, io, tree, zir, display_path, color);
     }
 
     if (!want_output_text) {
-        return std.process.cleanExit();
+        return cleanExit(io);
     }
 
     const token_bytes = @sizeOf(kdb.Ast.TokenList) +
@@ -236,7 +250,7 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
     if (zir.hasCompileErrors()) {
         std.process.exit(1);
     } else {
-        return cleanExit();
+        return cleanExit(io);
     }
 }
 
@@ -257,8 +271,8 @@ fn cmdLsp(gpa: Allocator, io: Io, args: []const []const u8) !void {
         const arg = args[i];
         if (std.mem.startsWith(u8, arg, "-")) {
             if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-                try std.fs.File.stdout().writeAll(usage_lsp);
-                return std.process.cleanExit();
+                try Io.File.stdout().writeStreamingAll(io, usage_lsp);
+                return cleanExit(io);
             } else {
                 fatal("unrecognized parameter: '{s}'", .{arg});
             }
@@ -284,7 +298,7 @@ fn cmdLsp(gpa: Allocator, io: Io, args: []const []const u8) !void {
 
     switch (server.status) {
         .exiting_failure => std.process.exit(1),
-        .exiting_success => cleanExit(),
+        .exiting_success => cleanExit(io),
         else => unreachable,
     }
 }

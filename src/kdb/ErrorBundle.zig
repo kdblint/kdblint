@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const assert = std.debug.assert;
 const RenderOptions = std.zig.ErrorBundle.RenderOptions;
-const Writer = std.Io.Writer;
+const Writer = Io.Writer;
 
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
@@ -159,36 +159,48 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
     return string_bytes[index..end :0];
 }
 
-pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions, color: std.zig.Color) void {
+pub const RenderToStderrError = Io.Cancelable || Io.File.Writer.Error;
+
+pub fn renderToStdErr(eb: ErrorBundle, io: Io, options: RenderOptions, color: std.zig.Color) RenderToStderrError!void {
     var buffer: [256]u8 = undefined;
-    const w, const ttyconf = std.debug.lockStderrWriter(&buffer);
-    defer std.debug.unlockStderrWriter();
-    renderToWriter(eb, options, w, color.getTtyConf(ttyconf)) catch return;
+    const stderr = try io.lockStderr(&buffer, color.terminalMode());
+    defer io.unlockStderr();
+    renderToTerminal(eb, options, stderr.terminal()) catch |err| switch (err) {
+        error.WriteFailed => return stderr.file_writer.err.?,
+        else => |e| return e,
+    };
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer, ttyconf: Io.tty.Config) (Writer.Error || std.posix.UnexpectedError)!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer) Writer.Error!void {
+    return renderToTerminal(eb, options, .{ .writer = w, .mode = .no_color }) catch |err| switch (err) {
+        error.WriteFailed => |e| return e,
+        else => unreachable,
+    };
+}
+
+pub fn renderToTerminal(eb: ErrorBundle, options: RenderOptions, t: Io.Terminal) Io.Terminal.SetColorError!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, options, err_msg, w, ttyconf, 0);
+        try renderErrorMessage(eb, options, err_msg, t, 0);
     }
 
     if (options.include_log_text) {
         const log_text = eb.getCompileLogOutput();
         if (log_text.len != 0) {
-            try w.writeAll("\nCompile Log Output:\n");
-            try w.writeAll(log_text);
+            try t.writer.writeAll("\nCompile Log Output:\n");
+            try t.writer.writeAll(log_text);
         }
     }
 }
 
-fn renderErrorMessageToWriter(
+fn renderErrorMessage(
     eb: ErrorBundle,
     options: RenderOptions,
     err_msg_index: MessageIndex,
-    w: *Writer,
-    ttyconf: Io.tty.Config,
+    t: Io.Terminal,
     indent: usize,
-) (Writer.Error || std.posix.UnexpectedError)!void {
+) Io.Terminal.SetColorError!void {
+    const w = t.writer;
     const err_msg = eb.getErrorMessage(err_msg_index);
     const color = err_msg.kind.color();
     const kind = @tagName(err_msg.kind);
@@ -197,7 +209,7 @@ fn renderErrorMessageToWriter(
         var prefix: Writer.Discarding = .init(&.{});
         try w.splatByteAll(' ', indent);
         prefix.count += indent;
-        try ttyconf.setColor(w, .bold);
+        try t.setColor(.bold);
         try w.print("{s}:{d}:{d}: ", .{
             eb.nullTerminatedString(src.data.src_path),
             src.data.line + 1,
@@ -208,7 +220,7 @@ fn renderErrorMessageToWriter(
             src.data.line + 1,
             src.data.column + 1,
         });
-        try ttyconf.setColor(w, color);
+        try t.setColor(color);
         try w.writeAll(kind);
         prefix.count += kind.len;
         try w.writeAll(": ");
@@ -216,17 +228,17 @@ fn renderErrorMessageToWriter(
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
         const prefix_len: usize = @intCast(prefix.count);
-        try ttyconf.setColor(w, .reset);
-        try ttyconf.setColor(w, .bold);
+        try t.setColor(.reset);
+        try t.setColor(.bold);
         if (err_msg.count == 1) {
             try writeMsg(eb, err_msg, w, prefix_len);
             try w.writeByte('\n');
         } else {
             try writeMsg(eb, err_msg, w, prefix_len);
-            try ttyconf.setColor(w, .dim);
+            try t.setColor(.dim);
             try w.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(w, .reset);
+        try t.setColor(.reset);
         if (src.data.source_line != 0 and options.include_source_line) {
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
@@ -239,19 +251,19 @@ fn renderErrorMessageToWriter(
             // -1 since span.main includes the caret
             const after_caret = src.data.span_end -| src.data.span_main -| 1;
             try w.splatByteAll(' ', src.data.column - before_caret);
-            try ttyconf.setColor(w, .green);
+            try t.setColor(.green);
             try w.splatByteAll('~', before_caret);
             try w.writeByte('^');
             try w.splatByteAll('~', after_caret);
             try w.writeByte('\n');
-            try ttyconf.setColor(w, .reset);
+            try t.setColor(.reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, w, ttyconf, indent);
+            try renderErrorMessage(eb, options, note, t, indent);
         }
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
-            try ttyconf.setColor(w, .reset);
-            try ttyconf.setColor(w, .dim);
+            try t.setColor(.reset);
+            try t.setColor(.dim);
             try w.print("referenced by:\n", .{});
             var ref_index = src.end;
             for (0..src.data.reference_trace_len) |_| {
@@ -278,25 +290,25 @@ fn renderErrorMessageToWriter(
                     );
                 }
             }
-            try ttyconf.setColor(w, .reset);
+            try t.setColor(.reset);
         }
     } else {
-        try ttyconf.setColor(w, color);
+        try t.setColor(color);
         try w.splatByteAll(' ', indent);
         try w.writeAll(kind);
         try w.writeAll(": ");
-        try ttyconf.setColor(w, .reset);
+        try t.setColor(.reset);
         const msg = eb.nullTerminatedString(err_msg.msg);
         if (err_msg.count == 1) {
             try w.print("{s}\n", .{msg});
         } else {
             try w.print("{s}", .{msg});
-            try ttyconf.setColor(w, .dim);
+            try t.setColor(.dim);
             try w.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(w, .reset);
+        try t.setColor(.reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, w, ttyconf, indent + 4);
+            try renderErrorMessage(eb, options, note, t, indent + 4);
         }
     }
 }

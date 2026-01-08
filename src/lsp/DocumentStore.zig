@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 
 const Uri = @import("Uri.zig");
@@ -12,10 +13,9 @@ const DocumentScope = kdb.DocumentScope;
 
 const DocumentStore = @This();
 
-io: std.Io,
+io: Io,
 gpa: Allocator,
-lock: std.Thread.RwLock = .{},
-thread_pool: *std.Thread.Pool,
+mutex: Io.Mutex = .init,
 handles: Uri.ArrayHashMap(*Handle) = .empty,
 
 pub const Handle = struct {
@@ -132,8 +132,8 @@ pub fn deinit(self: *DocumentStore) void {
 }
 
 pub fn getHandle(self: *DocumentStore, uri: Uri) ?*Handle {
-    self.lock.lockShared();
-    defer self.lock.unlockShared();
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
     return self.handles.get(uri);
 }
 
@@ -182,8 +182,8 @@ fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, 
     };
     errdefer new_handle.deinit(self.gpa);
 
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
 
     const gop = try self.handles.getOrPut(self.gpa, uri);
     errdefer if (!gop.found_existing) assert(self.handles.swapRemove(uri));

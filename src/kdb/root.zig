@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const Color = std.zig.Color;
 
 const tokenizer = @import("tokenizer.zig");
@@ -16,7 +17,7 @@ pub const print_zir = @import("print_zir.zig");
 pub const DocumentScope = @import("DocumentScope.zig");
 pub const InternPool = @import("InternPool.zig");
 
-pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
+pub fn printAstErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, path: []const u8, color: Color) !void {
     var wip_errors: ErrorBundle.Wip = undefined;
     try wip_errors.init(gpa);
     defer wip_errors.deinit();
@@ -25,7 +26,7 @@ pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(.{}, color);
+    return error_bundle.renderToStdErr(io, .{}, color);
 }
 
 pub fn putAstErrorsIntoBundle(
@@ -48,7 +49,7 @@ pub fn putAstErrorsIntoBundle(
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
 }
 
-pub fn printZirErrorsToStderr(gpa: Allocator, tree: Ast, zir: Zir, path: []const u8, color: Color) !void {
+pub fn printZirErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, zir: Zir, path: []const u8, color: Color) !void {
     var wip_errors: ErrorBundle.Wip = undefined;
     try wip_errors.init(gpa);
     defer wip_errors.deinit();
@@ -57,7 +58,7 @@ pub fn printZirErrorsToStderr(gpa: Allocator, tree: Ast, zir: Zir, path: []const
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(.{}, color);
+    return error_bundle.renderToStdErr(io, .{}, color);
 }
 
 test {

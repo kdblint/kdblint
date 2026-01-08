@@ -2,11 +2,12 @@ const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const meta = std.meta;
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
 const Token = kdb.Token;
-const Writer = std.Io.Writer;
+const Writer = Io.Writer;
 
 pub const Error = error{ OutOfMemory, WriteFailed };
 
@@ -63,7 +64,7 @@ pub fn renderTree(gpa: Allocator, w: *Writer, tree: Ast, settings: RenderSetting
 
     // Render everything up until the first token
     const untrimmed_comment = r.tree.source[0..end][line_index..];
-    const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.whitespace);
+    const trimmed_comment = mem.trimEnd(u8, untrimmed_comment, &std.ascii.whitespace);
     if (trimmed_comment.len > 0) {
         try r.ais.print("{s}\n", .{trimmed_comment});
         if (mem.containsAtLeast(u8, r.tree.source[trimmed_comment.len..end], 2, "\n")) {
@@ -401,7 +402,7 @@ fn renderList(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         const section_exprs = row_exprs[0..section_end];
 
-        var sub_expr_buffer: std.Io.Writer.Allocating = .init(gpa);
+        var sub_expr_buffer: Io.Writer.Allocating = .init(gpa);
         defer sub_expr_buffer.deinit();
 
         const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
@@ -991,7 +992,7 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
     index = start;
     for (comments.items) |comment| {
         const untrimmed_comment = tree.source[comment.start..comment.end];
-        const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.whitespace);
+        const trimmed_comment = mem.trimEnd(u8, untrimmed_comment, &std.ascii.whitespace);
 
         if (index == start and mem.containsAtLeast(u8, tree.source[index..comment.start], 2, "\n")) {
             // Leave up to one empty line before the first comment
@@ -1015,7 +1016,7 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
             .block => {
                 var it = std.mem.splitScalar(u8, trimmed_comment, '\n');
                 while (it.next()) |line| {
-                    const trimmed_line = mem.trimRight(u8, line, &std.ascii.whitespace);
+                    const trimmed_line = mem.trimEnd(u8, line, &std.ascii.whitespace);
                     _ = try ais.writeNoIndent(trimmed_line);
                     try ais.insertNewline();
                 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const lsp = @import("lsp");
 const offsets = lsp.offsets;
@@ -54,7 +55,7 @@ pub fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) !void
 fn collectParseDiagnostics(tree: Ast, eb: *ErrorBundle.Wip) !void {
     assert(tree.errors.len != 0);
 
-    var msg_buffer: std.Io.Writer.Allocating = .init(eb.gpa);
+    var msg_buffer: Io.Writer.Allocating = .init(eb.gpa);
     defer msg_buffer.deinit();
 
     var notes: std.ArrayList(ErrorBundle.MessageIndex) = .empty;

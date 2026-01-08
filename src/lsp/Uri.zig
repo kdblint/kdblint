@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 const Uri = @This();
 
@@ -8,7 +9,7 @@ percent_encoded: []const u8,
 pub fn parse(gpa: Allocator, text: []const u8) !Uri {
     const uri: std.Uri = try .parse(text);
 
-    var buffer: std.Io.Writer.Allocating = .init(gpa);
+    var buffer: Io.Writer.Allocating = .init(gpa);
     defer buffer.deinit();
 
     try uri.format(&buffer.writer);

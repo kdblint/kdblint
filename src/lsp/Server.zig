@@ -25,8 +25,7 @@ transport: *lsp.Transport,
 offset_encoding: offsets.Encoding = .@"utf-16",
 status: Status = .uninitialized,
 
-thread_pool: std.Thread.Pool,
-wait_group: std.Thread.WaitGroup = .{},
+wait_group: std.Io.Group = .init,
 client_capabilities: ClientCapabilities = .{},
 
 const ClientCapabilities = struct {
@@ -44,27 +43,20 @@ pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
         .document_store = .{
             .io = io,
             .gpa = gpa,
-            .thread_pool = &server.thread_pool,
         },
         .diagnostics_collection = .{
+            .io = io,
             .gpa = gpa,
             .transport = transport,
         },
         .transport = transport,
-        .thread_pool = undefined, // set below
     };
-
-    try server.thread_pool.init(.{
-        .allocator = gpa,
-        .n_jobs = @min(4, std.Thread.getCpuCount() catch 1),
-    });
-    errdefer comptime unreachable;
 
     return server;
 }
 
 pub fn destroy(server: *Server) void {
-    server.thread_pool.deinit();
+    server.wait_group.cancel(server.io);
     server.document_store.deinit();
     server.diagnostics_collection.deinit();
     server.gpa.destroy(server);
@@ -78,6 +70,7 @@ pub fn keepRunning(server: Server) bool {
 }
 
 pub fn loop(server: *Server) !void {
+    defer server.wait_group.cancel(server.io);
     while (server.keepRunning()) {
         const json_message = try server.transport.readJsonMessage(server.gpa);
         defer server.gpa.free(json_message);
@@ -90,14 +83,13 @@ pub fn loop(server: *Server) !void {
             json_message,
             .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
         ) catch return error.ParseError;
-        errdefer comptime unreachable;
 
         if (isBlockingMessage(message)) {
-            server.thread_pool.waitAndWork(&server.wait_group);
-            server.wait_group.reset();
+            try server.wait_group.await(server.io);
+            server.wait_group = .init;
             server.processMessageReportError(arena_allocator.state, message);
         } else {
-            server.thread_pool.spawnWg(&server.wait_group, processMessageReportError, .{ server, arena_allocator.state, message });
+            server.wait_group.async(server.io, processMessageReportError, .{ server, arena_allocator.state, message });
         }
     }
 }
@@ -322,7 +314,7 @@ fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
             };
         }
     }.do;
-    server.thread_pool.spawnWg(&server.wait_group, do, .{ server, handle });
+    server.wait_group.async(server.io, do, .{ server, handle });
 }
 
 const HandledRequestParams = union(enum) {
@@ -679,7 +671,7 @@ fn handleResponse(_: *Server, response: lsp.JsonRPCMessage.Response) !void {
     std.log.warn("received response from client with id '{s}' that has no handler!", .{id});
 }
 
-fn formatMessage(message: Message, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+fn formatMessage(message: Message, writer: *Io.Writer) Io.Writer.Error!void {
     switch (message) {
         .request => |request| try writer.print("request-{f}-{t}", .{ std.json.fmt(request.id, .{}), request.params }),
         .notification => |notification| try writer.print("notification-{t}", .{notification.params}),

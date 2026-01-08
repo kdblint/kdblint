@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 const StringIndexContext = std.hash_map.StringIndexContext;
@@ -2692,7 +2693,7 @@ fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
     const gpa = astgen.gpa;
     const parse_err = tree.errors[0];
 
-    var msg: std.Io.Writer.Allocating = .init(gpa);
+    var msg: Io.Writer.Allocating = .init(gpa);
     defer msg.deinit();
     const msg_w = &msg.writer;
 

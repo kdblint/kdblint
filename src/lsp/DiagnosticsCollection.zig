@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const lsp = @import("lsp");
 const types = lsp.types;
 const offsets = lsp.offsets;
@@ -11,6 +12,7 @@ const ErrorBundle = kdb.ErrorBundle;
 
 const DiagnosticsCollection = @This();
 
+io: Io,
 gpa: Allocator,
 mutex: std.Thread.Mutex = .{},
 tag_set: std.AutoArrayHashMapUnmanaged(Tag, struct {

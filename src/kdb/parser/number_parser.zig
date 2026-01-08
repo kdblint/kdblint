@@ -471,7 +471,7 @@ pub const Value = union(ValueType) {
         };
     }
 
-    // pub fn format(self: Value, comptime _: anytype, _: anytype, writer: std.io.AnyWriter) !void {
+    // pub fn format(self: Value, comptime _: anytype, _: anytype, writer: Io.AnyWriter) !void {
     //     switch (self) {
     //         .boolean => |value| try writer.writeAll(if (value) "1b" else "0b"),
     //         .boolean_list => |values| {

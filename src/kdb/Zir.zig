@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 
 const kdb = @import("root.zig");
@@ -698,7 +699,7 @@ pub const Inst = struct {
             warn,
             note,
 
-            pub fn color(self: Kind) std.Io.tty.Color {
+            pub fn color(self: Kind) Io.Terminal.Color {
                 return switch (self) {
                     .@"error" => .red,
                     .warn => .yellow,

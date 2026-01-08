@@ -78,7 +78,7 @@ fn getVersion(b: *std.Build) ![]const u8 {
         "*.*.*",
         "--tags",
         "--abbrev=9",
-    }, &code, .Ignore) catch {
+    }, &code, .ignore) catch {
         return version_string;
     };
     const git_describe = std.mem.trim(u8, git_describe_untrimmed, " \n\r");
