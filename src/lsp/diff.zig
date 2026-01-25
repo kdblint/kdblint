@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const lsp = @import("lsp");
 const types = lsp.types;
@@ -36,4 +37,8 @@ pub fn applyContentChanges(
     }
 
     return try text_array.toOwnedSliceSentinel(gpa, 0);
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

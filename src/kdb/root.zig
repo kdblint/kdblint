@@ -1,6 +1,6 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 const Color = std.zig.Color;
 
 const tokenizer = @import("tokenizer.zig");
@@ -62,5 +62,5 @@ pub fn printZirErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, zir: Zir, path:
 }
 
 test {
-    @import("std").testing.refAllDecls(@This());
+    std.testing.refAllDecls(@This());
 }

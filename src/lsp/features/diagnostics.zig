@@ -1,5 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const lsp = @import("lsp");
 const offsets = lsp.offsets;
@@ -121,4 +122,8 @@ fn getAstCheckDiagnostics(server: *Server, handle: *DocumentStore.Handle) !Error
     defer eb.deinit();
     try eb.addZirErrorMessages(zir, handle.tree, handle.tree.source, "");
     return try eb.toOwnedBundle("");
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

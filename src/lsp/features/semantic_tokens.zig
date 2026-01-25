@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const lsp = @import("lsp");
@@ -313,4 +314,8 @@ pub fn writeSemanticTokens(
     }
 
     return try builder.finish();
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

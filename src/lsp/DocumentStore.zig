@@ -1,6 +1,6 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const Uri = @import("Uri.zig");
@@ -208,4 +208,8 @@ fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, 
     }
 
     return gop.value_ptr.*;
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

@@ -1,6 +1,6 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 const lsp = @import("lsp");
 const types = lsp.types;
 const offsets = lsp.offsets;
@@ -118,6 +118,9 @@ pub fn clearSingleDocumentDiagnostics(collection: *DiagnosticsCollection, docume
 }
 
 pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
+    const io = collection.io;
+    const transport = collection.transport;
+
     var arena_allocator: std.heap.ArenaAllocator = .init(collection.gpa);
     defer arena_allocator.deinit();
 
@@ -156,7 +159,7 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
         };
         defer collection.gpa.free(json_message);
 
-        try collection.transport.writeJsonMessage(json_message);
+        try transport.writeJsonMessage(io, json_message);
     }
 }
 
@@ -302,4 +305,8 @@ fn pathToUri(gpa: Allocator, base_path: ?[]const u8, src_path: []const u8) !?Uri
     defer gpa.free(absolute_src_path);
 
     return try .parse(gpa, absolute_src_path);
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

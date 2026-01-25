@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 const Color = std.zig.Color;
 const assert = std.debug.assert;
 
@@ -10,6 +10,7 @@ const Server = @import("lsp/Server.zig");
 
 const kdb = @import("kdb/root.zig");
 const DocumentScope = kdb.DocumentScope;
+
 const build_options = @import("build_options");
 
 const log = std.log.scoped(.main);
@@ -37,11 +38,11 @@ pub const std_options: std.Options = .{
 };
 pub const std_options_cwd = if (builtin.os.tag == .wasi) wasi_cwd else null;
 
-var wasi_preopens: std.fs.wasi.Preopens = undefined;
+var preopens: std.process.Preopens = .empty;
 pub fn wasi_cwd() Io.Dir {
     // Expect the first preopen to be current working directory.
     const cwd_fd: std.posix.fd_t = 3;
-    assert(std.mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
+    assert(std.mem.eql(u8, preopens.map.keys()[cwd_fd], "."));
     return .{ .handle = cwd_fd };
 }
 
@@ -84,7 +85,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const io = threaded.io();
 
     if (builtin.os.tag == .wasi) {
-        wasi_preopens = try std.fs.wasi.preopensAlloc(arena);
+        preopens = try .init(arena);
     }
 
     return mainArgs(gpa, arena, io, args, &environ_map);
@@ -282,7 +283,7 @@ fn cmdLsp(gpa: Allocator, io: Io, args: []const []const u8) !void {
     }
 
     var read_buffer: [256]u8 = undefined;
-    var stdio_transport: lsp.Transport.Stdio = .init(io, &read_buffer, .stdin(), .stdout());
+    var stdio_transport: lsp.Transport.Stdio = .init(&read_buffer, .stdin(), .stdout());
 
     var thread_safe_transport: lsp.ThreadSafeTransport(.{
         .thread_safe_read = false,
@@ -304,5 +305,7 @@ fn cmdLsp(gpa: Allocator, io: Io, args: []const []const u8) !void {
 }
 
 test {
-    @import("std").testing.refAllDecls(@This());
+    _ = @import("lsp/root.zig");
+    _ = @import("kdb/root.zig");
+    _ = @import("fmt.zig");
 }

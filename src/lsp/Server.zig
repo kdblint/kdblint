@@ -72,7 +72,7 @@ pub fn keepRunning(server: Server) bool {
 pub fn loop(server: *Server) !void {
     defer server.wait_group.cancel(server.io);
     while (server.keepRunning()) {
-        const json_message = try server.transport.readJsonMessage(server.gpa);
+        const json_message = try server.transport.readJsonMessage(server.io, server.gpa);
         defer server.gpa.free(json_message);
 
         var arena_allocator: std.heap.ArenaAllocator = .init(server.gpa);
@@ -87,7 +87,7 @@ pub fn loop(server: *Server) !void {
         if (isBlockingMessage(message)) {
             try server.wait_group.await(server.io);
             server.wait_group = .init;
-            server.processMessageReportError(arena_allocator.state, message);
+            try server.processMessageReportError(arena_allocator.state, message);
         } else {
             server.wait_group.async(server.io, processMessageReportError, .{ server, arena_allocator.state, message });
         }
@@ -399,7 +399,7 @@ pub const Error = error{
     /// The client has canceled a request and a server as detected
     /// the cancel.
     RequestCancelled,
-};
+} || Allocator.Error || Io.Cancelable;
 
 pub const Status = enum {
     /// the server has not received a `initialize` request
@@ -425,7 +425,7 @@ fn sendToClientResponse(server: *Server, id: lsp.JsonRPCMessage.ID, result: anyt
         .id = id,
         .result_or_error = .{ .result = result },
     };
-    return sendToClientInternal(server.gpa, server.transport, response);
+    return sendToClientInternal(server.io, server.gpa, server.transport, response);
 }
 
 fn sendToClientRequest(server: *Server, id: lsp.JsonRPCMessage.ID, method: []const u8, params: anytype) ![]u8 {
@@ -458,20 +458,24 @@ fn sendToClientResponseError(server: *Server, id: lsp.JsonRPCMessage.ID, err: ls
         .response = .{ .id = id, .result_or_error = .{ .@"error" = err } },
     };
 
-    return sendToClientInternal(server.gpa, server.transport, response);
+    return sendToClientInternal(server.io, server.gpa, server.transport, response);
 }
 
-fn sendToClientInternal(gpa: Allocator, transport: ?*lsp.Transport, message: anytype) error{OutOfMemory}![]u8 {
+fn sendToClientInternal(
+    io: Io,
+    gpa: Allocator,
+    transport: *lsp.Transport,
+    message: anytype,
+) error{ Canceled, OutOfMemory }![]u8 {
     const message_stringified = try std.json.Stringify.valueAlloc(gpa, message, .{
         .emit_null_optional_fields = false,
     });
     errdefer gpa.free(message_stringified);
 
-    if (transport) |t| {
-        t.writeJsonMessage(message_stringified) catch |err| {
-            std.log.err("failed to write message: {}", .{err});
-        };
-    }
+    transport.writeJsonMessage(io, message_stringified) catch |err| switch (err) {
+        error.Canceled => return error.Canceled,
+        else => std.log.err("failed to write message: {}", .{err}),
+    };
 
     return message_stringified;
 }
@@ -567,13 +571,18 @@ fn processMessage(server: *Server, arena: Allocator, message: Message) Error!?[]
     return null;
 }
 
-fn processMessageReportError(server: *Server, arena_state: std.heap.ArenaAllocator.State, message: Message) void {
+fn processMessageReportError(
+    server: *Server,
+    arena_state: std.heap.ArenaAllocator.State,
+    message: Message,
+) Io.Cancelable!void {
     var arena_allocator = arena_state.promote(server.gpa);
     defer arena_allocator.deinit();
 
     if (server.processMessage(arena_allocator.allocator(), message)) |json_message| {
         server.gpa.free(json_message orelse return);
     } else |err| {
+        if (err == error.Canceled) return error.Canceled;
         std.log.err("failed to process {f}: {}", .{ fmtMessage(message), err });
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace);
@@ -583,6 +592,7 @@ fn processMessageReportError(server: *Server, arena_state: std.heap.ArenaAllocat
             .request => |request| {
                 const json_message = server.sendToClientResponseError(request.id, .{
                     .code = @enumFromInt(switch (err) {
+                        error.Canceled => unreachable, // checked above
                         error.OutOfMemory => @intFromEnum(types.ErrorCodes.InternalError),
                         error.ParseError => @intFromEnum(types.ErrorCodes.ParseError),
                         error.InvalidRequest => @intFromEnum(types.ErrorCodes.InvalidRequest),
@@ -681,4 +691,8 @@ fn formatMessage(message: Message, writer: *Io.Writer) Io.Writer.Error!void {
 
 fn fmtMessage(message: Message) std.fmt.Alt(Message, formatMessage) {
     return .{ .data = message };
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

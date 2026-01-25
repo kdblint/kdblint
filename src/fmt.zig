@@ -2,8 +2,8 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
-const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Color = std.zig.Color;
 
@@ -361,4 +361,8 @@ fn fmtPathFile(
         try af.replace(io);
         try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

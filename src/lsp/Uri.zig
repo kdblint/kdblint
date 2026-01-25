@@ -1,6 +1,6 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 
 const Uri = @This();
 
@@ -42,3 +42,7 @@ const Context = struct {
         return std.array_hash_map.eqlString(a.percent_encoded, b.percent_encoded);
     }
 };
+
+test {
+    std.testing.refAllDecls(@This());
+}

@@ -1438,3 +1438,7 @@ const AutoIndentingStream = struct {
         return indent_current;
     }
 };
+
+test {
+    std.testing.refAllDecls(@This());
+}
