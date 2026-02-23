@@ -583,7 +583,7 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var tree = try Ast.parse(gpa, source, .{
+    var tree: Ast = try .parse(io, gpa, source, .{
         .mode = mode,
         .version = .@"4.0",
     });
@@ -598,7 +598,7 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     };
     defer context.deinit();
 
-    var zir = try AstGen.generate(gpa, &context);
+    var zir = try AstGen.generate(io, gpa, &context);
     defer zir.deinit(gpa);
 
     // Errors and TODO: warnings
@@ -628,7 +628,7 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var tree = try Ast.parse(gpa, source, .{
+    var tree: Ast = try .parse(io, gpa, source, .{
         .mode = mode,
         .version = .@"4.0",
     });
@@ -643,7 +643,7 @@ fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     };
     defer context.deinit();
 
-    var zir = try AstGen.generate(gpa, &context);
+    var zir = try AstGen.generate(io, gpa, &context);
     defer zir.deinit(gpa);
 
     // Errors
@@ -683,9 +683,10 @@ fn failZir(source: [:0]const u8, expected: []const u8) !void {
 }
 
 fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
+    const io = std.testing.io;
     const gpa = std.testing.allocator;
 
-    var tree = try Ast.parse(gpa, source, .{
+    var tree: Ast = try .parse(io, gpa, source, .{
         .mode = mode,
         .version = .@"4.0",
     });
@@ -700,7 +701,7 @@ fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     };
     defer context.deinit();
 
-    var zir = try AstGen.generate(gpa, &context);
+    var zir = try AstGen.generate(io, gpa, &context);
     defer zir.deinit(gpa);
 
     try std.testing.expect(zir.hasCompileErrors());
@@ -736,6 +737,7 @@ fn noFailZir(source: [:0]const u8) !void {
 }
 
 fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const u8) !void {
+    const io = std.testing.io;
     const gpa = std.testing.allocator;
 
     const settings: Ast.ParseSettings = .{ .mode = mode, .version = version };
@@ -744,7 +746,7 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
         const src = try gpa.dupeZ(u8, source[0..i]);
         defer gpa.free(src);
 
-        var tree = try Ast.parse(gpa, src, settings);
+        var tree: Ast = try .parse(io, gpa, src, settings);
         defer tree.deinit(gpa);
 
         var doc_scope: DocumentScope = .{};
@@ -756,7 +758,7 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
         };
         defer context.deinit();
 
-        var zir = try AstGen.generate(gpa, &context);
+        var zir = try AstGen.generate(io, gpa, &context);
         defer zir.deinit(gpa);
     }
 
@@ -767,7 +769,7 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
         @memcpy(src[0..i], source[0..i]);
         @memcpy(src[i..], source[i + 1 ..]);
 
-        var tree = try Ast.parse(gpa, src, settings);
+        var tree: Ast = try .parse(io, gpa, src, settings);
         defer tree.deinit(gpa);
 
         var doc_scope: DocumentScope = .{};
@@ -779,12 +781,13 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
         };
         defer context.deinit();
 
-        var zir = try AstGen.generate(gpa, &context);
+        var zir = try AstGen.generate(io, gpa, &context);
         defer zir.deinit(gpa);
     }
 }
 
 fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
+    const io = std.testing.io;
     const gpa = std.testing.allocator;
 
     const source0 = try std.testing.allocator.dupeZ(u8, source);
@@ -792,7 +795,7 @@ fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
 
     inline for (@typeInfo(Ast.Mode).@"enum".fields) |mode_field| {
         inline for (@typeInfo(Ast.Version).@"enum".fields) |version_field| {
-            var tree = try Ast.parse(gpa, source0, .{
+            var tree: Ast = try .parse(io, gpa, source0, .{
                 .mode = @enumFromInt(mode_field.value),
                 .version = @enumFromInt(version_field.value),
             });
@@ -807,7 +810,7 @@ fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
             };
             defer context.deinit();
 
-            var zir = try AstGen.generate(gpa, &context);
+            var zir = try AstGen.generate(io, gpa, &context);
             defer zir.deinit(gpa);
         }
     }

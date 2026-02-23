@@ -16,11 +16,8 @@ const ErrorBundle = kdb.ErrorBundle;
 pub fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) !void {
     assert(server.client_capabilities.supports_publish_diagnostics);
 
-    const tokenize_ms: f64 = @as(f64, @floatFromInt(handle.tree.tokenize_duration)) / std.time.ns_per_ms;
-    std.log.debug("Tokenize duration: {d:.2}ms", .{tokenize_ms});
-
-    const parse_ms: f64 = @as(f64, @floatFromInt(handle.tree.parse_duration)) / std.time.ns_per_ms;
-    std.log.debug("Parse duration: {d:.2}ms", .{parse_ms});
+    std.log.debug("Tokenize duration: {d}ms", .{handle.tree.tokenize_duration});
+    std.log.debug("Parse duration: {d:}ms", .{handle.tree.parse_duration});
 
     if (handle.tree.errors.len == 0) {
         var error_bundle = try getAstCheckDiagnostics(server, handle);
@@ -110,10 +107,9 @@ fn errorBundleSourceLocationFromToken(
 
 fn getAstCheckDiagnostics(server: *Server, handle: *DocumentStore.Handle) !ErrorBundle {
     assert(handle.tree.errors.len == 0);
-    const zir = try handle.getZir(server.gpa);
+    const zir = try handle.getZir(server.io, server.gpa);
 
-    const compile_ms: f64 = @as(f64, @floatFromInt(zir.compile_duration)) / std.time.ns_per_ms;
-    std.log.debug("Compile duration: {d:.2}ms", .{compile_ms});
+    std.log.debug("Compile duration: {d}ms", .{zir.compile_duration});
 
     if (!zir.hasCompileErrors() and !zir.hasCompileWarnings()) return .empty;
 

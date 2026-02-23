@@ -22,7 +22,7 @@ pub fn printAstErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, path: []const u
     try wip_errors.init(gpa);
     defer wip_errors.deinit();
 
-    try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
+    try putAstErrorsIntoBundle(gpa, io, tree, path, &wip_errors);
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
@@ -31,6 +31,7 @@ pub fn printAstErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, path: []const u
 
 pub fn putAstErrorsIntoBundle(
     gpa: Allocator,
+    io: Io,
     tree: Ast,
     path: []const u8,
     wip_errors: *ErrorBundle.Wip,
@@ -43,7 +44,7 @@ pub fn putAstErrorsIntoBundle(
         .doc_scope = &document_scope,
     };
     defer context.deinit();
-    var zir = try AstGen.generate(gpa, &context);
+    var zir = try AstGen.generate(io, gpa, &context);
     defer zir.deinit(gpa);
 
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);

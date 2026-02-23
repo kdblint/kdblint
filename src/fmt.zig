@@ -126,7 +126,7 @@ pub fn run(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
         };
         defer gpa.free(source_code);
 
-        var tree = kdb.Ast.parse(gpa, source_code, .{
+        var tree = Ast.parse(io, gpa, source_code, .{
             .mode = .q,
             .version = .@"4.0",
         }) catch |err| {
@@ -143,7 +143,7 @@ pub fn run(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
                 .doc_scope = &document_scope,
             };
             defer context.deinit();
-            var zir = try kdb.AstGen.generate(gpa, &context);
+            var zir = try kdb.AstGen.generate(io, gpa, &context);
             defer zir.deinit(gpa);
 
             if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {
@@ -302,10 +302,8 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    const mode: kdb.Ast.Mode = if (mem.endsWith(u8, sub_path, ".k")) .k else .q;
-
-    var tree = try kdb.Ast.parse(gpa, source_code, .{
-        .mode = mode,
+    var tree: Ast = try .parse(io, gpa, source_code, .{
+        .mode = if (mem.endsWith(u8, sub_path, ".k")) .k else .q,
         .version = .@"4.0",
     });
     defer tree.deinit(gpa);
@@ -328,7 +326,7 @@ fn fmtPathFile(
             .doc_scope = &document_scope,
         };
         defer context.deinit();
-        var zir = try kdb.AstGen.generate(gpa, &context);
+        var zir = try kdb.AstGen.generate(io, gpa, &context);
         defer zir.deinit(gpa);
 
         if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {

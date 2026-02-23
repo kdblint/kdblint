@@ -14,7 +14,7 @@ const DiagnosticsCollection = @This();
 
 io: Io,
 gpa: Allocator,
-mutex: std.Thread.Mutex = .{},
+mutex: Io.Mutex = .init,
 tag_set: std.AutoArrayHashMapUnmanaged(Tag, struct {
     version: u32 = 0,
     error_bundle_src_base_path: ?[]const u8 = null,
@@ -65,8 +65,8 @@ pub fn pushSingleDocumentDiagnostics(
         error_bundle: ErrorBundle,
     },
 ) !void {
-    collection.mutex.lock();
-    defer collection.mutex.unlock();
+    collection.mutex.lockUncancelable(collection.io);
+    defer collection.mutex.unlock(collection.io);
 
     const gop_tag = try collection.tag_set.getOrPutValue(collection.gpa, tag, .{});
 
@@ -101,8 +101,8 @@ pub fn pushSingleDocumentDiagnostics(
 }
 
 pub fn clearSingleDocumentDiagnostics(collection: *DiagnosticsCollection, document_uri: Uri) void {
-    collection.mutex.lock();
-    defer collection.mutex.unlock();
+    collection.mutex.lockUncancelable(collection.io);
+    defer collection.mutex.unlock(collection.io);
 
     for (collection.tag_set.values()) |*item| {
         var kv = item.diagnostics_set.fetchSwapRemove(document_uri) orelse continue;
@@ -126,8 +126,8 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
 
     while (true) {
         const json_message = blk: {
-            collection.mutex.lock();
-            defer collection.mutex.unlock();
+            try collection.mutex.lock(io);
+            defer collection.mutex.unlock(io);
 
             const entry = collection.outdated_files.pop() orelse break;
             defer entry.key.deinit(collection.gpa);

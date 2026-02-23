@@ -3,7 +3,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Io = std.Io;
 const assert = std.debug.assert;
-const Timer = std.time.Timer;
 const Writer = Io.Writer;
 
 const kdb = @import("root.zig");
@@ -24,8 +23,8 @@ mode: Mode = .q,
 
 errors: []const Error,
 
-tokenize_duration: u64,
-parse_duration: u64,
+tokenize_duration: i64,
+parse_duration: i64,
 
 pub const ByteOffset = u32;
 
@@ -147,7 +146,7 @@ pub const ParseSettings = struct {
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast {
+pub fn parse(io: Io, gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast {
     var tokens: TokenList = .empty;
     defer tokens.deinit(gpa);
 
@@ -155,8 +154,8 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast
     const estimated_token_count = source.len / 8;
     try tokens.ensureTotalCapacity(gpa, estimated_token_count);
 
-    const tokenize_duration: u64 = tokenize: {
-        var timer = Timer.start() catch null;
+    const tokenize_duration = tokenize: {
+        const start: Io.Timestamp = .now(io, .real);
         var tokenizer: Tokenizer = .init(source, settings.mode);
         tokenizer.skipComments();
         while (true) {
@@ -164,7 +163,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast
             try tokens.append(gpa, token);
             if (token.tag == .eof) break;
         }
-        break :tokenize if (timer) |*t| t.read() else 0;
+        break :tokenize start.untilNow(io, .real).toMilliseconds();
     };
 
     var parser: Parse = .{
@@ -191,10 +190,10 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, settings: ParseSettings) !Ast
     const estimated_node_count = (tokens.len + 2) / 2;
     try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
 
-    const parse_duration: u64 = parse: {
-        var timer = Timer.start() catch null;
+    const parse_duration = parse: {
+        const start: Io.Timestamp = .now(io, .real);
         try parser.parseRoot();
-        break :parse if (timer) |*t| t.read() else 0;
+        break :parse start.untilNow(io, .real).toMilliseconds();
     };
 
     // TODO experiment with compacting the MultiArrayList slices here
@@ -1730,7 +1729,7 @@ fn testAstModeRender(
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var tree = try Ast.parse(gpa, source_code, .{
+    var tree: Ast = try .parse(io, gpa, source_code, .{
         .mode = mode,
         .version = .@"4.0",
     });
@@ -1815,9 +1814,10 @@ fn failAstMode(
     expected_tokens: []const Token.Tag,
     expected_errors: []const Error.Tag,
 ) !void {
+    const io = std.testing.io;
     const gpa = std.testing.allocator;
 
-    var tree = try Ast.parse(gpa, source_code, .{
+    var tree: Ast = try .parse(io, gpa, source_code, .{
         .mode = mode,
         .version = .@"4.0",
     });
@@ -6403,7 +6403,7 @@ fn testRender(file_path: []const u8) !void {
     const expected_source = try dir.readFileAlloc(io, expected_path, gpa, .unlimited);
     defer gpa.free(expected_source);
 
-    var tree = try Ast.parse(gpa, source_code, .{
+    var tree: Ast = try .parse(io, gpa, source_code, .{
         .mode = .q,
         .version = .@"4.0",
     });
@@ -6428,7 +6428,7 @@ fn testRender(file_path: []const u8) !void {
     const duped_actual_source = try gpa.dupeZ(u8, actual_source.written());
     defer gpa.free(duped_actual_source);
 
-    var det_tree = try Ast.parse(gpa, duped_actual_source, .{
+    var det_tree: Ast = try .parse(io, gpa, duped_actual_source, .{
         .mode = .q,
         .version = .@"4.0",
     });

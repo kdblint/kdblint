@@ -185,7 +185,7 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
         };
     };
 
-    const tree = try kdb.Ast.parse(arena, source, .{
+    const tree: kdb.Ast = try .parse(io, arena, source, .{
         .mode = if (std.mem.endsWith(u8, display_path, ".k")) .k else .q,
         .version = .@"4.0",
     });
@@ -199,7 +199,7 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
         .tree = tree,
         .doc_scope = &document_scope,
     };
-    const zir = try kdb.AstGen.generate(arena, &context);
+    const zir = try kdb.AstGen.generate(io, arena, &context);
 
     if (zir.hasCompileErrors()) {
         try kdb.printZirErrorsToStderr(gpa, io, tree, zir, display_path, color);

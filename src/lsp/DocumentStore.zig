@@ -25,8 +25,8 @@ pub const Handle = struct {
     impl: struct {
         /// @bitCast from/to `Status`
         status: std.atomic.Value(u32),
-        lock: std.Thread.Mutex = .{},
-        lazy_condition: std.Thread.Condition = .{},
+        lock: Io.Mutex = .init,
+        lazy_condition: Io.Condition = .init,
         zir: Zir = undefined,
     },
 
@@ -44,9 +44,9 @@ pub const Handle = struct {
     };
 
     /// Takes ownership of `source` on success.
-    pub fn init(gpa: Allocator, uri: Uri, source: [:0]const u8, lsp_synced: bool) !Handle {
+    pub fn init(io: Io, gpa: Allocator, uri: Uri, source: [:0]const u8, lsp_synced: bool) !Handle {
         const mode: Ast.Mode = if (std.mem.eql(u8, std.fs.path.extension(uri.percent_encoded), ".k")) .k else .q;
-        const tree: Ast = try .parse(gpa, source, .{
+        const tree: Ast = try .parse(io, gpa, source, .{
             .mode = mode,
             .version = .@"4.0",
         });
@@ -87,20 +87,20 @@ pub const Handle = struct {
         }
     }
 
-    pub fn getZir(self: *Handle, gpa: Allocator) !Zir {
+    pub fn getZir(self: *Handle, io: Io, gpa: Allocator) !Zir {
         if (self.getStatus().has_zir) return self.impl.zir;
 
-        self.impl.lock.lock();
-        defer self.impl.lock.unlock();
+        self.impl.lock.lockUncancelable(io);
+        defer self.impl.lock.unlock(io);
         while (true) {
             const status = self.getStatus();
             if (status.has_zir) break;
             if (status.has_zir_lock or self.impl.status.bitSet(@bitOffsetOf(Status, "has_zir_lock"), .release) != 0) {
                 // another thread is currently computing the data
-                self.impl.lazy_condition.wait(&self.impl.lock);
+                self.impl.lazy_condition.waitUncancelable(io, &self.impl.lock);
                 continue;
             }
-            defer self.impl.lazy_condition.broadcast();
+            defer self.impl.lazy_condition.broadcast(io);
 
             var doc_scope: DocumentScope = .{};
             defer doc_scope.deinit(gpa);
@@ -111,7 +111,7 @@ pub const Handle = struct {
             };
             defer context.deinit();
 
-            self.impl.zir = try AstGen.generate(gpa, &context);
+            self.impl.zir = try AstGen.generate(io, gpa, &context);
             errdefer comptime unreachable;
 
             const old_has_data = self.impl.status.bitSet(@bitOffsetOf(Status, "has_zir"), .release);
@@ -178,7 +178,7 @@ pub fn refreshLspSyncedDocument(self: *DocumentStore, uri: Uri, new_text: [:0]co
 fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, lsp_synced: bool) !*Handle {
     var new_handle: Handle = handle: {
         errdefer self.gpa.free(source);
-        break :handle try .init(self.gpa, uri, source, lsp_synced);
+        break :handle try .init(self.io, self.gpa, uri, source, lsp_synced);
     };
     errdefer new_handle.deinit(self.gpa);
 

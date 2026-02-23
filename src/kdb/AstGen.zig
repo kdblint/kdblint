@@ -4,7 +4,6 @@ const Io = std.Io;
 const assert = std.debug.assert;
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 const StringIndexContext = std.hash_map.StringIndexContext;
-const Timer = std.time.Timer;
 
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
@@ -106,7 +105,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
     }
 }
 
-pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.Error!Zir {
+pub fn generate(io: Io, gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.Error!Zir {
     const tree = context.tree;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -149,8 +148,8 @@ pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.
         .instructions_top = 0,
     };
 
-    const compile_duration: u64, const fatal = compile: {
-        var timer = Timer.start() catch null;
+    const compile_duration, const fatal = compile: {
+        const start: Io.Timestamp = .now(io, .real);
         // The AST -> ZIR lowering process assumes an AST that does not have any
         // parse errors.
         const fatal = if (tree.errors.len == 0) fatal: {
@@ -168,7 +167,7 @@ pub fn generate(gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.
 
         try astgen.scope.finalize();
 
-        break :compile .{ if (timer) |*t| t.read() else 0, fatal };
+        break :compile .{ start.untilNow(io, .real).toMilliseconds(), fatal };
     };
 
     const err_index = @intFromEnum(Zir.ExtraIndex.compile_errors);
@@ -2581,8 +2580,9 @@ fn scanNode(
 }
 
 fn testScanExprs(source: [:0]const u8, expected: []const []const u8) !void {
+    const io = std.testing.io;
     const gpa = std.testing.allocator;
-    var tree = try Ast.parse(gpa, source, .{
+    var tree: Ast = try .parse(io, gpa, source, .{
         .mode = .q,
         .version = .@"4.0",
     });

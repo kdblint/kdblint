@@ -21,7 +21,7 @@ string_bytes: []u8,
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
 extra: []u32,
 
-compile_duration: u64,
+compile_duration: i64,
 
 pub const ExtraIndex = enum(u32) {
     /// If this is 0, no compile errors. Otherwise there is a `CompileErrors`
