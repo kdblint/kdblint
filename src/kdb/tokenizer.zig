@@ -441,7 +441,7 @@ pub const Tokenizer = struct {
     buffer: [:0]const u8,
     mode: Mode,
     index: usize,
-    prev_tag: Token.Tag = undefined,
+    prev_tag: Token.Tag = .semicolon, // default to a tag which begins a new expression.
 
     pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
         // Skip the UTF-8 BOM if present.
@@ -593,7 +593,12 @@ pub const Tokenizer = struct {
         backslash,
         maybe_system,
         system,
-        trailing_comment,
+        maybe_system_end,
+        system_line_comment,
+        system_block_comment_start,
+        system_block_comment,
+        maybe_system_block_comment_end,
+        system_block_comment_end,
         negative,
         negative_period,
         number_literal,
@@ -620,6 +625,7 @@ pub const Tokenizer = struct {
 
     // TODO: Handle horizontal tab (0x09)
     fn nextImpl(self: *Tokenizer) Token {
+        var backtrack: usize = 0;
         var result: Token = .{
             .tag = undefined,
             .loc = .{
@@ -708,7 +714,7 @@ pub const Tokenizer = struct {
                 '-' => {
                     if (self.index == 0) continue :state .negative;
                     switch (self.buffer[self.index - 1]) {
-                        ' ', '\t' => continue :state .negative,
+                        ' ', '\t', '\n' => continue :state .negative,
                         else => switch (self.prev_tag) {
                             .l_paren,
                             .l_brace,
@@ -1363,7 +1369,7 @@ pub const Tokenizer = struct {
                     0 => if (self.index != self.buffer.len) {
                         continue :state .invalid;
                     } else return .eof(self.buffer.len),
-                    ' ', '\t' => continue :state .trailing_comment,
+                    ' ', '\t' => continue :state .maybe_system,
                     '\r' => if (self.buffer[self.index + 1] != '\n') {
                         continue :state .invalid;
                     } else return .eof(self.buffer.len),
@@ -1378,28 +1384,119 @@ pub const Tokenizer = struct {
             .system => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
+                    0 => if (self.index == self.buffer.len) {
+                        if (backtrack > 0) self.index = backtrack;
+                    } else continue :state .invalid,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        backtrack = self.index;
+                        self.index += 1;
+                        continue :state .maybe_system_end;
+                    } else continue :state .invalid,
+                    '\n' => {
+                        backtrack = self.index;
+                        continue :state .maybe_system_end;
                     },
-                    '\r' => if (self.buffer[self.index + 1] != '\n') continue :state .invalid,
-                    '\n' => {},
                     0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
-                    else => continue :state .system,
+                    ' ', '\t' => continue :state .system,
+                    else => {
+                        backtrack = self.index + 1;
+                        continue :state .system;
+                    },
                 }
             },
-
-            .trailing_comment => {
+            .maybe_system_end => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
-                    0 => if (self.index != self.buffer.len) {
-                        continue :state .invalid;
-                    } else return .eof(self.buffer.len),
-                    ' ', '\t' => continue :state .trailing_comment,
-                    '\r' => if (self.buffer[self.index + 1] != '\n') {
-                        continue :state .invalid;
-                    } else return .eof(self.buffer.len),
-                    '\n' => return .eof(self.buffer.len),
-                    else => continue :state .invalid,
+                    0 => if (self.index == self.buffer.len) {
+                        self.index = backtrack;
+                    } else continue :state .invalid,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_system_end;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .maybe_system_end,
+                    ' ', '\t' => continue :state .system,
+                    '/' => continue :state .system_block_comment_start,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => self.index = backtrack,
+                }
+            },
+            .system_line_comment => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        self.index = backtrack;
+                    } else continue :state .invalid,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_system_end;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .maybe_system_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => continue :state .system_line_comment,
+                }
+            },
+            .system_block_comment_start => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        self.index = backtrack;
+                    } else continue :state .invalid,
+                    ' ', '\t' => continue :state .system_block_comment_start,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .system_block_comment;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .system_block_comment,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => continue :state .system_line_comment,
+                }
+            },
+            .system_block_comment => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        self.index = backtrack;
+                    } else continue :state .invalid,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_system_block_comment_end;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .maybe_system_block_comment_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => continue :state .system_block_comment,
+                }
+            },
+            .maybe_system_block_comment_end => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        self.index = backtrack;
+                    } else continue :state .invalid,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_system_block_comment_end;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .maybe_system_block_comment_end,
+                    '\\' => continue :state .system_block_comment_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => continue :state .system_block_comment,
+                }
+            },
+            .system_block_comment_end => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => if (self.index == self.buffer.len) {
+                        self.index = backtrack;
+                    } else continue :state .invalid,
+                    ' ', '\t' => continue :state .system_block_comment_end,
+                    '\r' => if (self.buffer[self.index + 1] == '\n') {
+                        self.index += 1;
+                        continue :state .maybe_system_end;
+                    } else continue :state .invalid,
+                    '\n' => continue :state .maybe_system_end,
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    else => continue :state .system_block_comment,
                 }
             },
 
@@ -1464,10 +1561,6 @@ test "line comment followed by identifier" {
 test "null byte before eof" {
     try testTokenize("123 \x00 456", &.{ .number_literal, .invalid });
     try testTokenize("\x00", &.{.invalid});
-}
-
-test "fuzzable properties upheld" {
-    return std.testing.fuzz({}, testPropertiesUpheld, .{});
 }
 
 test "trailing whitespace" {
@@ -1718,7 +1811,7 @@ test "tokenize starting comment" {
         \\ multiple lines
         \\\ d .
         \\identifier
-    , &.{ .invalid, .identifier });
+    , &.{ .system, .identifier });
 }
 
 test "tokenize block comment" {
@@ -1830,114 +1923,208 @@ test "tokenize trailing comment" {
         \\1
         \\\ this is not a trailing comment
         \\1
-    , &.{ .number_literal, .invalid, .number_literal });
+    , &.{ .number_literal, .system, .number_literal });
 }
 
 test "tokenize system commands" {
-    try testTokenize(
+    try testTokenizeContent("\\ls", &.{.system}, &.{"\\ls"});
+    try testTokenizeContent("\\ls ", &.{.system}, &.{"\\ls"});
+    try testTokenizeContent(
         \\\ls
-    , &.{.system});
-    try testTokenize(
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls", "1" });
+    try testTokenizeContent("\\ls /not a comment", &.{.system}, &.{"\\ls /not a comment"});
+    try testTokenizeContent(
         \\\ls /not a comment
-    , &.{.system});
-    try testTokenize(
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls /not a comment", "1" });
+    try testTokenizeContent("\\ls .", &.{.system}, &.{"\\ls ."});
+    try testTokenizeContent(
         \\\ls .
-    , &.{.system});
-    try testTokenize(
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls .", "1" });
+    try testTokenizeContent(
         \\\ls
         \\ ls
-    , &.{ .system, .identifier });
-    try testTokenize(
+    , &.{.system}, &.{"\\ls\n ls"});
+    try testTokenizeContent(
         \\\ls
         \\ ls
         \\1
-    , &.{ .system, .identifier, .number_literal });
-    try testTokenize(
+    , &.{ .system, .number_literal }, &.{ "\\ls\n ls", "1" });
+    try testTokenizeContent(
         \\\ls
         \\/line comment
-    , &.{.system});
-    try testTokenize(
-        \\\ls
-        \\ /line comment
-    , &.{.system});
-    try testTokenize(
+    , &.{.system}, &.{"\\ls"});
+    try testTokenizeContent(
         \\\ls
         \\/line comment
         \\1
-    , &.{ .system, .number_literal });
-    try testTokenize(
+    , &.{ .system, .number_literal }, &.{ "\\ls", "1" });
+    try testTokenizeContent(
+        \\\ls
+        \\ /not a comment
+    , &.{.system}, &.{"\\ls\n /not a comment"});
+    try testTokenizeContent(
+        \\\ls
+        \\ /not a comment
         \\1
-        \\/line comment
-        \\ 2
-    , &.{ .number_literal, .number_literal });
-    try testTokenize(
+    , &.{ .system, .number_literal }, &.{ "\\ls\n /not a comment", "1" });
+    try testTokenizeContent(
         \\\ls
-        \\/line comment
+        \\/not a comment
         \\ ls
-    , &.{ .system, .identifier });
-    try testTokenize(
+    , &.{.system}, &.{"\\ls\n/not a comment\n ls"});
+    try testTokenizeContent(
         \\\ls
-        \\/line comment
+        \\/not a comment
         \\ ls
-        \\/line comment
-    , &.{ .system, .identifier });
-    try testTokenize(
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls\n/not a comment\n ls", "1" });
+    try testTokenizeContent(
         \\\ls
-        \\/line comment
+        \\/not a comment
         \\ ls
         \\/line comment
-        \\ ls
-    , &.{ .system, .identifier, .identifier });
-    try testTokenize(
+    , &.{.system}, &.{"\\ls\n/not a comment\n ls"});
+    try testTokenizeContent(
         \\\ls
+        \\/not a comment
+        \\ ls
+        \\/line comment
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls\n/not a comment\n ls", "1" });
+    try testTokenizeContent(
+        \\\ls
+        \\/not a comment
+        \\ ls
+        \\/not a comment
+        \\ ls
+    , &.{.system}, &.{"\\ls\n/not a comment\n ls\n/not a comment\n ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\/not a comment
+        \\ ls
+        \\/not a comment
+        \\ ls
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls\n/not a comment\n ls\n/not a comment\n ls", "1" });
+    try testTokenizeContent(
+        \\\ls
+        \\/
+        \\not a comment
+        \\\
+        \\ ls
+    , &.{.system}, &.{"\\ls\n/\nnot a comment\n\\\n ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\/
+        \\not a comment
+        \\\
+        \\ ls
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls\n/\nnot a comment\n\\\n ls", "1" });
+    try testTokenizeContent(
+        \\\ls
+        \\/
+        \\not a comment
+        \\\
+        \\ ls
         \\/
         \\block comment
         \\\
-        \\ ls
-    , &.{ .system, .identifier });
-    try testTokenize(
+    , &.{.system}, &.{"\\ls\n/\nnot a comment\n\\\n ls"});
+    try testTokenizeContent(
         \\\ls
         \\/
-        \\block comment
+        \\not a comment
         \\\
         \\ ls
         \\/
         \\block comment
         \\\
-    , &.{ .system, .identifier });
-    try testTokenize(
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls\n/\nnot a comment\n\\\n ls", "1" });
+    try testTokenizeContent(
         \\\ls
         \\/
-        \\block comment
+        \\not a comment
         \\\
         \\ ls
         \\/
-        \\block comment
+        \\not a comment
         \\\
         \\ ls
-    , &.{ .system, .identifier, .identifier });
-    try testTokenize(
+    , &.{.system}, &.{"\\ls\n/\nnot a comment\n\\\n ls\n/\nnot a comment\n\\\n ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\/
+        \\not a comment
+        \\\
+        \\ ls
+        \\/
+        \\not a comment
+        \\\
+        \\ ls
+        \\1
+    , &.{ .system, .number_literal }, &.{ "\\ls\n/\nnot a comment\n\\\n ls\n/\nnot a comment\n\\\n ls", "1" });
+    try testTokenizeContent(
         \\\ls
         \\/
         \\block comment
         \\\
         \\\
         \\ trailing comment
-    , &.{.system});
-    try testTokenize(
+    , &.{.system}, &.{"\\ls"});
+    try testTokenizeContent(
         \\\ls
         \\/
         \\block comment
         \\\
+        \\\
+        \\ trailing comment
+        \\1
+    , &.{.system}, &.{"\\ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\/
+        \\not a comment
+        \\\
         \\ ls
         \\\
         \\ trailing comment
-    , &.{ .system, .identifier });
-    try testTokenize(
+    , &.{.system}, &.{"\\ls\n/\nnot a comment\n\\\n ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\/
+        \\not a comment
+        \\\
+        \\ ls
+        \\\
+        \\ trailing comment
+        \\1
+    , &.{.system}, &.{"\\ls\n/\nnot a comment\n\\\n ls"});
+    try testTokenizeContent(
         \\\ls
         \\\
-        \\this is a trailing comment
-    , &.{.system});
+        \\trailing comment
+    , &.{.system}, &.{"\\ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\\
+        \\trailing comment
+        \\1
+    , &.{.system}, &.{"\\ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\/
+    , &.{.system}, &.{"\\ls"});
+    try testTokenizeContent(
+        \\\ls
+        \\/
+        \\incomplete block comment
+    , &.{.system}, &.{"\\ls"});
+    try testTokenizeContent("\\ls\n ", &.{.system}, &.{"\\ls"});
 }
 
 test "number literals" {
@@ -1965,6 +2152,10 @@ test "symbol literals" {
     try testTokenizeMode(.q, "`symbol:colon_underscore", &.{.symbol_literal});
 }
 
+test "fuzzable properties upheld" {
+    return std.testing.fuzz({}, testPropertiesUpheld, .{});
+}
+
 fn testTokenize(
     source: [:0]const u8,
     expected_token_tags: []const Token.Tag,
@@ -1978,6 +2169,21 @@ fn testTokenize(
     }
 }
 
+fn testTokenizeContent(
+    source: [:0]const u8,
+    expected_token_tags: []const Token.Tag,
+    expected_token_slices: []const []const u8,
+) !void {
+    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+        try testTokenizeContentMode(
+            @enumFromInt(field.value),
+            source,
+            expected_token_tags,
+            expected_token_slices,
+        );
+    }
+}
+
 fn testTokenizeMode(
     mode: Mode,
     source: [:0]const u8,
@@ -1987,12 +2193,12 @@ fn testTokenizeMode(
 
     var tokenizer: Tokenizer = .init(source, mode);
     tokenizer.skipComments();
-    var tokens: std.array_list.Managed(Token.Tag) = .init(gpa);
-    defer tokens.deinit();
+    var tokens: std.ArrayList(Token.Tag) = .empty;
+    defer tokens.deinit(gpa);
     const last_token = while (true) {
         const token = tokenizer.next();
         if (token.tag == .eof) break token;
-        try tokens.append(token.tag);
+        try tokens.append(gpa, token.tag);
     };
 
     try std.testing.expectEqualSlices(Token.Tag, expected_token_tags, tokens.items);
@@ -2000,15 +2206,61 @@ fn testTokenizeMode(
     // Last token should always be eof, even when the last token was invalid,
     // in which case the tokenizer is in an invalid state, which can only be
     // recovered by opinionated means outside the scope of this implementation.
-    try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
+    try std.testing.expectEqual(.eof, last_token.tag);
     try std.testing.expectEqual(source.len, last_token.loc.start);
     try std.testing.expectEqual(source.len, last_token.loc.end);
 }
 
-fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
-    const source0 = try std.testing.allocator.dupeZ(u8, source);
-    defer std.testing.allocator.free(source0);
-    var tokenizer: Tokenizer = .init(source0, .q);
+fn testTokenizeContentMode(
+    mode: Mode,
+    source: [:0]const u8,
+    expected_token_tags: []const Token.Tag,
+    expected_token_slices: []const []const u8,
+) !void {
+    const gpa = std.testing.allocator;
+
+    var tokenizer: Tokenizer = .init(source, mode);
+    tokenizer.skipComments();
+    var tokens: std.ArrayList(Token.Tag) = .empty;
+    defer tokens.deinit(gpa);
+    var slices: std.ArrayList([]const u8) = .empty;
+    defer slices.deinit(gpa);
+    const last_token = while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) break token;
+        try tokens.append(gpa, token.tag);
+        try slices.append(gpa, source[token.loc.start..token.loc.end]);
+    };
+
+    try std.testing.expectEqualSlices(Token.Tag, expected_token_tags, tokens.items);
+    for (expected_token_slices, slices.items) |expected, actual| {
+        try std.testing.expectEqualStrings(expected, actual);
+    }
+
+    // Last token should always be eof, even when the last token was invalid,
+    // in which case the tokenizer is in an invalid state, which can only be
+    // recovered by opinionated means outside the scope of this implementation.
+    try std.testing.expectEqual(.eof, last_token.tag);
+    try std.testing.expectEqual(source.len, last_token.loc.start);
+    try std.testing.expectEqual(source.len, last_token.loc.end);
+}
+
+fn testPropertiesUpheld(_: void, smith: *std.testing.Smith) !void {
+    @disableInstrumentation();
+    var source_buf: [512]u8 = undefined;
+    const len = smith.sliceWeightedBytes(source_buf[0 .. source_buf.len - 1], &.{
+        .rangeAtMost(u8, 0x00, 0xff, 1),
+        .rangeAtMost(u8, 0x20, 0x7e, 4),
+        .rangeAtMost(u8, 0x00, 0x1f, 1),
+        .value(u8, 0, 6),
+        .value(u8, ' ', 6),
+        .rangeAtMost(u8, '\t', '\n', 6), // \t, \n
+        .value(u8, '\r', 3),
+    });
+    source_buf[len] = 0;
+    const source = source_buf[0..len :0];
+
+    var tokenizer: Tokenizer = .init(source, .q);
     tokenizer.skipComments();
     var tokenization_failed = false;
     while (true) {
@@ -2022,30 +2274,27 @@ fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
                 tokenization_failed = true;
 
                 // Property: invalid token always ends at newline or eof
-                try std.testing.expect(source0[token.loc.end] == '\n' or source0[token.loc.end] == 0);
+                try std.testing.expect(source[token.loc.end] == '\n' or source[token.loc.end] == 0);
             },
             .eof => {
                 // Property: EOF token is always 0-length at end of source.
-                try std.testing.expectEqual(source0.len, token.loc.start);
-                try std.testing.expectEqual(source0.len, token.loc.end);
+                try std.testing.expectEqual(source.len, token.loc.start);
+                try std.testing.expectEqual(source.len, token.loc.end);
                 break;
             },
             else => continue,
         }
     }
 
-    if (source0.len > 0) for (source0, source0[1..][0..source0.len]) |cur, next| {
+    if (tokenization_failed) return;
+    for (source) |cur| {
         // Property: No null byte allowed except at end.
         if (cur == 0) {
-            try std.testing.expect(tokenization_failed);
+            return error.TestUnexpectedResult;
         }
-        // Property: No ASCII control characters other than \n and \t are allowed.
-        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t') {
-            try std.testing.expect(tokenization_failed);
+        // Property: No ASCII control characters other than \n, \t, and \r are allowed.
+        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t' and cur != '\r') {
+            return error.TestUnexpectedResult;
         }
-        // Property: All '\r' must be followed by '\n'.
-        if (cur == '\r' and next != '\n') {
-            try std.testing.expect(tokenization_failed);
-        }
-    };
+    }
 }
