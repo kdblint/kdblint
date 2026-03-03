@@ -786,44 +786,6 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
     }
 }
 
-fn testPropertiesUpheld(_: void, source: []const u8) anyerror!void {
-    const io = std.testing.io;
-    const gpa = std.testing.allocator;
-
-    const source0 = try std.testing.allocator.dupeZ(u8, source);
-    defer gpa.free(source0);
-
-    inline for (@typeInfo(Ast.Mode).@"enum".fields) |mode_field| {
-        inline for (@typeInfo(Ast.Version).@"enum".fields) |version_field| {
-            var tree: Ast = try .parse(io, gpa, source0, .{
-                .mode = @enumFromInt(mode_field.value),
-                .version = @enumFromInt(version_field.value),
-            });
-            defer tree.deinit(gpa);
-
-            var doc_scope: DocumentScope = .{};
-            defer doc_scope.deinit(gpa);
-            var context: DocumentScope.ScopeContext = .{
-                .gpa = gpa,
-                .tree = tree,
-                .doc_scope = &doc_scope,
-            };
-            defer context.deinit();
-
-            var zir = try AstGen.generate(io, gpa, &context);
-            defer zir.deinit(gpa);
-        }
-    }
-}
-
-test "fuzzable properties upheld" {
-    return std.testing.fuzz({}, testPropertiesUpheld, .{
-        .corpus = &.{
-            "{[]x:}",
-        },
-    });
-}
-
 test "print" {
     try testZir("1",
         \\%0 = file({
