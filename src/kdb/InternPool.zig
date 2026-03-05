@@ -109,6 +109,8 @@ pub const Index = enum(u32) {
     negative_inf_second,
     inf_time,
     negative_inf_time,
+
+    nyi,
 };
 
 pub fn init(gpa: Allocator) Allocator.Error!InternPool {

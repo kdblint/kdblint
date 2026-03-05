@@ -1172,11 +1172,20 @@ fn iterator(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
     };
 
     if (tree.nodeData(src_node).opt_node.unwrap()) |lhs| {
-        const lhs_ref, scope = try expr(gz, scope, lhs);
-        if (lhs_ref == .assign) {
-            return astgen.failNode(lhs, "cannot apply iterator to assignment", .{});
-        }
-
+        const lhs_ref, scope = switch (tree.nodeTag(lhs)) {
+            // when directly preceding an iterator, colon should be treated as identity.
+            .colon => .{ .null, scope },
+            // TODO: What does a::/b actually mean?
+            // q)a::/b
+            // q)a
+            // q)b
+            // 'b
+            //
+            // q)show a::/b
+            // 'b
+            // .colon_colon => {},
+            else => try expr(gz, scope, lhs),
+        };
         return .{ try gz.addApply(src_node, tag, &.{lhs_ref}), scope };
     } else return .{ tag, scope };
 }
@@ -1813,8 +1822,6 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
-    if (!@import("builtin").is_test) return .nyi;
-
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.context.tree;
@@ -2085,7 +2092,8 @@ fn parseNumberLiteral(
                 number_parser.inf_int => .negative_inf_time,
                 else => gz.addTime(-num),
             },
-            .failure => |err| astgen.failWithNumberError(err, token, bytes, 1),
+            // .failure => |err| astgen.failWithNumberError(err, token, bytes, 1),
+            .failure => .nyi,
         },
         else => switch (number_parser.parse(bytes, type_hint, allow_suffix)) {
             .bool => unreachable,
@@ -2139,7 +2147,8 @@ fn parseNumberLiteral(
                 number_parser.inf_int => .inf_date,
                 else => gz.addDate(num),
             },
-            .datetime => astgen.failWithNumberError(.nyi, token, bytes, 0),
+            // .datetime => astgen.failWithNumberError(.nyi, token, bytes, 0),
+            .datetime => .nyi,
             .timespan => |num| switch (num) {
                 number_parser.null_long => .null_timespan,
                 number_parser.inf_long => .inf_timespan,
@@ -2160,7 +2169,8 @@ fn parseNumberLiteral(
                 number_parser.inf_int => .inf_time,
                 else => gz.addTime(num),
             },
-            .failure => |err| astgen.failWithNumberError(err, token, bytes, 0),
+            // .failure => |err| astgen.failWithNumberError(err, token, bytes, 0),
+            .failure => .nyi,
         },
     };
 }

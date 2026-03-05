@@ -3610,7 +3610,6 @@ test "apostrophe colon" {
 }
 
 test "slash" {
-    // TODO: a{[x]}/b
     try testZir("a+/",
         \\%0 = file({
         \\  %1 = apply(@over, @add) node_offset:1:2 to :1:4
@@ -3628,19 +3627,29 @@ test "slash" {
         \\  %5 = print(%4)
         \\})
     );
-    // TODO: Need to think about this:
-    // q)a:10
-    // q)b:1 2 3
-    // q)a:/b
-    // 3
-    //
-    // q)a:\(1 2 3;4 5 6)
-    // 1 2 3
-    // 4 5 6
-    try failZir("a:/b",
-        \\test:1:2: error: cannot apply iterator to assignment
-        \\a:/b
-        \\ ^
+    try testZir("a{x+y}/b",
+        \\%0 = file({
+        \\  %1 = identifier("b") token_offset:1:8 to :1:9
+        \\  %2 = lambda({
+        \\    %3 = param_implicit(@x) token_offset:1:3 to :1:4
+        \\    %4 = param_implicit(@y) token_offset:1:5 to :1:6
+        \\    %5 = apply(@add, %3, %4) node_offset:1:3 to :1:6
+        \\    %6 = ret_node(%5) node_offset:1:3 to :1:6
+        \\  }) (lbrace=1:2,rbrace=1:6) node_offset:1:2 to :1:7
+        \\  %7 = apply(@over, %2) node_offset:1:2 to :1:8
+        \\  %8 = identifier("a") token_offset:1:1 to :1:2
+        \\  %9 = apply(%7, %8, %1) node_offset:1:1 to :1:9
+        \\  %10 = print(%9)
+        \\})
+    );
+    try testZir("a:/b",
+        \\%0 = file({
+        \\  %1 = identifier("b") token_offset:1:4 to :1:5
+        \\  %2 = apply(@over, @null) node_offset:1:2 to :1:4
+        \\  %3 = identifier("a") token_offset:1:1 to :1:2
+        \\  %4 = apply(%2, %3, %1) node_offset:1:1 to :1:5
+        \\  %5 = print(%4)
+        \\})
     );
 }
 
@@ -3970,7 +3979,6 @@ test "too many parameters" {
 }
 
 test "declared after use / use of undeclared identifier" {
-    // TODO: remove multiple identifier instrs
     try testZir("{[]a::a+1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -4340,7 +4348,6 @@ test "misleading global assign" {
         \\  %5 = print(%1)
         \\})
     );
-    // TODO: unused function parameter.
     try warnZir("{x::1}",
         \\test:1:3: warn: misleading global-assign of function parameter 'x'
         \\{x::1}

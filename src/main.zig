@@ -234,6 +234,7 @@ fn cmdAstCheck(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u
         \\# Instructions:       {d} ({Bi})
         \\# String Table Bytes: {}
         \\# Extra Data Items:   {d} ({Bi})
+        \\
     , .{
         source.len,
         tree.tokens.len, token_bytes,
