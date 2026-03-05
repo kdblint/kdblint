@@ -6190,6 +6190,28 @@ test "normalize empty lines" {
 test "rewrite expressions to reduce parens" {
     if (true) return error.SkipZigTest;
     try testAstRender(
+        \\(3*4)+5
+    ,
+        \\(3*4)+5
+    ,
+        &.{ .l_paren, .number_literal, .asterisk, .number_literal, .r_paren, .plus, .number_literal },
+        &.{
+            .grouped_expression, .number_literal, .apply_binary, .asterisk,
+            .number_literal,     .apply_binary,   .plus,         .number_literal,
+        },
+    );
+    try testAstRender(
+        \\3*(4+5)
+    ,
+        \\3*4+5
+    ,
+        &.{ .number_literal, .asterisk, .l_paren, .number_literal, .plus, .number_literal, .r_paren },
+        &.{
+            .number_literal, .apply_binary, .asterisk, .grouped_expression,
+            .number_literal, .apply_binary, .plus,     .number_literal,
+        },
+    );
+    try testAstRender(
         \\(((a)))
     ,
         \\a
