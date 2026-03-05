@@ -3807,11 +3807,25 @@ test "number literal" {
 }
 
 test "number list literal" {
-    return error.SkipZigTest;
+    try testZir("1 2 3",
+        \\%0 = file({
+        \\  %1 = long(2)
+        \\  %2 = long(3)
+        \\  %3 = long_list(@one, %1, %2) node_offset:1:1 to :1:6
+        \\  %4 = print(%3)
+        \\})
+    );
 }
 
 test "string literal" {
-    return error.SkipZigTest;
+    try testZir(
+        \\"string123"
+    ,
+        \\%0 = file({
+        \\  %1 = str("string123") token_offset:1:1 to :1:12
+        \\  %2 = print(%1)
+        \\})
+    );
 }
 
 test "symbol literal" {

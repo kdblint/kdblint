@@ -970,7 +970,7 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope, implicit_par
 }
 
 /// Given an index into `string_bytes` returns the null-terminated string found there.
-pub fn nullTerminatedString(astgen: *AstGen, index: Zir.NullTerminatedString) [:0]const u8 {
+fn nullTerminatedString(astgen: *AstGen, index: Zir.NullTerminatedString) [:0]const u8 {
     const slice = astgen.string_bytes.items[@intFromEnum(index)..];
     return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
 }
@@ -2950,8 +2950,7 @@ const GenZir = struct {
     fn endsWithNoReturn(gz: GenZir) bool {
         if (gz.isEmpty()) return false;
         const tags: []Zir.Inst.Tag = gz.astgen.instructions.items(.tag);
-        const last_inst = gz.instructions.items[gz.instructions.items.len - 1];
-        return tags[@intFromEnum(last_inst)].isNoReturn();
+        return tags[@intFromEnum(gz.instructions.getLast())].isNoReturn();
     }
 
     fn instructionsSlice(self: *const GenZir) []Zir.Inst.Index {
