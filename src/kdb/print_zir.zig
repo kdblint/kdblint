@@ -1530,10 +1530,45 @@ test "table literal" {
     );
 }
 
-// TODO: https://kdblint.atlassian.net/browse/KLS-313
 test "table literal - length check" {
-    if (true) return error.SkipZigTest;
-    try failZir("([a:1 1 1]())", "");
+    try failZir("([a:3 3 3]())",
+        \\test:1:5: error: expected column length 0, found 3
+        \\([a:3 3 3]())
+        \\    ^~~~~
+        \\test:1:11: note: column length 0 defined here
+        \\([a:3 3 3]())
+        \\          ^~
+    );
+    try failZir("([]a:3 3 3;b:())",
+        \\test:1:6: error: expected column length 0, found 3
+        \\([]a:3 3 3;b:())
+        \\     ^~~~~
+        \\test:1:14: note: column length 0 defined here
+        \\([]a:3 3 3;b:())
+        \\             ^~
+    );
+    try failZir("([]a:();b:3 3 3)",
+        \\test:1:6: error: expected column length 3, found 0
+        \\([]a:();b:3 3 3)
+        \\     ^~
+        \\test:1:11: note: column length 3 defined here
+        \\([]a:();b:3 3 3)
+        \\          ^~~~~
+    );
+    try failZir("([]a:();b:3 3 3;c:2 2;d:x)",
+        \\test:1:11: error: expected column length 2, found 3
+        \\([]a:();b:3 3 3;c:2 2;d:x)
+        \\          ^~~~~
+        \\test:1:19: note: column length 2 defined here
+        \\([]a:();b:3 3 3;c:2 2;d:x)
+        \\                  ^~~
+        \\test:1:6: error: expected column length 2, found 0
+        \\([]a:();b:3 3 3;c:2 2;d:x)
+        \\     ^~
+        \\test:1:19: note: column length 2 defined here
+        \\([]a:();b:3 3 3;c:2 2;d:x)
+        \\                  ^~~
+    );
 }
 
 test "lambda" {

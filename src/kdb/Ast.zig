@@ -1671,6 +1671,19 @@ pub fn isCompoundAssignment(tree: *const Ast, node: Node.Index) bool {
     };
 }
 
+pub fn listLen(tree: *const Ast, node: Node.Index) ?usize {
+    return switch (tree.nodeTag(node)) {
+        .empty_list => 0,
+        .list => blk: {
+            const sub_range = tree.nodeData(node).extra_range;
+            break :blk @intFromEnum(sub_range.end) - @intFromEnum(sub_range.start);
+        },
+        .number_list_literal, .symbol_list_literal => tree.nodeData(node).token - tree.nodeMainToken(node) + 1,
+        .string_literal => tree.tokenSlice(tree.nodeMainToken(node)).len - 2,
+        else => null,
+    };
+}
+
 fn testAstRender(
     source_code: [:0]const u8,
     formatted_code: [:0]const u8,

@@ -409,6 +409,9 @@ fn tableLiteral(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inn
     var column_items: std.ArrayListUnmanaged(Zir.Inst.Table.Item) = try .initCapacity(gpa, table.columns.len);
     defer column_items.deinit(gpa);
 
+    var maybe_column_len: ?usize = null;
+    var maybe_column_node: ?Ast.Node.Index = null;
+
     var columns_it = std.mem.reverseIterator(table.columns);
     while (columns_it.next()) |column_node| {
         const ident_name: Zir.NullTerminatedString, const node = switch (tree.nodeTag(column_node)) {
@@ -448,6 +451,26 @@ fn tableLiteral(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inn
             },
             else => .{ .empty, column_node },
         };
+
+        if (tree.listLen(node)) |list_len| {
+            if (maybe_column_len) |column_len| {
+                if (list_len != column_len) {
+                    try astgen.appendErrorNodeNotes(node, "expected column length {d}, found {d}", .{
+                        column_len,
+                        list_len,
+                    }, &.{
+                        try astgen.errNoteNode(
+                            maybe_column_node.?,
+                            "column length {d} defined here",
+                            .{column_len},
+                        ),
+                    }, .@"error");
+                }
+            } else {
+                maybe_column_len = list_len;
+                maybe_column_node = node;
+            }
+        }
 
         const ref, scope = try expr(gz, scope, node);
         column_items.appendAssumeCapacity(.{
@@ -498,6 +521,26 @@ fn tableLiteral(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inn
             },
             else => .{ .empty, key_node },
         };
+
+        if (tree.listLen(node)) |list_len| {
+            if (maybe_column_len) |column_len| {
+                if (list_len != column_len) {
+                    try astgen.appendErrorNodeNotes(node, "expected column length {d}, found {d}", .{
+                        column_len,
+                        list_len,
+                    }, &.{
+                        try astgen.errNoteNode(
+                            maybe_column_node.?,
+                            "column length {d} defined here",
+                            .{column_len},
+                        ),
+                    }, .@"error");
+                }
+            } else {
+                maybe_column_len = list_len;
+                maybe_column_node = node;
+            }
+        }
 
         const ref, scope = try expr(gz, scope, node);
         key_items.appendAssumeCapacity(.{
