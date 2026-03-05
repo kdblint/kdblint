@@ -784,21 +784,26 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     assert(full_lambda.body.len > 0);
 
     for (full_lambda.body, 0..) |body_node, i| {
+        if (tree.nodeTag(body_node) == .empty) continue;
         if (fn_gz.endsWithNoReturn()) {
             assert(i > 0);
             try gz.astgen.appendErrorNodeNotes(body_node, "unreachable code", .{}, &.{
                 try gz.astgen.errNoteNode(full_lambda.body[i - 1], "control flow is diverted here", .{}),
             }, .warn);
+            break;
         }
 
         if (i + 1 < full_lambda.body.len) {
             _, params_scope = try expr(&fn_gz, params_scope, body_node);
-        } else if (tree.nodeTag(body_node) == .empty) {
-            _ = try fn_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
         } else {
             const ref, params_scope = try expr(&fn_gz, params_scope, body_node);
-            _ = try fn_gz.addUnNode(.ret_node, ref, body_node);
+            if (!fn_gz.endsWithNoReturn()) {
+                _ = try fn_gz.addUnNode(.ret_node, ref, body_node);
+            }
         }
+    }
+    if (!fn_gz.endsWithNoReturn()) {
+        _ = try fn_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
     }
 
     try astgen.scope.finalize();

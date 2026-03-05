@@ -2128,9 +2128,8 @@ test "return" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
-        \\    %3 = ret_node(%2) node_offset:2:3 to :2:5
         \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
-        \\  %4 = print(%1)
+        \\  %3 = print(%1)
         \\})
     );
     try testZir(
@@ -2141,9 +2140,8 @@ test "return" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
-        \\    %3 = ret_implicit(@null) token_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
-        \\  %4 = print(%1)
+        \\  %3 = print(%1)
         \\})
     );
 }
@@ -3312,24 +3310,20 @@ test "colon" {
         \\  %3 = print(%1)
         \\})
     );
-    // TODO: remove duplicate ret_node
     try testZir("{:1}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = ret_node(@one) node_offset:1:2 to :1:4
-        \\    %3 = ret_node(%2) node_offset:1:2 to :1:4
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
-        \\  %4 = print(%1)
+        \\  %3 = print(%1)
         \\})
     );
-    // TODO: Remove duplicate ret_implicit
     try testZir("{:1;}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = ret_node(@one) node_offset:1:2 to :1:4
-        \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
-        \\  %4 = print(%1)
+        \\  %3 = print(%1)
         \\})
     );
     try failZir("{(:)1}",
@@ -3357,28 +3351,24 @@ test "colon" {
         \\  %5 = print(%1)
         \\})
     );
-    // TODO: Remove duplicate ret_node
     try testZir("{:a:1}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:1:3 to :1:4
         \\    %3 = apply(@assign, %2, @one) node_offset:1:3 to :1:6
         \\    %4 = ret_node(%3) node_offset:1:2 to :1:6
-        \\    %5 = ret_node(%4) node_offset:1:2 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
-        \\  %6 = print(%1)
+        \\  %5 = print(%1)
         \\})
     );
-    // TODO: Remove duplicate ret_implicit
     try testZir("{:a:1;}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:1:3 to :1:4
         \\    %3 = apply(@assign, %2, @one) node_offset:1:3 to :1:6
         \\    %4 = ret_node(%3) node_offset:1:2 to :1:6
-        \\    %5 = ret_implicit(@null) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
-        \\  %6 = print(%1)
+        \\  %5 = print(%1)
         \\})
     );
     try testZir("{:[a;1]}",
@@ -3401,28 +3391,24 @@ test "colon" {
         \\  %5 = print(%1)
         \\})
     );
-    // TODO: Remove duplicate ret_node
     try testZir("{: :[a;1]}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:1:6 to :1:7
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
         \\    %4 = ret_node(%3) node_offset:1:2 to :1:10
-        \\    %5 = ret_node(%4) node_offset:1:2 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
-        \\  %6 = print(%1)
+        \\  %5 = print(%1)
         \\})
     );
-    // TODO: Remove duplicate ret_implicit
     try testZir("{: :[a;1];}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:1:6 to :1:7
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
         \\    %4 = ret_node(%3) node_offset:1:2 to :1:10
-        \\    %5 = ret_implicit(@null) token_offset:1:11 to :1:12
         \\  }) (lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
-        \\  %6 = print(%1)
+        \\  %5 = print(%1)
         \\})
     );
 }
@@ -4396,9 +4382,8 @@ test "unreachable code" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = ret_node(@one) node_offset:2:3 to :2:5
-        \\    %3 = ret_node(@one) node_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:4) node_offset:1:1 to :1:2
-        \\  %4 = print(%1)
+        \\  %3 = print(%1)
         \\})
     );
     try warnZir(
@@ -4416,9 +4401,8 @@ test "unreachable code" {
         \\  %1 = lambda({
         \\    %2 = identifier("break") token_offset:2:4 to :2:9
         \\    %3 = signal(%2) node_offset:2:3 to :2:9
-        \\    %4 = ret_node(@one) node_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:4) node_offset:1:1 to :1:2
-        \\  %5 = print(%1)
+        \\  %4 = print(%1)
         \\})
     );
     try warnZir(
