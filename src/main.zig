@@ -23,6 +23,7 @@ const usage =
     \\  lsp         Run language server
     \\  ast-check   Look for simple compile errors in any set of files
     \\  fmt         Reformat kdb+ source into canonical form
+    \\  repl        Starts an interactive REPL session.
     \\
     \\  help        Print this help and exit
     \\  version     Print version number and exit
@@ -112,6 +113,8 @@ fn mainArgs(
         return cmdAstCheck(gpa, arena, io, cmd_args);
     } else if (std.mem.eql(u8, cmd, "fmt")) {
         return @import("fmt.zig").run(gpa, arena, io, cmd_args);
+    } else if (std.mem.eql(u8, cmd, "repl")) {
+        return cmdRepl(gpa, io, cmd_args);
     } else if (std.mem.eql(u8, cmd, "version")) {
         return Io.File.stdout().writeStreamingAll(io, build_options.version_string ++ "\n");
     } else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "-h") or std.mem.eql(u8, cmd, "--help")) {
@@ -302,6 +305,91 @@ fn cmdLsp(gpa: Allocator, io: Io, args: []const []const u8) !void {
         .exiting_failure => std.process.exit(1),
         .exiting_success => cleanExit(io),
         else => unreachable,
+    }
+}
+
+const usage_repl =
+    \\Usage: kdblint repl
+    \\
+    \\  Runs the REPL.
+    \\
+    \\Options:
+    \\
+    \\  -h, --help            Print this help and exit
+    \\  --color [auto|off|on] Enable or disable colored error messages
+    \\
+;
+
+const banner = "kdblint " ++ build_options.version_string ++ " " ++
+    @tagName(builtin.mode) ++ " " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ "\n";
+
+fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
+    var color: Color = .auto;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.startsWith(u8, arg, "-")) {
+            if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+                try Io.File.stdout().writeStreamingAll(io, usage_repl);
+                return cleanExit(io);
+            } else if (std.mem.eql(u8, arg, "--color")) {
+                if (i + 1 >= args.len) {
+                    fatal("expected [auto|on|off] after --color", .{});
+                }
+                i += 1;
+                const next_arg = args[i];
+                color = std.meta.stringToEnum(Color, next_arg) orelse {
+                    fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
+                };
+            } else {
+                fatal("unrecognized parameter: '{s}'", .{arg});
+            }
+        } else {
+            fatal("extra positional parameter: '{s}'", .{arg});
+        }
+    }
+
+    var stdin_reader = Io.File.stdin().readerStreaming(io, &stdin_buffer);
+    const stdin = &stdin_reader.interface;
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    try stdout.writeAll(banner);
+
+    while (true) {
+        try stdout.writeAll("kdblint)");
+        try stdout.flush();
+
+        const line = try stdin.takeDelimiterInclusive('\n');
+        const trimmed = std.mem.trimEnd(u8, line, " \t\r\n");
+        line[trimmed.len] = 0;
+        const slice = line[0..trimmed.len :0];
+
+        if (slice.len == 0) continue;
+
+        if (std.mem.eql(u8, slice, "\\\\")) break;
+
+        var tree = try kdb.Ast.parse(io, gpa, slice, .{
+            .mode = .q,
+            .version = .@"4.0",
+        });
+        defer tree.deinit(gpa);
+
+        var document_scope: DocumentScope = .{};
+        var context: DocumentScope.ScopeContext = .{
+            .gpa = gpa,
+            .tree = tree,
+            .doc_scope = &document_scope,
+        };
+        defer document_scope.deinit(gpa);
+
+        var zir = try kdb.AstGen.generate(io, gpa, &context);
+        defer zir.deinit(gpa);
+
+        if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {
+            try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "<stdin>", color);
+        }
     }
 }
 
