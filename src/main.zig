@@ -325,6 +325,7 @@ const banner = "kdblint " ++ build_options.version_string ++ " " ++
 
 fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
     var color: Color = .auto;
+    var lang: kdb.Ast.Mode = .q;
 
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -341,6 +342,15 @@ fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
                 const next_arg = args[i];
                 color = std.meta.stringToEnum(Color, next_arg) orelse {
                     fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
+                };
+            } else if (std.mem.eql(u8, arg, "--lang")) {
+                if (i + 1 >= args.len) {
+                    fatal("expected [q|k] after --lang", .{});
+                }
+                i += 1;
+                const next_arg = args[i];
+                lang = std.meta.stringToEnum(kdb.Ast.Mode, next_arg) orelse {
+                    fatal("expected [q|k] after --lang, found '{s}'", .{next_arg});
                 };
             } else {
                 fatal("unrecognized parameter: '{s}'", .{arg});
@@ -371,7 +381,7 @@ fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
         if (std.mem.eql(u8, slice, "\\\\")) break;
 
         var tree = try kdb.Ast.parse(io, gpa, slice, .{
-            .mode = .q,
+            .mode = lang,
             .version = .@"4.0",
         });
         defer tree.deinit(gpa);
