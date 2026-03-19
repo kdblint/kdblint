@@ -16,6 +16,7 @@ pub const number_parser = @import("number_parser.zig");
 pub const print_zir = @import("print_zir.zig");
 pub const DocumentScope = @import("DocumentScope.zig");
 pub const InternPool = @import("InternPool.zig");
+pub const Vm = @import("Vm.zig");
 
 pub fn printAstErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, path: []const u8, color: Color) !void {
     var wip_errors: ErrorBundle.Wip = undefined;
