@@ -41,6 +41,18 @@ fn ExtraData(comptime T: type) type {
     return struct { data: T, end: usize };
 }
 
+pub fn instTag(code: Zir, inst: Inst.Index) Inst.Tag {
+    return code.instructions.items(.tag)[@intFromEnum(inst)];
+}
+
+pub fn instData(code: Zir, inst: Inst.Index) Inst.Data {
+    return code.instructions.items(.data)[@intFromEnum(inst)];
+}
+
+pub fn extraSlice(code: Zir, comptime T: type, start: usize, len: usize) []const T {
+    return @ptrCast(code.extra[start..][0..len]);
+}
+
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {

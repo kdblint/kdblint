@@ -321,7 +321,7 @@ const usage_repl =
 ;
 
 const banner = "kdblint " ++ build_options.version_string ++ " " ++
-    @tagName(builtin.mode) ++ " " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ "\n";
+    @tagName(builtin.mode) ++ " " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ "\n\n";
 
 fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
     var color: Color = .auto;
@@ -360,16 +360,23 @@ fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
         }
     }
 
-    var stdin_reader = Io.File.stdin().readerStreaming(io, &stdin_buffer);
+    var stdin_reader = Io.File.stdin().reader(io, &stdin_buffer);
     const stdin = &stdin_reader.interface;
-    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
+    const stderr = &stderr_writer.interface;
 
-    try stdout.writeAll(banner);
+    var buf: [512]kdb.Vm.KStruct = undefined;
+    var vm: kdb.Vm = .init(io, gpa, stdout, &buf);
+    defer vm.deinit();
+
+    try stderr.writeAll(banner);
 
     while (true) {
-        try stdout.writeAll("kdblint)");
-        try stdout.flush();
+        try stderr.writeAll("kdblint)");
+        try stderr.flush();
 
         const line = try stdin.takeDelimiterInclusive('\n');
         const trimmed = std.mem.trimEnd(u8, line, " \t\r\n");
@@ -399,6 +406,16 @@ fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
 
         if (zir.hasCompileErrors() or zir.hasCompileWarnings()) {
             try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "<stdin>", color);
+        } else {
+            try kdb.print_zir.renderAsText(gpa, tree, zir, stderr);
+            try stderr.flush();
+
+            if (vm.exec(zir)) {
+                var value = vm.stack.pop().?;
+                defer value.deref(gpa);
+            } else |e| {
+                std.log.err("'{t}", .{e});
+            }
         }
     }
 }
