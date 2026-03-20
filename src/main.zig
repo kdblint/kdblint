@@ -368,8 +368,8 @@ fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
     var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
-    var buf: [512]kdb.Vm.KStruct = undefined;
-    var vm: kdb.Vm = .init(io, gpa, stdout, &buf);
+    var buf: [512]*kdb.Vm.KStruct = undefined;
+    var vm: *kdb.Vm = try .init(io, gpa, stdout, &buf);
     defer vm.deinit();
 
     try stderr.writeAll(banner);

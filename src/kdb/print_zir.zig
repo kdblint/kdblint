@@ -848,7 +848,7 @@ test "empty" {
         \\    %4 = apply(@add, %2, %3) node_offset:1:7 to :1:10
         \\    %5 = ret_node(%4) node_offset:1:7 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
-        \\  %6 = apply(%1, @one, @null) node_offset:1:1 to :1:15
+        \\  %6 = apply(%1, @one, @identity) node_offset:1:1 to :1:15
         \\  %7 = print(%6)
         \\})
     );
@@ -1575,7 +1575,7 @@ test "lambda" {
     try testZir("{}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:3
+        \\    %2 = ret_implicit(@identity) token_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:3
         \\  %3 = print(%1)
         \\})
@@ -1583,7 +1583,7 @@ test "lambda" {
     try testZir("{[]}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:4 to :1:5
+        \\    %2 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %3 = print(%1)
         \\})
@@ -1592,7 +1592,7 @@ test "lambda" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
+        \\    %3 = ret_implicit(@identity) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
         \\  %4 = print(%1)
         \\})
@@ -1602,7 +1602,7 @@ test "lambda" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %4 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %5 = print(%1)
         \\})
@@ -1809,7 +1809,7 @@ test "lambda semicolon" {
     try testZir("{;}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:3 to :1:4
+        \\    %2 = ret_implicit(@identity) token_offset:1:3 to :1:4
         \\  }) (lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
         \\  %3 = print(%1)
         \\})
@@ -1817,7 +1817,7 @@ test "lambda semicolon" {
     try testZir("{[];}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:5 to :1:6
+        \\    %2 = ret_implicit(@identity) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
         \\  %3 = print(%1)
         \\})
@@ -1826,7 +1826,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
+        \\    %3 = ret_implicit(@identity) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\  %4 = print(%1)
         \\})
@@ -1836,7 +1836,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:8 to :1:9
+        \\    %4 = ret_implicit(@identity) token_offset:1:8 to :1:9
         \\  }) (lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
         \\  %5 = print(%1)
         \\})
@@ -1845,7 +1845,7 @@ test "lambda semicolon" {
     try testZir("{1;}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:4 to :1:5
+        \\    %2 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %3 = print(%1)
         \\})
@@ -1853,7 +1853,7 @@ test "lambda semicolon" {
     try testZir("{[]1;}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:6 to :1:7
+        \\    %2 = ret_implicit(@identity) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\  %3 = print(%1)
         \\})
@@ -1862,7 +1862,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %3 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %4 = print(%1)
         \\})
@@ -1872,7 +1872,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:9 to :1:10
+        \\    %4 = ret_implicit(@identity) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
         \\  %5 = print(%1)
         \\})
@@ -1882,7 +1882,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = long(2)
-        \\    %3 = ret_implicit(@null) token_offset:1:4 to :1:5
+        \\    %3 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %4 = print(%1)
         \\})
@@ -1891,7 +1891,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = long(2)
-        \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
+        \\    %3 = ret_implicit(@identity) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\  %4 = print(%1)
         \\})
@@ -1901,7 +1901,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = long(2)
-        \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %4 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %5 = print(%1)
         \\})
@@ -1912,7 +1912,7 @@ test "lambda semicolon" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = long(2)
-        \\    %5 = ret_implicit(@null) token_offset:1:9 to :1:10
+        \\    %5 = ret_implicit(@identity) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
         \\  %6 = print(%1)
         \\})
@@ -1922,7 +1922,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:2 to :1:3
-        \\    %3 = ret_implicit(@null) token_offset:1:4 to :1:5
+        \\    %3 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %4 = print(%1)
         \\})
@@ -1931,7 +1931,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = identifier("x") token_offset:1:4 to :1:5
-        \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
+        \\    %3 = ret_implicit(@identity) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\  %4 = print(%1)
         \\})
@@ -1940,7 +1940,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %3 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %4 = print(%1)
         \\})
@@ -1950,7 +1950,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:9 to :1:10
+        \\    %4 = ret_implicit(@identity) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
         \\  %5 = print(%1)
         \\})
@@ -1961,7 +1961,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
         \\    %3 = param_implicit(@y) token_offset:1:2 to :1:3
-        \\    %4 = ret_implicit(@null) token_offset:1:4 to :1:5
+        \\    %4 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %5 = print(%1)
         \\})
@@ -1970,7 +1970,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = identifier("y") token_offset:1:4 to :1:5
-        \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
+        \\    %3 = ret_implicit(@identity) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\  %4 = print(%1)
         \\})
@@ -1980,7 +1980,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = identifier("y") token_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %4 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %5 = print(%1)
         \\})
@@ -1990,7 +1990,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:9 to :1:10
+        \\    %4 = ret_implicit(@identity) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
         \\  %5 = print(%1)
         \\})
@@ -2002,7 +2002,7 @@ test "lambda semicolon" {
         \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
         \\    %3 = param_implicit(@y) token_offset:1:1 to :1:2
         \\    %4 = param_implicit(@z) token_offset:1:2 to :1:3
-        \\    %5 = ret_implicit(@null) token_offset:1:4 to :1:5
+        \\    %5 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %6 = print(%1)
         \\})
@@ -2011,7 +2011,7 @@ test "lambda semicolon" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = identifier("z") token_offset:1:4 to :1:5
-        \\    %3 = ret_implicit(@null) token_offset:1:6 to :1:7
+        \\    %3 = ret_implicit(@identity) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\  %4 = print(%1)
         \\})
@@ -2021,7 +2021,7 @@ test "lambda semicolon" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = identifier("z") token_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %4 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %5 = print(%1)
         \\})
@@ -2032,7 +2032,7 @@ test "lambda semicolon" {
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
         \\    %4 = identifier("z") token_offset:1:7 to :1:8
-        \\    %5 = ret_implicit(@null) token_offset:1:9 to :1:10
+        \\    %5 = ret_implicit(@identity) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
         \\  %6 = print(%1)
         \\})
@@ -2042,7 +2042,7 @@ test "lambda semicolon" {
 test "expr block" {
     try testZir("[]",
         \\%0 = file({
-        \\  %1 = print(@null)
+        \\  %1 = print(@identity)
         \\})
     );
     try testZir("[1;2;3]",
@@ -2063,7 +2063,7 @@ test "expr block" {
         \\    %7 = long(2)
         \\    %8 = apply(@multiply, %2, %7) node_offset:1:14 to :1:18
         \\    %9 = apply(@assign, %2, %8) node_offset:1:14 to :1:18
-        \\    %10 = ret_node(@null) node_offset:1:4 to :1:19
+        \\    %10 = ret_node(@identity) node_offset:1:4 to :1:19
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
         \\  %11 = print(%1)
         \\})
@@ -3305,7 +3305,7 @@ test "colon" {
     try testZir("{:;}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:4 to :1:5
+        \\    %2 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %3 = print(%1)
         \\})
@@ -3346,7 +3346,7 @@ test "colon" {
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:1:2 to :1:3
         \\    %3 = apply(@assign, %2, @one) node_offset:1:2 to :1:5
-        \\    %4 = ret_implicit(@null) token_offset:1:6 to :1:7
+        \\    %4 = ret_implicit(@identity) token_offset:1:6 to :1:7
         \\  }) (lbrace=1:1,rbrace=1:6) node_offset:1:1 to :1:7
         \\  %5 = print(%1)
         \\})
@@ -3386,7 +3386,7 @@ test "colon" {
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:1:4 to :1:5
         \\    %3 = apply(@assign, %2, @one) node_offset:1:2 to :1:8
-        \\    %4 = ret_implicit(@null) token_offset:1:9 to :1:10
+        \\    %4 = ret_implicit(@identity) token_offset:1:9 to :1:10
         \\  }) (lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
         \\  %5 = print(%1)
         \\})
@@ -3645,7 +3645,7 @@ test "slash" {
     try testZir("a:/b",
         \\%0 = file({
         \\  %1 = identifier("b") token_offset:1:4 to :1:5
-        \\  %2 = apply(@over, @null) node_offset:1:2 to :1:4
+        \\  %2 = apply(@over, @identity) node_offset:1:2 to :1:4
         \\  %3 = identifier("a") token_offset:1:1 to :1:2
         \\  %4 = apply(%2, %3, %1) node_offset:1:1 to :1:5
         \\  %5 = print(%4)
@@ -3690,7 +3690,7 @@ test "call" {
     try testZir("f[]",
         \\%0 = file({
         \\  %1 = identifier("f") token_offset:1:1 to :1:2
-        \\  %2 = apply(%1, @null) node_offset:1:1 to :1:4
+        \\  %2 = apply(%1, @identity) node_offset:1:1 to :1:4
         \\  %3 = print(%2)
         \\})
     );
@@ -3721,17 +3721,16 @@ test "call" {
 
     try testZir("()[]",
         \\%0 = file({
-        \\  %1 = apply(@empty_list, @null) node_offset:1:1 to :1:5
+        \\  %1 = apply(@empty_list, @identity) node_offset:1:1 to :1:5
         \\  %2 = print(%1)
         \\})
     );
     try testZir("(first x)[]",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:8 to :1:9
-        \\  %2 = builtin("first") token_offset:1:2 to :1:7
-        \\  %3 = apply(%2, %1) node_offset:1:2 to :1:9
-        \\  %4 = apply(%3, @null) node_offset:1:1 to :1:12
-        \\  %5 = print(%4)
+        \\  %2 = apply(@first, %1) node_offset:1:2 to :1:9
+        \\  %3 = apply(%2, @identity) node_offset:1:1 to :1:12
+        \\  %4 = print(%3)
         \\})
     );
     try testZir("(` sv`.test`func)[]",
@@ -3740,7 +3739,7 @@ test "call" {
         \\  %2 = builtin("sv") token_offset:1:4 to :1:6
         \\  %3 = sym("") token_offset:1:2 to :1:3
         \\  %4 = apply(%2, %3, %1) node_offset:1:2 to :1:17
-        \\  %5 = apply(%4, @null) node_offset:1:1 to :1:20
+        \\  %5 = apply(%4, @identity) node_offset:1:1 to :1:20
         \\  %6 = print(%5)
         \\})
     );
@@ -3750,7 +3749,7 @@ test "call" {
         \\  %1 = identifier("f") token_offset:1:2 to :1:3
         \\  %2 = identifier("f") token_offset:1:4 to :1:5
         \\  %3 = identifier("f") token_offset:1:6 to :1:7
-        \\  %4 = apply(%3, @null) node_offset:1:1 to :1:10
+        \\  %4 = apply(%3, @identity) node_offset:1:1 to :1:10
         \\  %5 = print(%4)
         \\})
     );
@@ -3868,17 +3867,15 @@ test "builtin" {
     try testZir("value x",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:7 to :1:8
-        \\  %2 = builtin("value") token_offset:1:1 to :1:6
-        \\  %3 = apply(%2, %1) node_offset:1:1 to :1:8
-        \\  %4 = print(%3)
+        \\  %2 = apply(@value, %1) node_offset:1:1 to :1:8
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("value[x]",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:7 to :1:8
-        \\  %2 = builtin("value") token_offset:1:1 to :1:6
-        \\  %3 = apply(%2, %1) node_offset:1:1 to :1:9
-        \\  %4 = print(%3)
+        \\  %2 = apply(@value, %1) node_offset:1:1 to :1:9
+        \\  %3 = print(%2)
         \\})
     );
     try testZir("x sv y",
@@ -3961,7 +3958,7 @@ test "too many parameters" {
         \\    %7 = param_node("f") node_offset:1:13 to :1:14
         \\    %8 = param_node("g") node_offset:1:15 to :1:16
         \\    %9 = param_node("h") node_offset:1:17 to :1:18
-        \\    %10 = ret_implicit(@null) token_offset:1:19 to :1:20
+        \\    %10 = ret_implicit(@identity) token_offset:1:19 to :1:20
         \\  }) (lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
         \\  %11 = print(%1)
         \\})
@@ -4012,7 +4009,7 @@ test "declared after use / use of undeclared identifier" {
         \\    %3 = apply(@add, %2, @one) node_offset:2:3 to :2:6
         \\    %4 = identifier("a") token_offset:3:3 to :3:4
         \\    %5 = apply(@assign, %4, @one) node_offset:3:3 to :3:7
-        \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
+        \\    %6 = ret_implicit(@identity) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
         \\  %7 = print(%1)
         \\})
@@ -4040,7 +4037,7 @@ test "unused function parameter" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = ret_implicit(@null) token_offset:1:5 to :1:6
+        \\    %3 = ret_implicit(@identity) token_offset:1:5 to :1:6
         \\  }) (lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
         \\  %4 = print(%1)
         \\})
@@ -4056,7 +4053,7 @@ test "unused function parameter" {
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
         \\    %3 = param_node("y") node_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %4 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %5 = print(%1)
         \\})
@@ -4067,7 +4064,7 @@ test "unused implicit function parameter" {
     try testZir("{}",
         \\%0 = file({
         \\  %1 = lambda({
-        \\    %2 = ret_implicit(@null) token_offset:1:2 to :1:3
+        \\    %2 = ret_implicit(@identity) token_offset:1:2 to :1:3
         \\  }) (lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:3
         \\  %3 = print(%1)
         \\})
@@ -4198,7 +4195,7 @@ test "unused local variable" {
         \\  %1 = lambda({
         \\    %2 = identifier("a") token_offset:2:3 to :2:4
         \\    %3 = apply(@assign, %2, @one) node_offset:2:3 to :2:6
-        \\    %4 = ret_implicit(@null) token_offset:3:3 to :3:4
+        \\    %4 = ret_implicit(@identity) token_offset:3:3 to :3:4
         \\  }) (lbrace=1:1,rbrace=3:3) node_offset:1:1 to :1:2
         \\  %5 = print(%1)
         \\})
@@ -4218,7 +4215,7 @@ test "unused local variable" {
         \\    %3 = apply(@assign, %2, @one) node_offset:2:3 to :2:6
         \\    %4 = long(2)
         \\    %5 = apply(@assign, %2, %4) node_offset:3:3 to :3:6
-        \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
+        \\    %6 = ret_implicit(@identity) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
         \\  %7 = print(%1)
         \\})
@@ -4238,7 +4235,7 @@ test "unused local variable" {
         \\    %3 = apply(@assign, %2, @one) node_offset:2:3 to :2:6
         \\    %4 = long(2)
         \\    %5 = apply(@assign, %2, %4) node_offset:3:3 to :3:6
-        \\    %6 = ret_implicit(@null) token_offset:4:3 to :4:4
+        \\    %6 = ret_implicit(@identity) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
         \\  %7 = print(%1)
         \\})
@@ -4259,7 +4256,7 @@ test "redeclaration of function parameter" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("a") node_offset:1:3 to :1:4
-        \\    %3 = ret_implicit(@null) token_offset:1:7 to :1:8
+        \\    %3 = ret_implicit(@identity) token_offset:1:7 to :1:8
         \\  }) (lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
         \\  %4 = print(%1)
         \\})
@@ -4381,7 +4378,7 @@ test "misleading global assign" {
         \\    %2 = identifier("a") token_offset:2:3 to :2:4
         \\    %3 = apply(@assign, %2, @one) node_offset:2:3 to :2:6
         \\    %4 = apply(@assign, %2, @one) node_offset:3:3 to :3:7
-        \\    %5 = ret_implicit(@null) token_offset:4:3 to :4:4
+        \\    %5 = ret_implicit(@identity) token_offset:4:3 to :4:4
         \\  }) (lbrace=1:1,rbrace=4:3) node_offset:1:1 to :1:2
         \\  %6 = print(%1)
         \\})
