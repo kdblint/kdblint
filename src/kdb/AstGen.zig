@@ -105,6 +105,65 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
     }
 }
 
+const builtins = std.StaticStringMap(Zir.Inst.Ref).initComptime(.{
+    .{ "flip", .flip },
+    .{ "neg", .neg },
+    .{ "first", .first },
+    .{ "reciprocal", .reciprocal },
+    .{ "where", .where },
+    .{ "reverse", .reverse },
+    .{ "null", .null },
+    .{ "group", .group },
+    .{ "asc", .asc },
+    .{ "desc", .desc },
+    .{ "string", .string },
+    .{ "count", .count },
+    .{ "lower", .lower },
+    .{ "not", .not },
+    .{ "key", .key },
+    .{ "distinct", .distinct },
+    .{ "type", .type },
+    .{ "value", .value },
+    .{ "read0", .read_text },
+    .{ "read1", .read_binary },
+    .{ "avg", .avg },
+    .{ "last", .last },
+    .{ "sum", .sum },
+    .{ "prd", .prd },
+    .{ "min", .min },
+    .{ "max", .max },
+    .{ "exit", .exit },
+    .{ "getenv", .getenv },
+    .{ "abs", .abs },
+    .{ "sqrt", .sqrt },
+    .{ "log", .log },
+    .{ "exp", .exp },
+    .{ "sin", .sin },
+    .{ "asin", .asin },
+    .{ "cos", .cos },
+    .{ "acos", .acos },
+    .{ "tan", .tan },
+    .{ "atan", .atan },
+    .{ "enlist", .enlist },
+    .{ "var", .@"var" },
+    .{ "dev", .dev },
+    .{ "hopen", .hopen },
+    .{ "in", .in },
+    .{ "within", .within },
+    .{ "like", .like },
+    .{ "bin", .bin },
+    .{ "ss", .ss },
+    .{ "insert", .insert },
+    .{ "wsum", .wsum },
+    .{ "wavg", .wavg },
+    .{ "div", .div },
+    .{ "xexp", .xexp },
+    .{ "setenv", .setenv },
+    .{ "binr", .binr },
+    .{ "cov", .cov },
+    .{ "cor", .cor },
+});
+
 pub fn generate(io: Io, gpa: Allocator, context: *DocumentScope.ScopeContext) Allocator.Error!Zir {
     const tree = context.tree;
 
@@ -303,7 +362,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
     const node = tree.unwrapGroupedExpr(src_node);
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .empty => return .{ .null, scope },
+        .empty => return .{ .identity, scope },
 
         .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
@@ -315,31 +374,54 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
 
         .expr_block => return exprBlock(gz, scope, node),
 
-        .colon, .colon_colon => return .{ .assign, scope },
-        .plus, .plus_colon => return .{ .add, scope },
-        .minus, .minus_colon => return .{ .subtract, scope },
-        .asterisk, .asterisk_colon => return .{ .multiply, scope },
-        .percent, .percent_colon => return .{ .divide, scope },
-        .ampersand, .ampersand_colon => return .{ .lesser, scope },
-        .pipe, .pipe_colon => return .{ .greater, scope },
-        .caret, .caret_colon => return .{ .fill, scope },
-        .equal, .equal_colon => return .{ .equal, scope },
-        .angle_bracket_left, .angle_bracket_left_colon => return .{ .less_than, scope },
+        .colon => return .{ .assign, scope },
+        .colon_colon => return .{ .identity, scope },
+
+        .plus => return .{ .add, scope },
+        .plus_colon => return .{ .flip, scope },
+        .minus => return .{ .subtract, scope },
+        .minus_colon => return .{ .neg, scope },
+        .asterisk => return .{ .multiply, scope },
+        .asterisk_colon => return .{ .first, scope },
+        .percent => return .{ .divide, scope },
+        .percent_colon => return .{ .reciprocal, scope },
+        .ampersand => return .{ .@"and", scope },
+        .ampersand_colon => return .{ .where, scope },
+        .pipe => return .{ .@"or", scope },
+        .pipe_colon => return .{ .reverse, scope },
+        .caret => return .{ .fill, scope },
+        .caret_colon => return .{ .null, scope },
+        .equal => return .{ .equals, scope },
+        .equal_colon => return .{ .group, scope },
+        .angle_bracket_left => return .{ .less_than, scope },
+        .angle_bracket_left_colon => return .{ .asc, scope },
         .angle_bracket_left_equal => return .{ .less_than_or_equal, scope },
         .angle_bracket_left_right => return .{ .not_equal, scope },
-        .angle_bracket_right, .angle_bracket_right_colon => return .{ .greater_than, scope },
+        .angle_bracket_right => return .{ .greater_than, scope },
+        .angle_bracket_right_colon => return .{ .desc, scope },
         .angle_bracket_right_equal => return .{ .greater_than_or_equal, scope },
-        .dollar, .dollar_colon => return .{ .cast, scope },
-        .comma, .comma_colon => return .{ .join, scope },
-        .hash, .hash_colon => return .{ .take, scope },
-        .underscore, .underscore_colon => return .{ .drop, scope },
-        .tilde, .tilde_colon => return .{ .match, scope },
-        .bang, .bang_colon => return .{ .dict, scope },
-        .question_mark, .question_mark_colon => return .{ .find, scope },
-        .at, .at_colon => return .{ .apply_at, scope },
-        .period, .period_colon => return .{ .apply_dot, scope },
-        .zero_colon, .zero_colon_colon => return .{ .file_text, scope },
-        .one_colon, .one_colon_colon => return .{ .file_binary, scope },
+        .dollar => return .{ .cast, scope },
+        .dollar_colon => return .{ .string, scope },
+        .comma => return .{ .join, scope },
+        .comma_colon => return .{ .list, scope },
+        .hash => return .{ .take, scope },
+        .hash_colon => return .{ .count, scope },
+        .underscore => return .{ .drop, scope },
+        .underscore_colon => return .{ .lower, scope },
+        .tilde => return .{ .match, scope },
+        .tilde_colon => return .{ .not, scope },
+        .bang => return .{ .dict, scope },
+        .bang_colon => return .{ .key, scope },
+        .question_mark => return .{ .find, scope },
+        .question_mark_colon => return .{ .distinct, scope },
+        .at => return .{ .apply_at, scope },
+        .at_colon => return .{ .type, scope },
+        .period => return .{ .apply, scope },
+        .period_colon => return .{ .value, scope },
+        .zero_colon => return .{ .file_text, scope },
+        .zero_colon_colon => return .{ .read_text, scope },
+        .one_colon => return .{ .file_binary, scope },
+        .one_colon_colon => return .{ .read_binary, scope },
         .two_colon => return .{ .dynamic_load, scope },
 
         .apostrophe,
@@ -370,6 +452,35 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
         .delete_rows => return deleteRows(gz, scope, node),
         .delete_cols => return deleteCols(gz, scope, node),
     }
+}
+
+fn compoundAssignExpr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
+    const tree = gz.astgen.context.tree;
+    assert(tree.nodeTag(src_node).isCompoundAssignment());
+
+    return switch (tree.nodeTag(src_node)) {
+        .plus_colon => .{ .add, scope },
+        .minus_colon => .{ .subtract, scope },
+        .asterisk_colon => .{ .multiply, scope },
+        .percent_colon => .{ .divide, scope },
+        .ampersand_colon => .{ .@"and", scope },
+        .pipe_colon => .{ .@"or", scope },
+        .caret_colon => .{ .fill, scope },
+        .equal_colon => .{ .equals, scope },
+        .angle_bracket_left_colon => .{ .less_than, scope },
+        .angle_bracket_right_colon => .{ .greater_than, scope },
+        .dollar_colon => .{ .cast, scope },
+        .comma_colon => .{ .join, scope },
+        .hash_colon => .{ .take, scope },
+        .underscore_colon => .{ .drop, scope },
+        .tilde_colon => .{ .match, scope },
+        .bang_colon => .{ .dict, scope },
+        .question_mark_colon => .{ .find, scope },
+        .at_colon => .{ .apply_at, scope },
+        .period_colon => .{ .apply, scope },
+
+        else => unreachable,
+    };
 }
 
 fn listExpr(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!Result {
@@ -803,7 +914,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
         }
     }
     if (!fn_gz.endsWithNoReturn()) {
-        _ = try fn_gz.addUnTok(.ret_implicit, .null, full_lambda.r_brace);
+        _ = try fn_gz.addUnTok(.ret_implicit, .identity, full_lambda.r_brace);
     }
 
     try astgen.scope.finalize();
@@ -989,11 +1100,11 @@ fn exprBlock(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError
 
         const n = nodes[nodes.len - 1];
         const inst, scope = try expr(gz, scope, n);
-        if (tree.isCompoundAssignment(n)) return .{ .null, scope };
+        if (tree.isCompoundAssignment(n)) return .{ .identity, scope };
         return .{ inst, scope };
     }
 
-    return .{ .null, scope };
+    return .{ .identity, scope };
 }
 
 fn findOrCreateGlobal(
@@ -1174,7 +1285,7 @@ fn iterator(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerEr
     if (tree.nodeData(src_node).opt_node.unwrap()) |lhs| {
         const lhs_ref, scope = switch (tree.nodeTag(lhs)) {
             // when directly preceding an iterator, colon should be treated as identity.
-            .colon => .{ .null, scope },
+            .colon => .{ .identity, scope },
             // TODO: What does a::/b actually mean?
             // q)a::/b
             // q)a
@@ -1811,14 +1922,19 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
         const rhs_ref, scope = try expr(gz, scope, rhs);
         break :rhs_ref rhs_ref;
     } else .none;
-    const op, scope = try expr(gz, scope, op_node);
-    const lhs_ref, scope = try expr(gz, scope, lhs);
 
-    var ref = try gz.addApply(src_node, op, &.{ lhs_ref, rhs_ref });
     if (tree.nodeTag(op_node).isCompoundAssignment()) {
-        ref = try gz.addApply(src_node, .assign, &.{ lhs_ref, ref });
+        const op, scope = try compoundAssignExpr(gz, scope, op_node);
+        const lhs_ref, scope = try expr(gz, scope, lhs);
+
+        const ref = try gz.addApply(src_node, op, &.{ lhs_ref, rhs_ref });
+        return .{ try gz.addApply(src_node, .assign, &.{ lhs_ref, ref }), scope };
+    } else {
+        const op, scope = try expr(gz, scope, op_node);
+        const lhs_ref, scope = try expr(gz, scope, lhs);
+
+        return .{ try gz.addApply(src_node, op, &.{ lhs_ref, rhs_ref }), scope };
     }
-    return .{ ref, scope };
 }
 
 fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -2375,8 +2491,10 @@ fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     assert(tree.nodeTag(node) == .builtin);
 
     const builtin_token = tree.nodeMainToken(node);
-    const builtin_name = try astgen.tokenAsString(builtin_token);
+    const builtin_bytes = tree.tokenSlice(builtin_token);
+    if (builtins.get(builtin_bytes)) |ref| return ref;
 
+    const builtin_name = try astgen.tokenAsString(builtin_token);
     return gz.addStrTok(.builtin, builtin_name, builtin_token);
 }
 
@@ -3370,7 +3488,7 @@ const GenZir = struct {
 
     fn addApply(gz: *GenZir, src_node: Ast.Node.Index, callee: Zir.Inst.Ref, args: []const Zir.Inst.Ref) !Zir.Inst.Ref {
         const result = try gz.addPlNode(.apply, src_node, Zir.Inst.Apply{
-            .callee = callee,
+            .callee = if (callee == .identity) .assign else callee,
             .len = @intCast(args.len),
         });
         try gz.astgen.extra.appendSlice(gz.astgen.gpa, @ptrCast(args));
