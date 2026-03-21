@@ -236,6 +236,15 @@ pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
     return tree.source[loc.start..loc.end];
 }
 
+pub fn nodeSlice(tree: Ast, node: Node.Index) []const u8 {
+    const token_locs: []Token.Loc = tree.tokens.items(.loc);
+    const first_token = tree.firstToken(node);
+    const last_token = tree.lastToken(node);
+    const start = token_locs[first_token].start;
+    const end = token_locs[last_token].end;
+    return tree.source[start..end];
+}
+
 pub fn extraDataSlice(tree: Ast, range: Node.SubRange, comptime T: type) []const T {
     return @ptrCast(tree.extra_data[@intFromEnum(range.start)..@intFromEnum(range.end)]);
 }
@@ -539,15 +548,6 @@ pub fn tokensOnSameLine(tree: Ast, token1: TokenIndex, token2: TokenIndex) bool 
     const token_locs = tree.tokens.items(.loc);
     const source = tree.source[token_locs[token1].start..token_locs[token2].start];
     return mem.indexOfScalar(u8, source, '\n') == null;
-}
-
-pub fn getNodeSource(tree: Ast, node: Node.Index) []const u8 {
-    const token_locs: []Token.Loc = tree.tokens.items(.loc);
-    const first_token = tree.firstToken(node);
-    const last_token = tree.lastToken(node);
-    const start = token_locs[first_token].start;
-    const end = token_locs[last_token].end;
-    return tree.source[start..end];
 }
 
 pub fn renderError(tree: Ast, parse_error: Error, writer: *Io.Writer) !void {

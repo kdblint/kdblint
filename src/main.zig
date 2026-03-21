@@ -410,7 +410,7 @@ fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
             try kdb.print_zir.renderAsText(gpa, tree, zir, stderr);
             try stderr.flush();
 
-            if (vm.exec(zir)) {
+            if (vm.exec(tree, zir)) {
                 var value = vm.stack.pop().?;
                 defer value.deref(gpa);
             } else |e| {

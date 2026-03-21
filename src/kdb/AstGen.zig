@@ -2367,7 +2367,7 @@ fn numberListLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref 
         .float,
         => return astgen.failNode(node, "NYI: {s} '{s}'", .{
             @tagName(type_hint),
-            tree.getNodeSource(node),
+            tree.nodeSlice(node),
         }),
         else => {},
     }

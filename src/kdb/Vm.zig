@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const kdb = @import("root.zig");
+const Ast = kdb.Ast;
 const Zir = kdb.Zir;
 const InternPool = kdb.InternPool;
 
@@ -12,6 +13,7 @@ const Vm = @This();
 io: Io,
 gpa: Allocator,
 stdout: *Io.Writer,
+tree: Ast = undefined,
 code: Zir = undefined,
 stack: std.ArrayList(*KStruct),
 state: *KStruct,
@@ -80,7 +82,8 @@ pub fn deinit(vm: *Vm) void {
     vm.gpa.destroy(vm);
 }
 
-pub fn exec(vm: *Vm, zir: Zir) !void {
+pub fn exec(vm: *Vm, tree: Ast, zir: Zir) !void {
+    vm.tree = tree;
     vm.code = zir;
     try vm.execInst(.file_inst);
     assert(vm.stack.items.len == 1);
@@ -104,7 +107,23 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
         .print => {
             const data = vm.code.instData(inst).un_node;
 
-            try vm.print(data.operand);
+            const x = try vm.getRef(data.operand);
+
+            try vm.print(x);
+            vm.stack.appendAssumeCapacity(x);
+        },
+
+        .lambda => {
+            const data = vm.code.instData(inst).lambda;
+            const extra = vm.code.extraData(Zir.Inst.Lambda, data.payload_index);
+
+            const body = vm.code.bodySlice(extra.end, extra.data.body_len);
+
+            const slice = vm.tree.nodeSlice(data.src_node);
+            const source = try vm.intern(slice);
+
+            const lambda = try vm.createLambda(extra.data.params_len, body, source);
+            vm.stack.appendAssumeCapacity(lambda);
         },
 
         .long => {
@@ -223,10 +242,7 @@ fn applyOperator(vm: *Vm, operator: Operator, x_ref: Zir.Inst.Ref, y_ref: Zir.In
     vm.stack.appendAssumeCapacity(result);
 }
 
-fn print(vm: *Vm, ref: Zir.Inst.Ref) !void {
-    const x = try vm.getRef(ref);
-    defer vm.stack.appendAssumeCapacity(x);
-
+fn print(vm: *Vm, x: *const KStruct) !void {
     switch (x.type) {
         .list => {
             const items: []*KStruct = @ptrCast(@alignCast(x.as.list));
@@ -251,6 +267,11 @@ fn print(vm: *Vm, ref: Zir.Inst.Ref) !void {
             const symbols: []InternedString = @ptrCast(@alignCast(x.as.list));
             for (symbols) |s| try vm.stdout.print("`{s}", .{vm.internedString(s)});
             try vm.stdout.writeByte('\n');
+        },
+        .lambda => {
+            const lambda: *Lambda = @ptrCast(@alignCast(x.as.list));
+            const source = vm.internedString(lambda.source);
+            try vm.stdout.print("{s}\n", .{source});
         },
         .unary_primitive => {
             const unary_primitive: UnaryPrimitive = @enumFromInt(x.as.byte);
@@ -730,6 +751,26 @@ pub fn createDict(vm: *Vm, keys: *KStruct, values: *KStruct) !*KStruct {
     return self;
 }
 
+pub fn createLambda(vm: *Vm, params_len: u32, body: []const Zir.Inst.Index, source: InternedString) !*KStruct {
+    const self = try vm.gpa.create(KStruct);
+    errdefer vm.gpa.destroy(self);
+    const lambda: Lambda = .{
+        .params_len = params_len,
+        .source = source,
+        .body = body,
+    };
+    const bytes = try vm.gpa.dupe(u8, @ptrCast(&lambda));
+    errdefer comptime unreachable;
+    self.* = .{ .type = .lambda, .as = .{ .list = bytes } };
+    return self;
+}
+
+const Lambda = struct {
+    params_len: u32,
+    source: InternedString,
+    body: []const Zir.Inst.Index,
+};
+
 pub fn createUnaryPrimitive(vm: *Vm, value: UnaryPrimitive) !*KStruct {
     const self = try vm.gpa.create(KStruct);
     errdefer comptime unreachable;
@@ -849,6 +890,7 @@ pub const KStruct = struct {
                 .minute_list,
                 .second_list,
                 .time_list,
+                .lambda,
                 => gpa.free(self.as.list),
 
                 .table => self.as.table.deref(gpa),
@@ -915,6 +957,7 @@ pub const Type = enum(i8) {
     time_list = 19,
     table = 98,
     dict = 99,
+    lambda = 100,
     unary_primitive = 101,
     operator = 102,
     iterator = 103,
