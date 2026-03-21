@@ -22,6 +22,8 @@ pub const Index = enum(u32) {
     one,
     /// `-1` (comptime_int)
     negative_one,
+    /// f[1;]
+    empty,
     /// `()` (untyped)
     empty_list,
     /// `x`

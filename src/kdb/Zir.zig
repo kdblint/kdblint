@@ -359,15 +359,15 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `StrList`.
         sym_list,
 
-        /// Init global.
+        /// Init identifier.
         /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
-        init_global,
+        init_identifier,
 
-        /// Global.
+        /// Identifier.
         /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
-        global,
+        identifier,
 
-        // Local.
+        /// Local.
         /// Uses the `str_tok` union field. Token is the identifier name. String is the identifier name.
         local,
 
@@ -426,6 +426,7 @@ pub const Inst = struct {
         zero,
         one,
         negative_one,
+        empty,
         empty_list,
         x,
         y,

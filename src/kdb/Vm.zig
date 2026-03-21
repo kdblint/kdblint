@@ -130,7 +130,7 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
             vm.stack.appendAssumeCapacity(symbol_list);
         },
 
-        .init_global => {
+        .init_identifier => {
             const data = vm.code.instData(inst).str_tok;
             const string = data.get(vm.code);
             const interned_string = try vm.intern(string);
@@ -152,7 +152,7 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
         },
 
         // Handled in `getRef`.
-        .global => {},
+        .identifier => {},
 
         .list => {
             const data = vm.code.instData(inst).pl_node;
@@ -274,7 +274,7 @@ fn getRef(vm: *Vm, ref: Zir.Inst.Ref) !*KStruct {
         unreachable;
     } else if (ref.toIndex()) |inst| {
         switch (vm.code.instTag(inst)) {
-            .init_global, .global => {
+            .init_identifier, .identifier => {
                 const data = vm.code.instData(inst).str_tok;
                 const string = data.get(vm.code);
                 const interned_string = try vm.intern(string);
@@ -286,10 +286,12 @@ fn getRef(vm: *Vm, ref: Zir.Inst.Ref) !*KStruct {
                 assert(values.type == .list);
 
                 const symbol_list: []InternedString = @ptrCast(@alignCast(keys.as.list));
-                const index = std.mem.findScalar(InternedString, symbol_list, interned_string);
-                assert(index != null);
-                const value_items: []*KStruct = @ptrCast(@alignCast(values.as.list));
-                return value_items[index.?].ref();
+                if (std.mem.findScalar(InternedString, symbol_list, interned_string)) |index| {
+                    const value_items: []*KStruct = @ptrCast(@alignCast(values.as.list));
+                    return value_items[index].ref();
+                } else {
+                    return error.undefined;
+                }
             },
             else => {},
         }

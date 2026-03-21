@@ -362,7 +362,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
     const node = tree.unwrapGroupedExpr(src_node);
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .empty => return .{ .identity, scope },
+        .empty => return .{ .empty, scope },
 
         .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
@@ -1125,7 +1125,7 @@ fn findOrCreateGlobal(
         return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
     }
 
-    const lhs = try gz.addStrTok(.init_global, ident_name, ident_token);
+    const lhs = try gz.addStrTok(.init_identifier, ident_name, ident_token);
 
     const sub_scope = try astgen.arena.create(Scope.LocalVal);
     sub_scope.* = .{
@@ -1497,6 +1497,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
     const callee, scope = try expr(gz, scope, full_call.func);
 
+    if (args.len == 1 and args[0] == .empty) args[0] = .identity;
     const ref = try gz.addApply(src_node, callee, args);
     return .{ ref, scope };
 }
@@ -2483,7 +2484,7 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Resul
         return .{ local_val.inst, scope };
     }
 
-    return .{ try gz.addStrTok(.global, ident_name, ident_token), scope };
+    return .{ try gz.addStrTok(.identifier, ident_name, ident_token), scope };
 }
 
 fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
