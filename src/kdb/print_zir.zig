@@ -233,7 +233,9 @@ const Writer = struct {
             .param_node => try self.writeStrNode(stream, inst),
             .param_implicit => try self.writeUnTok(stream, inst),
 
-            .identifier,
+            .init_global,
+            .global,
+            .local,
             .builtin,
             => try self.writeStrTok(stream, inst),
 

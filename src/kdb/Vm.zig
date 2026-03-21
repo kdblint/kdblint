@@ -130,7 +130,7 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
             vm.stack.appendAssumeCapacity(symbol_list);
         },
 
-        .identifier => {
+        .init_global => {
             const data = vm.code.instData(inst).str_tok;
             const string = data.get(vm.code);
             const interned_string = try vm.intern(string);
@@ -142,18 +142,17 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
             assert(values.type == .list);
 
             const symbol_list: []InternedString = @ptrCast(@alignCast(keys.as.list));
-            if (std.mem.findScalar(InternedString, symbol_list, interned_string)) |index| {
-                const value_items: []*KStruct = @ptrCast(@alignCast(values.as.list));
-                vm.stack.appendAssumeCapacity(value_items[index].ref());
-            } else {
+            if (std.mem.findScalar(InternedString, symbol_list, interned_string) == null) {
                 try vm.append(keys, InternedString, interned_string);
                 errdefer vm.shrink(keys, InternedString, symbol_list.len) catch @panic("OutOfMemory");
-                const dummy_value = vm.getUnaryPrimitive(.identity);
+                const dummy_value = vm.getUnaryPrimitive(._unused);
                 try vm.append(values, *KStruct, dummy_value.ref());
                 errdefer comptime unreachable;
-                vm.stack.appendAssumeCapacity(dummy_value.ref());
             }
         },
+
+        // Handled in `getRef`.
+        .global => {},
 
         .list => {
             const data = vm.code.instData(inst).pl_node;
@@ -210,7 +209,6 @@ fn applyOperator(vm: *Vm, operator: Operator, x_ref: Zir.Inst.Ref, y_ref: Zir.In
     const result = switch (operator) {
         .assign => blk: {
             const inst = x_ref.toIndex().?;
-            assert(vm.code.instTag(inst) == .identifier);
             const data = vm.code.instData(inst).str_tok;
             const string = data.get(vm.code);
             const interned_string = try vm.intern(string);
@@ -274,7 +272,27 @@ fn print(vm: *Vm, ref: Zir.Inst.Ref) !void {
 fn getRef(vm: *Vm, ref: Zir.Inst.Ref) !*KStruct {
     if (ref == .none) {
         unreachable;
-    } else if (ref.toIndex()) |_| {
+    } else if (ref.toIndex()) |inst| {
+        switch (vm.code.instTag(inst)) {
+            .init_global, .global => {
+                const data = vm.code.instData(inst).str_tok;
+                const string = data.get(vm.code);
+                const interned_string = try vm.intern(string);
+
+                const items: []*KStruct = @ptrCast(@alignCast(vm.state.as.list));
+                const keys = items[0];
+                assert(keys.type == .symbol_list);
+                const values = items[1];
+                assert(values.type == .list);
+
+                const symbol_list: []InternedString = @ptrCast(@alignCast(keys.as.list));
+                const index = std.mem.findScalar(InternedString, symbol_list, interned_string);
+                assert(index != null);
+                const value_items: []*KStruct = @ptrCast(@alignCast(values.as.list));
+                return value_items[index.?].ref();
+            },
+            else => {},
+        }
         return vm.stack.pop().?;
     } else {
         const val: InternPool.Index = @enumFromInt(@intFromEnum(ref));
