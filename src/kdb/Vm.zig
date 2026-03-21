@@ -141,8 +141,6 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
             const values = items[1];
             assert(values.type == .list);
 
-            // TODO: Rethink get/set identifier
-
             const symbol_list: []InternedString = @ptrCast(@alignCast(keys.as.list));
             if (std.mem.findScalar(InternedString, symbol_list, interned_string)) |index| {
                 const value_items: []*KStruct = @ptrCast(@alignCast(values.as.list));
@@ -150,10 +148,10 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
             } else {
                 try vm.append(keys, InternedString, interned_string);
                 errdefer vm.shrink(keys, InternedString, symbol_list.len) catch @panic("OutOfMemory");
-                try vm.append(values, *KStruct, vm.getUnaryPrimitive(.identity));
+                const dummy_value = vm.getUnaryPrimitive(.identity);
+                try vm.append(values, *KStruct, dummy_value.ref());
                 errdefer comptime unreachable;
-                const value_items: []*KStruct = @ptrCast(@alignCast(values.as.list));
-                vm.stack.appendAssumeCapacity(@ptrCast(&value_items[value_items.len - 1]));
+                vm.stack.appendAssumeCapacity(dummy_value.ref());
             }
         },
 
@@ -204,13 +202,6 @@ fn applyUnaryPrimitive(vm: *Vm, unary_primitive: UnaryPrimitive, x_ref: Zir.Inst
 }
 
 fn applyOperator(vm: *Vm, operator: Operator, x_ref: Zir.Inst.Ref, y_ref: Zir.Inst.Ref) !void {
-    if (operator == .assign) {
-        const x_ptr: **KStruct = @ptrCast(try vm.getRef(x_ref));
-        const y = try vm.getRef(y_ref);
-        x_ptr.* = y;
-        vm.stack.appendAssumeCapacity(y.ref());
-        return;
-    }
     var x = try vm.getRef(x_ref);
     defer x.deref(vm.gpa);
     var y = try vm.getRef(y_ref);
@@ -218,12 +209,12 @@ fn applyOperator(vm: *Vm, operator: Operator, x_ref: Zir.Inst.Ref, y_ref: Zir.In
 
     const result = switch (operator) {
         .assign => blk: {
-            if (true) unreachable;
-            std.log.debug("{t}", .{x.type});
-            const x_ptr: **KStruct = @ptrCast(x);
-            x_ptr.* = y.ref();
-            std.log.debug("{t}", .{x_ptr.*.type});
-            break :blk y.ref();
+            const inst = x_ref.toIndex().?;
+            assert(vm.code.instTag(inst) == .identifier);
+            const data = vm.code.instData(inst).str_tok;
+            const string = data.get(vm.code);
+            const interned_string = try vm.intern(string);
+            break :blk try vm.assign(interned_string, y);
         },
         .add => try vm.add(x, y),
         .subtract => try vm.subtract(x, y),
@@ -438,6 +429,22 @@ fn keyImpl(vm: *Vm, x: *const KStruct) !*KStruct {
         },
         inline else => |t| std.debug.panic("NYI: {t}", .{t}),
     };
+}
+
+fn assign(vm: *Vm, x: InternedString, y: *KStruct) !*KStruct {
+    const items: []*KStruct = @ptrCast(@alignCast(vm.state.as.list));
+    const keys = items[0];
+    assert(keys.type == .symbol_list);
+    const values = items[1];
+    assert(values.type == .list);
+
+    const symbol_list: []InternedString = @ptrCast(@alignCast(keys.as.list));
+    const index = std.mem.findScalar(InternedString, symbol_list, x).?;
+    const value_items: []*KStruct = @ptrCast(@alignCast(values.as.list));
+
+    value_items[index].deref(vm.gpa);
+    value_items[index] = y.ref();
+    return y.ref();
 }
 
 fn add(vm: *Vm, x: *const KStruct, y: *const KStruct) !*KStruct {
