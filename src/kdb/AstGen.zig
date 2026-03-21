@@ -1119,11 +1119,13 @@ fn findOrCreateGlobal(
     const astgen = gz.astgen;
     var scope = parent_scope;
 
+    assert(op == .assign or op == .identity);
+
     if (scope.findGlobal(ident_name)) |lhs| {
         return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
     }
 
-    const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+    const lhs = try gz.addStrTok(.init_global, ident_name, ident_token);
 
     const sub_scope = try astgen.arena.create(Scope.LocalVal);
     sub_scope.* = .{
@@ -1246,7 +1248,7 @@ fn assign(
     if (scope.findLocal(ident_name)) |lhs| {
         return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
     } else {
-        const lhs = try gz.addStrTok(.identifier, ident_name, ident_token);
+        const lhs = try gz.addStrTok(.local, ident_name, ident_token);
 
         const sub_scope = try astgen.arena.create(Scope.LocalVal);
         sub_scope.* = .{
@@ -2481,7 +2483,7 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Resul
         return .{ local_val.inst, scope };
     }
 
-    return .{ try gz.addStrTok(.identifier, ident_name, ident_token), scope };
+    return .{ try gz.addStrTok(.global, ident_name, ident_token), scope };
 }
 
 fn builtin(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
