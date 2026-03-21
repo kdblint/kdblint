@@ -21,7 +21,7 @@
       "name": "(lldb) Attach",
       "type": "cppdbg",
       "request": "attach",
-      "program": "${workspaceRoot}/dist/macos/aarch64/kdblint",
+      "program": "${workspaceRoot}/zig-out/bin/kdblint.Debug",
       "targetArchitecture": "arm64",
       "MIMode": "lldb"
     }
