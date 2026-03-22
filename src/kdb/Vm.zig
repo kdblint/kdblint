@@ -15,6 +15,7 @@ io: Io,
 gpa: Allocator,
 stdout: *Io.Writer,
 code: Zir = undefined,
+code_list: std.ArrayList(Zir) = .empty,
 stack: std.ArrayList(*KStruct),
 state: *KStruct,
 string_bytes: std.ArrayList(u8) = .empty,
@@ -86,11 +87,15 @@ pub fn deinit(vm: *Vm) void {
     for (vm.unary_primitives) |unary_primitive| unary_primitive.deref(vm.gpa);
     for (vm.operators) |operator| operator.deref(vm.gpa);
     for (vm.iterators) |iterator| iterator.deref(vm.gpa);
+    for (vm.code_list.items) |*code| code.deinit(vm.gpa);
+    vm.code_list.deinit(vm.gpa);
     vm.gpa.destroy(vm);
 }
 
 pub fn exec(vm: *Vm, zir: Zir) !void {
-    vm.code = zir;
+    const code = try zir.clone(vm.gpa);
+    try vm.code_list.append(vm.gpa, code);
+    vm.code = code;
     try vm.execInst(.file_inst);
     assert(vm.stack.items.len == 1);
 }
@@ -123,20 +128,11 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
         },
 
         .lambda => {
-            var code = try vm.code.clone(gpa);
-            errdefer code.deinit(gpa);
-
-            const data = code.instData(inst).lambda;
-            const extra = code.extraData(Zir.Inst.Lambda, data.payload_index);
-
-            const body = code.bodySlice(extra.end, extra.data.body_len);
-            const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + body.len);
+            const data = vm.code.instData(inst).lambda;
 
             const lambda = try vm.createLambda(.{
-                .params_len = extra.data.params_len,
-                .source = src_locs.data.source,
-                .code = code,
-                .body = body,
+                .code_index = @intCast(vm.code_list.items.len - 1),
+                .extra_index = data.payload_index,
             });
             errdefer comptime unreachable;
             vm.stack.appendAssumeCapacity(lambda);
@@ -207,12 +203,7 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
             switch (callee.type) {
                 .lambda => {
                     const lambda: *Lambda = @ptrCast(@alignCast(callee.as.list));
-                    if (args.len > lambda.params_len) return error.rank;
-                    if (args.len < lambda.params_len) {
-                        return error.projection_NYI;
-                    } else {
-                        try vm.applyLambda(lambda, args);
-                    }
+                    try vm.applyLambda(lambda, args);
                 },
                 .unary_primitive => {
                     if (args.len != 1) return error.rank;
@@ -243,7 +234,15 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
 }
 
 fn applyLambda(vm: *Vm, lambda: *const Lambda, args: []const Zir.Inst.Ref) !void {
-    assert(args.len == lambda.params_len);
+    const prev_code = vm.code;
+    defer vm.code = prev_code;
+    vm.code = vm.code_list.items[lambda.code_index];
+
+    const extra = vm.code.extraData(Zir.Inst.Lambda, lambda.extra_index);
+    const params_len = extra.data.params_len;
+
+    if (args.len > params_len) return error.rank;
+    if (args.len < params_len) return error.projection_NYI;
 
     const k_args = blk: {
         var k_args: [AstGen.max_param_len]*KStruct = undefined;
@@ -257,15 +256,10 @@ fn applyLambda(vm: *Vm, lambda: *const Lambda, args: []const Zir.Inst.Ref) !void
     };
     defer for (k_args) |k_arg| k_arg.deref(vm.gpa);
 
-    const prev_code = vm.code;
-    defer {
-        vm.code = prev_code;
-    }
-    vm.code = lambda.code;
-
     // TODO: init locals
 
-    for (lambda.body) |inst| try vm.execInst(inst);
+    const body = vm.code.bodySlice(extra.end, extra.data.body_len);
+    for (body) |inst| try vm.execInst(inst);
 }
 
 fn applyUnaryPrimitive(vm: *Vm, unary_primitive: UnaryPrimitive, x_ref: Zir.Inst.Ref) !void {
@@ -333,7 +327,10 @@ fn print(vm: *Vm, x: *const KStruct) !void {
         },
         .lambda => {
             const lambda: *Lambda = @ptrCast(@alignCast(x.as.list));
-            const source = lambda.code.nullTerminatedString(lambda.source);
+            const code = vm.code_list.items[lambda.code_index];
+            const extra = code.extraData(Zir.Inst.Lambda, lambda.extra_index);
+            const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + extra.data.body_len);
+            const source = code.nullTerminatedString(src_locs.data.source);
             try vm.stdout.print("{s}\n", .{source});
         },
         .unary_primitive => {
@@ -824,14 +821,8 @@ pub fn createLambda(vm: *Vm, lambda: Lambda) !*KStruct {
 }
 
 const Lambda = struct {
-    params_len: u32,
-    source: Zir.NullTerminatedString,
-    code: Zir,
-    body: []const Zir.Inst.Index,
-
-    pub fn deinit(self: *Lambda, gpa: Allocator) void {
-        self.code.deinit(gpa);
-    }
+    code_index: u32,
+    extra_index: u32,
 };
 
 pub fn createUnaryPrimitive(vm: *Vm, value: UnaryPrimitive) !*KStruct {
@@ -953,15 +944,10 @@ pub const KStruct = struct {
                 .minute_list,
                 .second_list,
                 .time_list,
+                .lambda,
                 => gpa.free(self.as.list),
 
                 .table => self.as.table.deref(gpa),
-
-                .lambda => {
-                    const lambda: *Lambda = @ptrCast(@alignCast(self.as.list));
-                    lambda.deinit(gpa);
-                    gpa.free(self.as.list);
-                },
 
                 .unary_primitive,
                 .operator,
