@@ -119,6 +119,21 @@ pub fn deinit(code: *Zir, gpa: Allocator) void {
     code.* = undefined;
 }
 
+pub fn clone(code: *const Zir, gpa: Allocator) !Zir {
+    var instructions = try code.instructions.toMultiArrayList().clone(gpa);
+    errdefer instructions.deinit(gpa);
+    const string_bytes = try gpa.dupe(u8, code.string_bytes);
+    errdefer gpa.free(string_bytes);
+    const extra = try gpa.dupe(u32, code.extra);
+    errdefer comptime unreachable;
+    return .{
+        .instructions = instructions.toOwnedSlice(),
+        .string_bytes = string_bytes,
+        .extra = extra,
+        .compile_duration = code.compile_duration,
+    };
+}
+
 /// These are untyped instructions generated from an Abstract Syntax Tree.
 /// The data here is immutable because it is possible to have multiple
 /// analyses on the same ZIR happening at the same time.
