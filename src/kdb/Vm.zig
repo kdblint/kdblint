@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
+const AstGen = kdb.AstGen;
 const Zir = kdb.Zir;
 const InternPool = kdb.InternPool;
 
@@ -27,6 +28,13 @@ string_table: std.HashMapUnmanaged(
 unary_primitives: [std.meta.tags(UnaryPrimitive).len]*KStruct = undefined,
 operators: [std.meta.tags(Operator).len]*KStruct = undefined,
 iterators: [std.meta.tags(Iterator).len]*KStruct = undefined,
+
+pub const Error = Allocator.Error || Io.Writer.Error || error{
+    undefined,
+    rank,
+    projection_NYI,
+    domain,
+};
 
 pub fn init(io: Io, gpa: Allocator, stdout: *Io.Writer, stack_buffer: []*KStruct) !*Vm {
     const vm = try gpa.create(Vm);
@@ -89,7 +97,10 @@ pub fn exec(vm: *Vm, tree: Ast, zir: Zir) !void {
     assert(vm.stack.items.len == 1);
 }
 
-fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
+fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
+    const gpa = vm.gpa;
+
+    std.log.debug("inst: {t}", .{vm.code.instTag(inst)});
     switch (vm.code.instTag(inst)) {
         .file => {
             const data = vm.code.instData(inst).pl_node;
@@ -114,15 +125,27 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
         },
 
         .lambda => {
-            const data = vm.code.instData(inst).lambda;
-            const extra = vm.code.extraData(Zir.Inst.Lambda, data.payload_index);
+            var code = try vm.code.clone(gpa);
+            errdefer code.deinit(gpa);
+            var tree = try vm.tree.clone(gpa);
+            errdefer tree.deinit(gpa);
 
-            const body = vm.code.bodySlice(extra.end, extra.data.body_len);
+            const data = code.instData(inst).lambda;
+            const extra = code.extraData(Zir.Inst.Lambda, data.payload_index);
 
-            const slice = vm.tree.nodeSlice(data.src_node);
+            const body = code.bodySlice(extra.end, extra.data.body_len);
+
+            const slice = tree.nodeSlice(data.src_node);
             const source = try vm.intern(slice);
 
-            const lambda = try vm.createLambda(extra.data.params_len, body, source);
+            const lambda = try vm.createLambda(.{
+                .params_len = extra.data.params_len,
+                .source = source,
+                .tree = tree,
+                .code = code,
+                .body = body,
+            });
+            errdefer comptime unreachable;
             vm.stack.appendAssumeCapacity(lambda);
         },
 
@@ -187,8 +210,17 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
             const args = vm.code.extraSlice(Zir.Inst.Ref, extra.end, extra.data.len);
 
             const callee = try vm.getRef(extra.data.callee);
-            defer callee.deref(vm.gpa);
+            defer callee.deref(gpa);
             switch (callee.type) {
+                .lambda => {
+                    const lambda: *Lambda = @ptrCast(@alignCast(callee.as.list));
+                    if (args.len > lambda.params_len) return error.rank;
+                    if (args.len < lambda.params_len) {
+                        return error.projection_NYI;
+                    } else {
+                        try vm.applyLambda(lambda, args);
+                    }
+                },
                 .unary_primitive => {
                     if (args.len != 1) return error.rank;
                     try vm.applyUnaryPrimitive(@enumFromInt(callee.as.byte), args[0]);
@@ -201,8 +233,49 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) !void {
             }
         },
 
+        .ret_node => {
+            const data = vm.code.instData(inst).un_node;
+            const operand = try vm.getRef(data.operand);
+            vm.stack.appendAssumeCapacity(operand);
+        },
+
+        .ret_implicit => {
+            const data = vm.code.instData(inst).un_tok;
+            const operand = try vm.getRef(data.operand);
+            vm.stack.appendAssumeCapacity(operand);
+        },
+
         inline else => |t| std.debug.panic("NYI: {t}", .{t}),
     }
+}
+
+fn applyLambda(vm: *Vm, lambda: *const Lambda, args: []const Zir.Inst.Ref) !void {
+    assert(args.len == lambda.params_len);
+
+    const k_args = blk: {
+        var k_args: [AstGen.max_param_len]*KStruct = undefined;
+        var init_count: usize = 0;
+        errdefer for (k_args[0..init_count]) |k_arg| k_arg.deref(vm.gpa);
+        for (args, 0..) |ref, i| {
+            k_args[i] = try vm.getRef(ref);
+            init_count += 1;
+        }
+        break :blk k_args[0..args.len];
+    };
+    defer for (k_args) |k_arg| k_arg.deref(vm.gpa);
+
+    const prev_tree = vm.tree;
+    const prev_code = vm.code;
+    defer {
+        vm.tree = prev_tree;
+        vm.code = prev_code;
+    }
+    vm.tree = lambda.tree;
+    vm.code = lambda.code;
+
+    // TODO: init locals
+
+    for (lambda.body) |inst| try vm.execInst(inst);
 }
 
 fn applyUnaryPrimitive(vm: *Vm, unary_primitive: UnaryPrimitive, x_ref: Zir.Inst.Ref) !void {
@@ -751,14 +824,9 @@ pub fn createDict(vm: *Vm, keys: *KStruct, values: *KStruct) !*KStruct {
     return self;
 }
 
-pub fn createLambda(vm: *Vm, params_len: u32, body: []const Zir.Inst.Index, source: InternedString) !*KStruct {
+pub fn createLambda(vm: *Vm, lambda: Lambda) !*KStruct {
     const self = try vm.gpa.create(KStruct);
     errdefer vm.gpa.destroy(self);
-    const lambda: Lambda = .{
-        .params_len = params_len,
-        .source = source,
-        .body = body,
-    };
     const bytes = try vm.gpa.dupe(u8, @ptrCast(&lambda));
     errdefer comptime unreachable;
     self.* = .{ .type = .lambda, .as = .{ .list = bytes } };
@@ -768,7 +836,15 @@ pub fn createLambda(vm: *Vm, params_len: u32, body: []const Zir.Inst.Index, sour
 const Lambda = struct {
     params_len: u32,
     source: InternedString,
+    tree: Ast,
+    code: Zir,
     body: []const Zir.Inst.Index,
+
+    pub fn deinit(self: *Lambda, gpa: Allocator) void {
+        gpa.free(self.tree.source);
+        self.tree.deinit(gpa);
+        self.code.deinit(gpa);
+    }
 };
 
 pub fn createUnaryPrimitive(vm: *Vm, value: UnaryPrimitive) !*KStruct {
@@ -890,10 +966,15 @@ pub const KStruct = struct {
                 .minute_list,
                 .second_list,
                 .time_list,
-                .lambda,
                 => gpa.free(self.as.list),
 
                 .table => self.as.table.deref(gpa),
+
+                .lambda => {
+                    const lambda: *Lambda = @ptrCast(@alignCast(self.as.list));
+                    lambda.deinit(gpa);
+                    gpa.free(self.as.list);
+                },
 
                 .unary_primitive,
                 .operator,

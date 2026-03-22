@@ -59,6 +59,8 @@ ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty,
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
+pub const max_param_len = 8;
+
 fn addExtra(astgen: *AstGen, extra: anytype) Allocator.Error!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
     try astgen.extra.ensureUnusedCapacity(astgen.gpa, fields.len);
@@ -729,7 +731,11 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
 
     var params_scope = &fn_gz.base;
     const params_len: u32 = if (full_lambda.params) |p| params_len: {
-        if (p.params.len > 8) return astgen.failNode(p.params[8], "too many parameters (8 max)", .{});
+        if (p.params.len > max_param_len) return astgen.failNode(
+            p.params[max_param_len],
+            std.fmt.comptimePrint("too many parameters ({d} max)", .{max_param_len}),
+            .{},
+        );
 
         for (p.params, 0..) |param_node, i| {
             if (tree.nodeTag(param_node) == .identifier) {
