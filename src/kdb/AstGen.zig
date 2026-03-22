@@ -933,6 +933,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
     );
 
     try gz.setLambda(lambda_inst, .{
+        .node = node,
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
         .rbrace = full_lambda.r_brace,
@@ -3148,6 +3149,7 @@ const GenZir = struct {
     ///  * body_gz (top)
     /// Unstacks all of those except for `gz`.
     fn setLambda(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
+        node: Ast.Node.Index,
         lbrace_line: u32,
         lbrace_column: u32,
         rbrace: Ast.TokenIndex,
@@ -3171,6 +3173,7 @@ const GenZir = struct {
             .lbrace_line = args.lbrace_line,
             .rbrace_line = rbrace_line,
             .columns = columns,
+            .source = try astgen.bytesAsString(tree.nodeSlice(args.node)),
         };
 
         const body = args.body_gz.instructionsSlice();

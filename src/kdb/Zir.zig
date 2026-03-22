@@ -713,6 +713,7 @@ pub const Inst = struct {
             /// lbrace_column is least significant bits u16
             /// rbrace_column is most significant bits u16
             columns: u32,
+            source: NullTerminatedString,
         };
     };
 
