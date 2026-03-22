@@ -14,7 +14,6 @@ const Vm = @This();
 io: Io,
 gpa: Allocator,
 stdout: *Io.Writer,
-tree: Ast = undefined,
 code: Zir = undefined,
 stack: std.ArrayList(*KStruct),
 state: *KStruct,
@@ -90,8 +89,7 @@ pub fn deinit(vm: *Vm) void {
     vm.gpa.destroy(vm);
 }
 
-pub fn exec(vm: *Vm, tree: Ast, zir: Zir) !void {
-    vm.tree = tree;
+pub fn exec(vm: *Vm, zir: Zir) !void {
     vm.code = zir;
     try vm.execInst(.file_inst);
     assert(vm.stack.items.len == 1);
@@ -127,21 +125,16 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
         .lambda => {
             var code = try vm.code.clone(gpa);
             errdefer code.deinit(gpa);
-            var tree = try vm.tree.clone(gpa);
-            errdefer tree.deinit(gpa);
 
             const data = code.instData(inst).lambda;
             const extra = code.extraData(Zir.Inst.Lambda, data.payload_index);
 
             const body = code.bodySlice(extra.end, extra.data.body_len);
-
-            const slice = tree.nodeSlice(data.src_node);
-            const source = try vm.intern(slice);
+            const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + body.len);
 
             const lambda = try vm.createLambda(.{
                 .params_len = extra.data.params_len,
-                .source = source,
-                .tree = tree,
+                .source = src_locs.data.source,
                 .code = code,
                 .body = body,
             });
@@ -264,13 +257,10 @@ fn applyLambda(vm: *Vm, lambda: *const Lambda, args: []const Zir.Inst.Ref) !void
     };
     defer for (k_args) |k_arg| k_arg.deref(vm.gpa);
 
-    const prev_tree = vm.tree;
     const prev_code = vm.code;
     defer {
-        vm.tree = prev_tree;
         vm.code = prev_code;
     }
-    vm.tree = lambda.tree;
     vm.code = lambda.code;
 
     // TODO: init locals
@@ -343,7 +333,7 @@ fn print(vm: *Vm, x: *const KStruct) !void {
         },
         .lambda => {
             const lambda: *Lambda = @ptrCast(@alignCast(x.as.list));
-            const source = vm.internedString(lambda.source);
+            const source = lambda.code.nullTerminatedString(lambda.source);
             try vm.stdout.print("{s}\n", .{source});
         },
         .unary_primitive => {
@@ -835,14 +825,11 @@ pub fn createLambda(vm: *Vm, lambda: Lambda) !*KStruct {
 
 const Lambda = struct {
     params_len: u32,
-    source: InternedString,
-    tree: Ast,
+    source: Zir.NullTerminatedString,
     code: Zir,
     body: []const Zir.Inst.Index,
 
     pub fn deinit(self: *Lambda, gpa: Allocator) void {
-        gpa.free(self.tree.source);
-        self.tree.deinit(gpa);
         self.code.deinit(gpa);
     }
 };

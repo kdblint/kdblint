@@ -133,28 +133,6 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.* = undefined;
 }
 
-pub fn clone(tree: *const Ast, gpa: Allocator) !Ast {
-    const source = try gpa.dupeSentinel(u8, tree.source, 0);
-    errdefer gpa.free(source);
-    var tokens = try tree.tokens.toMultiArrayList().clone(gpa);
-    errdefer tokens.deinit(gpa);
-    var nodes = try tree.nodes.toMultiArrayList().clone(gpa);
-    errdefer nodes.deinit(gpa);
-    const extra_data = try gpa.dupe(u32, tree.extra_data);
-    errdefer gpa.free(extra_data);
-    const errors = try gpa.dupe(Error, tree.errors);
-    errdefer comptime unreachable;
-    return .{
-        .source = source,
-        .tokens = tokens.toOwnedSlice(),
-        .nodes = nodes.toOwnedSlice(),
-        .extra_data = extra_data,
-        .errors = errors,
-        .tokenize_duration = tree.tokenize_duration,
-        .parse_duration = tree.parse_duration,
-    };
-}
-
 pub const Mode = enum { k, q };
 
 pub const Version = enum {
