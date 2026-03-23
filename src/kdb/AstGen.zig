@@ -873,7 +873,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
             });
         }
 
-        if (identifiers.get("z")) |ident_node| {
+        if (ident_z) |ident_node| {
             const ident_token = tree.nodeMainToken(ident_node);
             const ident_name = try astgen.tokenAsString(ident_token);
             try lambda_scope.local_decls.put(gpa, ident_name, ident_node);

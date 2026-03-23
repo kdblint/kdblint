@@ -393,13 +393,14 @@ fn cmdRepl(gpa: Allocator, io: Io, args: []const []const u8) !void {
         });
         defer tree.deinit(gpa);
 
-        var document_scope: DocumentScope = .{};
+        var doc_scope: DocumentScope = .{};
+        defer doc_scope.deinit(gpa);
         var context: DocumentScope.ScopeContext = .{
             .gpa = gpa,
             .tree = tree,
-            .doc_scope = &document_scope,
+            .doc_scope = &doc_scope,
         };
-        defer document_scope.deinit(gpa);
+        defer context.deinit();
 
         var zir = try kdb.AstGen.generate(io, gpa, &context);
         defer zir.deinit(gpa);

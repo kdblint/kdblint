@@ -310,11 +310,11 @@ fn apply(vm: *Vm, callee: *KStruct, args: []const ?*KStruct) Error!void {
             if (args.len > missing_args) return error.rank;
             if (args.len < missing_args or std.mem.findScalar(?*KStruct, args, null) != null) {
                 var args_i: usize = 0;
-                var new_args: [AstGen.max_param_len]?*KStruct = undefined;
+                var new_args = std.mem.zeroes([AstGen.max_param_len]?*KStruct);
                 for (projection.args, 0..) |opt_arg, i| {
                     if (opt_arg) |a| {
                         new_args[i] = a.ref();
-                    } else {
+                    } else if (args_i < args.len) {
                         new_args[i] = if (args[args_i]) |a| a.ref() else null;
                         args_i += 1;
                     }
@@ -426,9 +426,14 @@ fn write(vm: *Vm, w: *Io.Writer, x: *const KStruct) !void {
         },
         .projection => {
             const projection: *Projection = @ptrCast(@alignCast(x.as.list));
-
-            _ = projection; // autofix
-            try w.print("TODO", .{});
+            try vm.write(vm.stdout, projection.callee);
+            try vm.stdout.writeByte('[');
+            for (projection.args[0 .. projection.args.len - 1]) |opt_arg| {
+                if (opt_arg) |a| try vm.write(vm.stdout, a);
+                try vm.stdout.writeByte(';');
+            }
+            if (projection.args[projection.args.len - 1]) |arg| try vm.write(vm.stdout, arg);
+            try vm.stdout.writeByte(']');
         },
         inline else => |t| std.debug.panic("NYI: {t}", .{t}),
     }
@@ -476,7 +481,6 @@ fn print(vm: *Vm, x: *const KStruct) !void {
             try vm.write(vm.stdout, projection.callee);
             try vm.stdout.writeByte('[');
             for (projection.args[0 .. projection.args.len - 1]) |opt_arg| {
-                std.log.debug("arg", .{});
                 if (opt_arg) |a| try vm.write(vm.stdout, a);
                 try vm.stdout.writeByte(';');
             }
