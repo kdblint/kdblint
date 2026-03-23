@@ -74,7 +74,10 @@ pub fn init(io: Io, gpa: Allocator, stdout: *Io.Writer, stack_buffer: []*KStruct
     const values = try vm.createList(&.{vm.getUnaryPrimitive(.identity)});
     defer values.deref(gpa);
 
-    vm.state = try vm.createDict(keys, values);
+    vm.state = try vm.createDict(.{
+        .keys = keys,
+        .values = values,
+    });
     errdefer comptime unreachable;
 
     return vm;
@@ -130,7 +133,10 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
         .lambda => {
             const data = vm.code.instData(inst).lambda;
 
+            const l = vm.code.extraData(Zir.Inst.Lambda, data.payload_index);
+
             const lambda = try vm.createLambda(.{
+                .params_len = @intCast(l.data.params_len),
                 .code_index = @intCast(vm.code_list.items.len - 1),
                 .extra_index = data.payload_index,
             });
@@ -200,21 +206,41 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
 
             const callee = try vm.getRef(extra.data.callee);
             defer callee.deref(gpa);
-            switch (callee.type) {
-                .lambda => {
-                    const lambda: *Lambda = @ptrCast(@alignCast(callee.as.list));
-                    try vm.applyLambda(lambda, args);
-                },
-                .unary_primitive => {
-                    if (args.len != 1) return error.rank;
-                    try vm.applyUnaryPrimitive(@enumFromInt(callee.as.byte), args[0]);
-                },
-                .operator => {
-                    if (args.len != 2) return error.rank;
-                    try vm.applyOperator(@enumFromInt(callee.as.byte), args[0], args[1]);
-                },
-                inline else => |t| std.debug.panic("NYI: {t}", .{t}),
+
+            // Assignment needs to be handled differently to other applicable values.
+            if (callee.type == .operator and @as(Operator, @enumFromInt(callee.as.byte)) == .assign) {
+                assert(args.len == 2);
+                assert(args[0] != .none and args[1] != .none); // TODO: Requires AstGen changes.
+
+                const string = vm.code.instData(args[0].toIndex().?).str_tok.get(vm.code);
+                const interned_string = try vm.intern(string);
+                const y = try vm.getRef(args[1]);
+                defer y.deref(vm.gpa);
+                const value = try vm.assign(interned_string, y);
+                vm.stack.appendAssumeCapacity(value);
+                return;
             }
+
+            const k_args = blk: {
+                var k_args: [AstGen.max_param_len]?*KStruct = undefined;
+                var init_count: usize = 0;
+                errdefer for (k_args[0..init_count]) |opt_arg| if (opt_arg) |a| a.deref(vm.gpa);
+                for (args, 0..) |ref, i| {
+                    k_args[i] = try vm.getRefAllowNone(ref);
+                    init_count += 1;
+                }
+                break :blk k_args[0..args.len];
+            };
+            defer for (k_args) |opt_arg| if (opt_arg) |a| a.deref(vm.gpa);
+
+            try vm.apply(callee, k_args);
+        },
+
+        // .param_node => {},
+        .param_implicit => {
+            const data = vm.code.instData(inst).un_tok;
+            const operand = try vm.getRef(data.operand);
+            vm.stack.appendAssumeCapacity(operand);
         },
 
         .ret_node => {
@@ -233,39 +259,99 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
     }
 }
 
-fn applyLambda(vm: *Vm, lambda: *const Lambda, args: []const Zir.Inst.Ref) !void {
+fn apply(vm: *Vm, callee: *KStruct, args: []const ?*KStruct) Error!void {
+    switch (callee.type) {
+        .lambda => {
+            const lambda: Lambda = @bitCast(callee.as.long);
+            if (args.len > lambda.params_len) return error.rank;
+            if (args.len < lambda.params_len or std.mem.findScalar(?*KStruct, args, null) != null) {
+                var projection_args = std.mem.zeroes([AstGen.max_param_len]?*KStruct);
+                for (args, 0..) |opt_arg, i| {
+                    if (opt_arg) |a| projection_args[i] = a.ref();
+                }
+                const projection = try vm.createProjection(.{
+                    .callee = callee,
+                    .args = projection_args[0..lambda.params_len],
+                });
+                vm.stack.appendAssumeCapacity(projection);
+            } else {
+                try vm.applyLambda(lambda, @ptrCast(args));
+            }
+        },
+        .unary_primitive => {
+            assert(args.len == 1);
+            assert(args[0] != null);
+
+            const unary_primitive: UnaryPrimitive = @enumFromInt(callee.as.byte);
+            try vm.applyUnaryPrimitive(unary_primitive, @ptrCast(args[0]));
+        },
+        .operator => {
+            assert(args.len == 2);
+
+            if (args[0] == null or args[1] == null) {
+                const projection_args = &.{
+                    if (args[0]) |a| a.ref() else null,
+                    if (args[1]) |a| a.ref() else null,
+                };
+                const projection = try vm.createProjection(.{
+                    .callee = callee,
+                    .args = projection_args,
+                });
+                vm.stack.appendAssumeCapacity(projection);
+            } else {
+                const operator: Operator = @enumFromInt(callee.as.byte);
+                try vm.applyOperator(operator, @ptrCast(args[0]), @ptrCast(args[1]));
+            }
+        },
+        .iterator => unreachable,
+        .projection => {
+            const projection: *Projection = @ptrCast(@alignCast(callee.as.list));
+            const missing_args = std.mem.countScalar(?*KStruct, projection.args, null);
+            if (args.len > missing_args) return error.rank;
+            if (args.len < missing_args or std.mem.findScalar(?*KStruct, args, null) != null) {
+                var args_i: usize = 0;
+                var new_args: [AstGen.max_param_len]?*KStruct = undefined;
+                for (projection.args, 0..) |opt_arg, i| {
+                    if (opt_arg) |a| {
+                        new_args[i] = a.ref();
+                    } else {
+                        new_args[i] = if (args[args_i]) |a| a.ref() else null;
+                        args_i += 1;
+                    }
+                }
+                errdefer for (new_args[0..projection.args.len]) |opt_arg| {
+                    if (opt_arg) |a| a.deref(vm.gpa);
+                };
+                const new_projection = try vm.createProjection(.{
+                    .callee = callee,
+                    .args = new_args[0..projection.args.len],
+                });
+                vm.stack.appendAssumeCapacity(new_projection);
+            } else {
+                try vm.applyProjection(projection, @ptrCast(args));
+            }
+        },
+        .composition => unreachable,
+        inline else => |t| std.debug.panic("NYI: {t}", .{t}),
+    }
+}
+
+fn applyLambda(vm: *Vm, lambda: Lambda, args: []const *KStruct) !void {
+    assert(args.len == lambda.params_len);
+
     const prev_code = vm.code;
     defer vm.code = prev_code;
     vm.code = vm.code_list.items[lambda.code_index];
 
     const extra = vm.code.extraData(Zir.Inst.Lambda, lambda.extra_index);
-    const params_len = extra.data.params_len;
 
-    if (args.len > params_len) return error.rank;
-    if (args.len < params_len) return error.projection_NYI;
-
-    const k_args = blk: {
-        var k_args: [AstGen.max_param_len]*KStruct = undefined;
-        var init_count: usize = 0;
-        errdefer for (k_args[0..init_count]) |k_arg| k_arg.deref(vm.gpa);
-        for (args, 0..) |ref, i| {
-            k_args[i] = try vm.getRef(ref);
-            init_count += 1;
-        }
-        break :blk k_args[0..args.len];
-    };
-    defer for (k_args) |k_arg| k_arg.deref(vm.gpa);
-
-    // TODO: init locals
+    // TODO: init params
 
     const body = vm.code.bodySlice(extra.end, extra.data.body_len);
     for (body) |inst| try vm.execInst(inst);
 }
 
-fn applyUnaryPrimitive(vm: *Vm, unary_primitive: UnaryPrimitive, x_ref: Zir.Inst.Ref) !void {
-    var x = try vm.getRef(x_ref);
-    defer x.deref(vm.gpa);
-
+fn applyUnaryPrimitive(vm: *Vm, unary_primitive: UnaryPrimitive, x: *const KStruct) !void {
     const result = switch (unary_primitive) {
         .first => try vm.firstImpl(x),
         .reverse => try vm.reverseImpl(x),
@@ -276,20 +362,9 @@ fn applyUnaryPrimitive(vm: *Vm, unary_primitive: UnaryPrimitive, x_ref: Zir.Inst
     vm.stack.appendAssumeCapacity(result);
 }
 
-fn applyOperator(vm: *Vm, operator: Operator, x_ref: Zir.Inst.Ref, y_ref: Zir.Inst.Ref) !void {
-    var x = try vm.getRef(x_ref);
-    defer x.deref(vm.gpa);
-    var y = try vm.getRef(y_ref);
-    defer y.deref(vm.gpa);
-
+fn applyOperator(vm: *Vm, operator: Operator, x: *const KStruct, y: *const KStruct) !void {
     const result = switch (operator) {
-        .assign => blk: {
-            const inst = x_ref.toIndex().?;
-            const data = vm.code.instData(inst).str_tok;
-            const string = data.get(vm.code);
-            const interned_string = try vm.intern(string);
-            break :blk try vm.assign(interned_string, y);
-        },
+        .assign => unreachable,
         .add => try vm.add(x, y),
         .subtract => try vm.subtract(x, y),
         .multiply => try vm.multiply(x, y),
@@ -299,17 +374,68 @@ fn applyOperator(vm: *Vm, operator: Operator, x_ref: Zir.Inst.Ref, y_ref: Zir.In
     vm.stack.appendAssumeCapacity(result);
 }
 
-fn print(vm: *Vm, x: *const KStruct) !void {
+fn applyProjection(vm: *Vm, projection: *const Projection, args: []const *KStruct) !void {
+    var args_i: usize = 0;
+    var projection_args: [AstGen.max_param_len]*KStruct = undefined;
+    for (projection.args, 0..) |opt_arg, i| {
+        if (opt_arg) |a| {
+            projection_args[i] = a;
+        } else {
+            projection_args[i] = args[args_i];
+            args_i += 1;
+        }
+    }
+
+    try vm.apply(projection.callee, projection_args[0..projection.args.len]);
+}
+
+fn write(vm: *Vm, w: *Io.Writer, x: *const KStruct) !void {
     switch (x.type) {
-        .list => {
-            const items: []*KStruct = @ptrCast(@alignCast(x.as.list));
-            if (items.len > 0) {
-                for (items) |k| {
-                    _ = k; // autofix
-                }
-                try vm.stdout.writeByte('\n');
+        .long => try w.print("{d}", .{x.as.long}),
+        .long_list => {
+            const longs: []i64 = @ptrCast(@alignCast(x.as.list));
+            try w.print("{d}", .{longs[0]});
+            for (longs[1..]) |l| {
+                try w.print(" {d}", .{l});
             }
         },
+        .symbol => try w.print("`{s}", .{vm.internedString(x.as.symbol)}),
+        .symbol_list => {
+            const symbols: []InternedString = @ptrCast(@alignCast(x.as.list));
+            for (symbols) |s| try w.print("`{s}", .{vm.internedString(s)});
+        },
+        .lambda => {
+            const lambda: Lambda = @bitCast(x.as.long);
+            const code = vm.code_list.items[lambda.code_index];
+            const extra = code.extraData(Zir.Inst.Lambda, lambda.extra_index);
+            const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + extra.data.body_len);
+            const source = code.nullTerminatedString(src_locs.data.source);
+            try w.print("{s}", .{source});
+        },
+        .unary_primitive => {
+            const unary_primitive: UnaryPrimitive = @enumFromInt(x.as.byte);
+            try w.print("{f}", .{unary_primitive});
+        },
+        .operator => {
+            const operator: Operator = @enumFromInt(x.as.byte);
+            try w.print("{f}", .{operator});
+        },
+        .iterator => {
+            const iterator: Iterator = @enumFromInt(x.as.byte);
+            try w.print("{f}", .{iterator});
+        },
+        .projection => {
+            const projection: *Projection = @ptrCast(@alignCast(x.as.list));
+
+            _ = projection; // autofix
+            try w.print("TODO", .{});
+        },
+        inline else => |t| std.debug.panic("NYI: {t}", .{t}),
+    }
+}
+
+fn print(vm: *Vm, x: *const KStruct) !void {
+    switch (x.type) {
         .long => try vm.stdout.print("{d}\n", .{x.as.long}),
         .long_list => {
             const longs: []i64 = @ptrCast(@alignCast(x.as.list));
@@ -326,7 +452,7 @@ fn print(vm: *Vm, x: *const KStruct) !void {
             try vm.stdout.writeByte('\n');
         },
         .lambda => {
-            const lambda: *Lambda = @ptrCast(@alignCast(x.as.list));
+            const lambda: Lambda = @bitCast(x.as.long);
             const code = vm.code_list.items[lambda.code_index];
             const extra = code.extraData(Zir.Inst.Lambda, lambda.extra_index);
             const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + extra.data.body_len);
@@ -345,15 +471,31 @@ fn print(vm: *Vm, x: *const KStruct) !void {
             const iterator: Iterator = @enumFromInt(x.as.byte);
             try vm.stdout.print("{f}\n", .{iterator});
         },
+        .projection => {
+            const projection: *Projection = @ptrCast(@alignCast(x.as.list));
+            try vm.write(vm.stdout, projection.callee);
+            try vm.stdout.writeByte('[');
+            for (projection.args[0 .. projection.args.len - 1]) |opt_arg| {
+                std.log.debug("arg", .{});
+                if (opt_arg) |a| try vm.write(vm.stdout, a);
+                try vm.stdout.writeByte(';');
+            }
+            if (projection.args[projection.args.len - 1]) |arg| try vm.write(vm.stdout, arg);
+            try vm.stdout.writeAll("]\n");
+        },
         inline else => |t| std.debug.panic("NYI: {t}", .{t}),
     }
     try vm.stdout.flush();
 }
 
+fn getRefAllowNone(vm: *Vm, ref: Zir.Inst.Ref) !?*KStruct {
+    if (ref == .none) return null;
+    return vm.getRef(ref);
+}
+
 fn getRef(vm: *Vm, ref: Zir.Inst.Ref) !*KStruct {
-    if (ref == .none) {
-        unreachable;
-    } else if (ref.toIndex()) |inst| {
+    assert(ref != .none);
+    if (ref.toIndex()) |inst| {
         switch (vm.code.instTag(inst)) {
             .init_identifier, .identifier => {
                 const data = vm.code.instData(inst).str_tok;
@@ -386,6 +528,9 @@ fn getRef(vm: *Vm, ref: Zir.Inst.Ref) !*KStruct {
             .one => try vm.createLong(1),
             .negative_one => try vm.createLong(-1),
             .empty_list => try vm.createList(&.{}),
+            .x => unreachable,
+            .y => unreachable,
+            .z => unreachable,
 
             .identity => vm.getUnaryPrimitive(.identity).ref(),
             .flip => vm.getUnaryPrimitive(.flip).ref(),
@@ -578,6 +723,7 @@ fn multiply(vm: *Vm, x: *const KStruct, y: *const KStruct) !*KStruct {
     };
 }
 
+// TODO: list projection (1;;3)
 fn list(vm: *Vm, refs: []const Zir.Inst.Ref) !void {
     var data: std.ArrayList(i64) = try .initCapacity(vm.gpa, refs.len);
     defer data.deinit(vm.gpa);
@@ -621,7 +767,7 @@ fn intern(vm: *Vm, value: []const u8) !InternedString {
 
 pub fn internedString(vm: *Vm, index: InternedString) [:0]const u8 {
     const slice = vm.string_bytes.items[@intFromEnum(index)..];
-    return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
+    return slice[0..std.mem.findScalar(u8, slice, 0).? :0];
 }
 
 pub fn createList(vm: *Vm, value: []const *KStruct) !*KStruct {
@@ -802,28 +948,39 @@ pub fn createTable(vm: *Vm) !*KStruct {
     return error.NYI;
 }
 
-pub fn createDict(vm: *Vm, keys: *KStruct, values: *KStruct) !*KStruct {
+const Dict = struct {
+    keys: *KStruct,
+    values: *KStruct,
+};
+
+pub fn createDict(vm: *Vm, dict: Dict) !*KStruct {
     const self = try vm.gpa.create(KStruct);
     errdefer vm.gpa.destroy(self);
-    const items = try vm.gpa.dupe(u8, @ptrCast(&.{ keys.ref(), values.ref() }));
+    var d = dict;
+    _ = d.keys.ref();
+    _ = d.values.ref();
+    const items = try vm.gpa.dupe(u8, @ptrCast(&dict));
     errdefer comptime unreachable;
     self.* = .{ .type = .dict, .as = .{ .list = items } };
     return self;
 }
 
+const Lambda = packed struct(i64) {
+    params_len: u4,
+    code_index: u28,
+    extra_index: u32,
+
+    comptime {
+        assert(std.math.maxInt(@FieldType(@This(), "params_len")) >= AstGen.max_param_len);
+    }
+};
+
 pub fn createLambda(vm: *Vm, lambda: Lambda) !*KStruct {
     const self = try vm.gpa.create(KStruct);
-    errdefer vm.gpa.destroy(self);
-    const bytes = try vm.gpa.dupe(u8, @ptrCast(&lambda));
     errdefer comptime unreachable;
-    self.* = .{ .type = .lambda, .as = .{ .list = bytes } };
+    self.* = .{ .type = .lambda, .as = .{ .long = @bitCast(lambda) } };
     return self;
 }
-
-const Lambda = struct {
-    code_index: u32,
-    extra_index: u32,
-};
 
 pub fn createUnaryPrimitive(vm: *Vm, value: UnaryPrimitive) !*KStruct {
     const self = try vm.gpa.create(KStruct);
@@ -843,6 +1000,24 @@ pub fn createIterator(vm: *Vm, value: Iterator) !*KStruct {
     const self = try vm.gpa.create(KStruct);
     errdefer comptime unreachable;
     self.* = .{ .type = .iterator, .as = .{ .byte = @intFromEnum(value) } };
+    return self;
+}
+
+const Projection = struct {
+    callee: *KStruct,
+    args: []const ?*KStruct,
+};
+
+pub fn createProjection(vm: *Vm, projection: Projection) !*KStruct {
+    const self = try vm.gpa.create(KStruct);
+    errdefer vm.gpa.destroy(self);
+    var p = projection;
+    _ = p.callee.ref();
+    p.args = try vm.gpa.dupe(?*KStruct, p.args);
+    errdefer vm.gpa.free(p.args);
+    const bytes = try vm.gpa.dupe(u8, @ptrCast(&p));
+    errdefer comptime unreachable;
+    self.* = .{ .type = .projection, .as = .{ .list = bytes } };
     return self;
 }
 
@@ -923,6 +1098,7 @@ pub const KStruct = struct {
                 .minute,
                 .second,
                 .time,
+                .lambda,
                 => {},
 
                 .guid,
@@ -944,7 +1120,6 @@ pub const KStruct = struct {
                 .minute_list,
                 .second_list,
                 .time_list,
-                .lambda,
                 => gpa.free(self.as.list),
 
                 .table => self.as.table.deref(gpa),
@@ -952,9 +1127,16 @@ pub const KStruct = struct {
                 .unary_primitive,
                 .operator,
                 .iterator,
-                .projection,
                 .composition,
                 => {},
+
+                .projection => {
+                    const projection: *Projection = @ptrCast(@alignCast(self.as.list));
+                    projection.callee.deref(gpa);
+                    for (projection.args) |opt_arg| if (opt_arg) |a| a.deref(gpa);
+                    gpa.free(projection.args);
+                    gpa.free(self.as.list);
+                },
             }
             gpa.destroy(self);
         }

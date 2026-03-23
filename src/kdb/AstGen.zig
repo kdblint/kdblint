@@ -364,7 +364,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
     const node = tree.unwrapGroupedExpr(src_node);
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .empty => return .{ .empty, scope },
+        .empty => return .{ .none, scope },
 
         .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
@@ -1504,7 +1504,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
     const callee, scope = try expr(gz, scope, full_call.func);
 
-    if (args.len == 1 and args[0] == .empty) args[0] = .identity;
+    if (args.len == 1 and args[0] == .none) args[0] = .identity;
     const ref = try gz.addApply(src_node, callee, args);
     return .{ ref, scope };
 }
