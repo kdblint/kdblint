@@ -1090,7 +1090,7 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope, implicit_par
 /// Given an index into `string_bytes` returns the null-terminated string found there.
 fn nullTerminatedString(astgen: *AstGen, index: Zir.NullTerminatedString) [:0]const u8 {
     const slice = astgen.string_bytes.items[@intFromEnum(index)..];
-    return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
+    return slice[0..std.mem.findScalar(u8, slice, 0).? :0];
 }
 
 fn exprBlock(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
@@ -1240,7 +1240,7 @@ fn assign(
         }
     }
 
-    if (std.mem.indexOfScalar(u8, ident_bytes, '.')) |_| {
+    if (std.mem.findScalar(u8, ident_bytes, '.')) |_| {
         return findOrCreateGlobal(
             gz,
             scope,
@@ -2653,7 +2653,7 @@ fn scanNode(
                         next,
                     );
 
-                    if (std.mem.indexOfScalar(u8, ident_bytes, '.') != null or args.local_decls == null) {
+                    if (std.mem.findScalar(u8, ident_bytes, '.') != null or args.local_decls == null) {
                         try args.global_decls.put(gpa, ident_name, node);
                     } else {
                         try args.local_decls.?.put(gpa, ident_name, node);
@@ -2707,7 +2707,7 @@ fn scanNode(
                             next,
                         );
 
-                        if (std.mem.indexOfScalar(u8, ident_bytes, '.') != null or args.local_decls == null) {
+                        if (std.mem.findScalar(u8, ident_bytes, '.') != null or args.local_decls == null) {
                             try args.global_decls.put(gpa, ident_name, node);
                         } else {
                             try args.local_decls.?.put(gpa, ident_name, node);

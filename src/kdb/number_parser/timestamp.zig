@@ -35,7 +35,7 @@ pub fn parseTimestamp(bytes: []const u8, allow_suffix: bool) Result {
     var offset: usize = 0;
 
     var days_value: i64 = 0;
-    if (std.mem.indexOfScalar(u8, slice, 'D')) |d_index| {
+    if (std.mem.findScalar(u8, slice, 'D')) |d_index| {
         days_value = switch (parseDate(slice[0..d_index], false)) {
             .date => |date| @intCast(date),
             .failure => |err| return .{ .failure = err },
