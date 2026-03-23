@@ -97,7 +97,7 @@ pub const NullTerminatedString = enum(u32) {
 /// Given an index into `string_bytes` returns the null-terminated string found there.
 pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8 {
     const slice = code.string_bytes[@intFromEnum(index)..];
-    return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
+    return slice[0..std.mem.findScalar(u8, slice, 0).? :0];
 }
 
 pub fn bodySlice(code: Zir, start: usize, len: usize) []Inst.Index {

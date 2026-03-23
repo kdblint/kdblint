@@ -31,7 +31,7 @@ pub fn parseTimespan(bytes: []const u8, allow_suffix: bool) Result {
     };
 
     const slice = if (allow_suffix and bytes[bytes.len - 1] == 'n') bytes[0 .. bytes.len - 1] else bytes;
-    if (std.mem.indexOfScalar(u8, slice, 'D')) |d_index| {
+    if (std.mem.findScalar(u8, slice, 'D')) |d_index| {
         const days_value = switch (parseSlice(i64, slice[0..d_index])) {
             .overflow => return .{ .failure = .overflow },
             .invalid_character => |i| return .{ .failure = .{ .invalid_character = i } },
@@ -41,7 +41,7 @@ pub fn parseTimespan(bytes: []const u8, allow_suffix: bool) Result {
         const offset = d_index + 1;
 
         var nanosecond_value: i64 = 0;
-        if (std.mem.indexOfScalar(u8, content, '.')) |dot_index| {
+        if (std.mem.findScalar(u8, content, '.')) |dot_index| {
             for (content[dot_index + 1 ..], 0..) |c, i| {
                 if (i == 9) break;
                 const digit = switch (c) {

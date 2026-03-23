@@ -431,7 +431,7 @@ fn renderList(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderExpression(&sub_render, expr, .none);
                 const written = sub_expr_buffer.written();
                 const width = written.len - start;
-                const this_contains_newline = mem.indexOfScalar(u8, written[start..], '\n') != null;
+                const this_contains_newline = mem.findScalar(u8, written[start..], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
                 expr_widths[i] = width;
                 expr_newlines[i] = this_contains_newline;
@@ -455,7 +455,7 @@ fn renderList(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderExpression(&sub_render, expr, .none);
                 const written = sub_expr_buffer.written();
                 const width = written.len - start;
-                const this_contains_newline = mem.indexOfScalar(u8, written[start..][0..width], '\n') != null;
+                const this_contains_newline = mem.findScalar(u8, written[start..][0..width], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
                 expr_widths[i] = width;
                 expr_newlines[i] = contains_newline;
@@ -998,7 +998,7 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
             // Leave up to one empty line before the first comment
             try ais.insertNewline();
             try ais.insertNewline();
-        } else if (mem.indexOfScalar(u8, tree.source[index..comment.start], '\n') != null) {
+        } else if (mem.findScalar(u8, tree.source[index..comment.start], '\n') != null) {
             // Respect the newline directly before the comment.
             // Note: This allows an empty line between comments
             try ais.insertNewline();

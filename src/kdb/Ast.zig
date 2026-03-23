@@ -547,7 +547,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
 pub fn tokensOnSameLine(tree: Ast, token1: TokenIndex, token2: TokenIndex) bool {
     const token_locs = tree.tokens.items(.loc);
     const source = tree.source[token_locs[token1].start..token_locs[token2].start];
-    return mem.indexOfScalar(u8, source, '\n') == null;
+    return mem.findScalar(u8, source, '\n') == null;
 }
 
 pub fn renderError(tree: Ast, parse_error: Error, writer: *Io.Writer) !void {
