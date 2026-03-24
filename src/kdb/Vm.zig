@@ -99,27 +99,32 @@ pub fn exec(vm: *Vm, zir: Zir) !void {
     const code = try zir.clone(vm.gpa);
     try vm.code_list.append(vm.gpa, code);
     vm.code = code;
-    try vm.execInst(.file_inst);
+    const data = vm.code.instData(.file_inst).pl_node;
+    const extra = vm.code.extraData(Zir.Inst.Block, data.payload_index);
+    const body = vm.code.bodySlice(extra.end, extra.data.body_len);
+    if (body.len > 0) {
+        for (body) |i| {
+            try vm.execInst(i);
+        }
+    } else {
+        vm.stack.appendAssumeCapacity(vm.getUnaryPrimitive(.identity));
+    }
     assert(vm.stack.items.len == 1);
 }
 
 fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
     const gpa = vm.gpa;
 
-    std.log.debug("inst: {t}", .{vm.code.instTag(inst)});
+    try vm.stdout.writeAll("          ");
+    for (vm.stack.items) |slot| {
+        try vm.stdout.print("[ {t} ]", .{slot.type});
+    }
+    try vm.stdout.writeByte('\n');
+    try vm.stdout.print("{t}\n", .{vm.code.instTag(inst)});
+    try vm.stdout.flush();
+
     switch (vm.code.instTag(inst)) {
-        .file => {
-            const data = vm.code.instData(inst).pl_node;
-            const extra = vm.code.extraData(Zir.Inst.Block, data.payload_index);
-            const body = vm.code.bodySlice(extra.end, extra.data.body_len);
-            if (body.len > 0) {
-                for (body) |i| {
-                    try vm.execInst(i);
-                }
-            } else {
-                vm.stack.appendAssumeCapacity(vm.getUnaryPrimitive(.identity));
-            }
-        },
+        .file => unreachable,
 
         .print => {
             const data = vm.code.instData(inst).un_node;
