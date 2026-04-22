@@ -38,13 +38,13 @@ string_table: std.HashMapUnmanaged(
     StringIndexContext,
     std.hash_map.default_max_load_percentage,
 ) = .empty,
-compile_errors: std.ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
-compile_warnings: std.ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
+compile_errors: std.ArrayList(Zir.Inst.CompileErrors.Item) = .empty,
+compile_warnings: std.ArrayList(Zir.Inst.CompileErrors.Item) = .empty,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
 imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty,
 /// Used for temporary storage when building payloads.
-scratch: std.ArrayListUnmanaged(u32) = .empty,
+scratch: std.ArrayList(u32) = .empty,
 /// Whenever a `ref` instruction is needed, it is created and saved in this
 /// table instead of being immediately appended to the current block body.
 /// Then, when the instruction is being added to the parent block (typically from
@@ -2017,8 +2017,8 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
             if ((slice.len - 2) % 2 == 0) {
                 for (0..len) |i| {
                     const bytes = slice[2..][(i * 2) .. (i * 2) + 2];
-                    const ref: Zir.Inst.Ref = switch (number_parser.parseByte(bytes)) {
-                        .byte => |value| try gz.addByte(value),
+                    const byte = switch (number_parser.parseByte(bytes)) {
+                        .byte => |value| value,
                         .failure => |err| return astgen.failWithNumberError(
                             err,
                             num_token,
@@ -2027,13 +2027,13 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                         ),
                         else => unreachable,
                     };
-                    astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+                    astgen.scratch.appendAssumeCapacity(byte);
                 }
             } else {
                 {
                     const bytes = slice[2..][0..1];
-                    const ref: Zir.Inst.Ref = switch (number_parser.parseByte(bytes)) {
-                        .byte => |value| try gz.addByte(value),
+                    const byte = switch (number_parser.parseByte(bytes)) {
+                        .byte => |value| value,
                         .failure => |err| return astgen.failWithNumberError(
                             err,
                             num_token,
@@ -2042,13 +2042,13 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                         ),
                         else => unreachable,
                     };
-                    astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+                    astgen.scratch.appendAssumeCapacity(byte);
                 }
 
                 for (1..len) |i| {
                     const bytes = slice[1..][(i * 2) .. (i * 2) + 2];
-                    const ref: Zir.Inst.Ref = switch (number_parser.parseByte(bytes)) {
-                        .byte => |value| try gz.addByte(value),
+                    const byte = switch (number_parser.parseByte(bytes)) {
+                        .byte => |value| value,
                         .failure => |err| return astgen.failWithNumberError(
                             err,
                             num_token,
@@ -2057,12 +2057,13 @@ fn numberLiteral(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
                         ),
                         else => unreachable,
                     };
-                    astgen.scratch.appendAssumeCapacity(@intFromEnum(ref));
+                    astgen.scratch.appendAssumeCapacity(byte);
                 }
             }
 
             const list = astgen.scratch.items[scratch_top..];
             assert(list.len == len);
+            if (list.len == 1) return try gz.addByte(@intCast(list[0]));
             const byte_list = try gz.addPlNode(.byte_list, node, Zir.Inst.List{
                 .len = @intCast(list.len),
             });

@@ -117,7 +117,7 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
 
     try vm.stdout.writeAll("          ");
     for (vm.stack.items) |slot| {
-        try vm.stdout.print("[ {t} ]", .{slot.type});
+        try vm.stdout.print("[ {f} ]", .{slot.alt(vm)});
     }
     try vm.stdout.writeByte('\n');
     try vm.stdout.print("{t}\n", .{vm.code.instTag(inst)});
@@ -130,8 +130,10 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
             const data = vm.code.instData(inst).un_node;
 
             const x = try vm.getRef(data.operand);
+            errdefer x.deref(vm.gpa);
 
-            try vm.print(x);
+            try vm.stdout.print("{f}\n", .{x.alt(vm)});
+            try vm.stdout.flush();
             vm.stack.appendAssumeCapacity(x);
         },
 
@@ -149,6 +151,47 @@ fn execInst(vm: *Vm, inst: Zir.Inst.Index) Error!void {
             vm.stack.appendAssumeCapacity(lambda);
         },
 
+        .bool_list => {
+            const data = vm.code.instData(inst).pl_node;
+            const extra = vm.code.extraData(Zir.Inst.List, data.payload_index);
+            const slice = vm.code.extraSlice(Zir.Inst.Ref, extra.end, extra.data.len);
+            const items = try vm.gpa.alloc(u8, slice.len);
+            errdefer vm.gpa.free(items);
+            for (items, slice) |*i, ref| i.* = switch (ref) {
+                .true => 1,
+                .false => 0,
+                else => unreachable,
+            };
+            const bool_list = try vm.stealBooleanList(items);
+            errdefer comptime unreachable;
+            vm.stack.appendAssumeCapacity(bool_list);
+        },
+        .byte => {
+            const data = vm.code.instData(inst).byte;
+            const byte = try vm.createByte(data);
+            errdefer comptime unreachable;
+            vm.stack.appendAssumeCapacity(byte);
+        },
+        .byte_list => {
+            const data = vm.code.instData(inst).pl_node;
+            const extra = vm.code.extraData(Zir.Inst.List, data.payload_index);
+            const slice = vm.code.extraSlice(u32, extra.end, extra.data.len);
+            const byte_list = try vm.createByteList(slice);
+            errdefer comptime unreachable;
+            vm.stack.appendAssumeCapacity(byte_list);
+        },
+        .short => {
+            const data = vm.code.instData(inst).short;
+            const short = try vm.createShort(data);
+            errdefer comptime unreachable;
+            vm.stack.appendAssumeCapacity(short);
+        },
+        .int => {
+            const data = vm.code.instData(inst).int;
+            const int = try vm.createInt(data);
+            errdefer comptime unreachable;
+            vm.stack.appendAssumeCapacity(int);
+        },
         .long => {
             const data = vm.code.instData(inst).long;
             const long = try vm.createLong(data);
@@ -350,10 +393,14 @@ fn applyLambda(vm: *Vm, lambda: Lambda, args: []const *KStruct) !void {
 
     const extra = vm.code.extraData(Zir.Inst.Lambda, lambda.extra_index);
 
-    // TODO: init params
+    for (args) |v| vm.stack.appendAssumeCapacity(v.ref());
 
     const body = vm.code.bodySlice(extra.end, extra.data.body_len);
     for (body) |inst| try vm.execInst(inst);
+
+    const result = vm.stack.pop().?;
+    for (0..args.len) |_| vm.stack.pop().?.deref(vm.gpa);
+    vm.stack.appendAssumeCapacity(result);
 }
 
 fn applyUnaryPrimitive(vm: *Vm, unary_primitive: UnaryPrimitive, x: *const KStruct) !void {
@@ -392,109 +439,6 @@ fn applyProjection(vm: *Vm, projection: *const Projection, args: []const *KStruc
     }
 
     try vm.apply(projection.callee, projection_args[0..projection.args.len]);
-}
-
-fn write(vm: *Vm, w: *Io.Writer, x: *const KStruct) !void {
-    switch (x.type) {
-        .long => try w.print("{d}", .{x.as.long}),
-        .long_list => {
-            const longs: []i64 = @ptrCast(@alignCast(x.as.list));
-            try w.print("{d}", .{longs[0]});
-            for (longs[1..]) |l| {
-                try w.print(" {d}", .{l});
-            }
-        },
-        .symbol => try w.print("`{s}", .{vm.internedString(x.as.symbol)}),
-        .symbol_list => {
-            const symbols: []InternedString = @ptrCast(@alignCast(x.as.list));
-            for (symbols) |s| try w.print("`{s}", .{vm.internedString(s)});
-        },
-        .lambda => {
-            const lambda: Lambda = @bitCast(x.as.long);
-            const code = vm.code_list.items[lambda.code_index];
-            const extra = code.extraData(Zir.Inst.Lambda, lambda.extra_index);
-            const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + extra.data.body_len);
-            const source = code.nullTerminatedString(src_locs.data.source);
-            try w.print("{s}", .{source});
-        },
-        .unary_primitive => {
-            const unary_primitive: UnaryPrimitive = @enumFromInt(x.as.byte);
-            try w.print("{f}", .{unary_primitive});
-        },
-        .operator => {
-            const operator: Operator = @enumFromInt(x.as.byte);
-            try w.print("{f}", .{operator});
-        },
-        .iterator => {
-            const iterator: Iterator = @enumFromInt(x.as.byte);
-            try w.print("{f}", .{iterator});
-        },
-        .projection => {
-            const projection: *Projection = @ptrCast(@alignCast(x.as.list));
-            try vm.write(vm.stdout, projection.callee);
-            try vm.stdout.writeByte('[');
-            for (projection.args[0 .. projection.args.len - 1]) |opt_arg| {
-                if (opt_arg) |a| try vm.write(vm.stdout, a);
-                try vm.stdout.writeByte(';');
-            }
-            if (projection.args[projection.args.len - 1]) |arg| try vm.write(vm.stdout, arg);
-            try vm.stdout.writeByte(']');
-        },
-        inline else => |t| std.debug.panic("NYI: {t}", .{t}),
-    }
-}
-
-fn print(vm: *Vm, x: *const KStruct) !void {
-    switch (x.type) {
-        .long => try vm.stdout.print("{d}\n", .{x.as.long}),
-        .long_list => {
-            const longs: []i64 = @ptrCast(@alignCast(x.as.list));
-            try vm.stdout.print("{d}", .{longs[0]});
-            for (longs[1..]) |l| {
-                try vm.stdout.print(" {d}", .{l});
-            }
-            try vm.stdout.writeByte('\n');
-        },
-        .symbol => try vm.stdout.print("`{s}\n", .{vm.internedString(x.as.symbol)}),
-        .symbol_list => {
-            const symbols: []InternedString = @ptrCast(@alignCast(x.as.list));
-            for (symbols) |s| try vm.stdout.print("`{s}", .{vm.internedString(s)});
-            try vm.stdout.writeByte('\n');
-        },
-        .lambda => {
-            const lambda: Lambda = @bitCast(x.as.long);
-            const code = vm.code_list.items[lambda.code_index];
-            const extra = code.extraData(Zir.Inst.Lambda, lambda.extra_index);
-            const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + extra.data.body_len);
-            const source = code.nullTerminatedString(src_locs.data.source);
-            try vm.stdout.print("{s}\n", .{source});
-        },
-        .unary_primitive => {
-            const unary_primitive: UnaryPrimitive = @enumFromInt(x.as.byte);
-            try vm.stdout.print("{f}\n", .{unary_primitive});
-        },
-        .operator => {
-            const operator: Operator = @enumFromInt(x.as.byte);
-            try vm.stdout.print("{f}\n", .{operator});
-        },
-        .iterator => {
-            const iterator: Iterator = @enumFromInt(x.as.byte);
-            try vm.stdout.print("{f}\n", .{iterator});
-        },
-        .projection => {
-            const projection: *Projection = @ptrCast(@alignCast(x.as.list));
-            try vm.write(vm.stdout, projection.callee);
-            try vm.stdout.writeByte('[');
-            for (projection.args[0 .. projection.args.len - 1]) |opt_arg| {
-                if (opt_arg) |a| try vm.write(vm.stdout, a);
-                try vm.stdout.writeByte(';');
-            }
-            if (projection.args[projection.args.len - 1]) |arg| try vm.write(vm.stdout, arg);
-            try vm.stdout.writeAll("]\n");
-        },
-        inline else => |t| std.debug.panic("NYI: {t}", .{t}),
-    }
-    try vm.stdout.flush();
 }
 
 fn getRefAllowNone(vm: *Vm, ref: Zir.Inst.Ref) !?*KStruct {
@@ -537,9 +481,9 @@ fn getRef(vm: *Vm, ref: Zir.Inst.Ref) !*KStruct {
             .one => try vm.createLong(1),
             .negative_one => try vm.createLong(-1),
             .empty_list => try vm.createList(&.{}),
-            .x => unreachable,
-            .y => unreachable,
-            .z => unreachable,
+            .x => vm.stack.items[0].ref(),
+            .y => vm.stack.items[1].ref(),
+            .z => vm.stack.items[2].ref(),
 
             .identity => vm.getUnaryPrimitive(.identity).ref(),
             .flip => vm.getUnaryPrimitive(.flip).ref(),
@@ -633,6 +577,49 @@ fn getRef(vm: *Vm, ref: Zir.Inst.Ref) !*KStruct {
             .each_right => vm.getIterator(.each_right).ref(),
             .scan => vm.getIterator(.scan).ref(),
             .each_left => vm.getIterator(.each_left).ref(),
+
+            .null_guid => vm.createGuid(std.mem.zeroes([16]u8)),
+            .null_short => vm.createShort(@intFromEnum(KStruct.Short.null)),
+            .null_int => vm.createInt(@intFromEnum(KStruct.Int.null)),
+            .null_long => vm.createLong(@intFromEnum(KStruct.Long.null)),
+            .null_real => vm.createReal(std.math.nan(f32)),
+            .null_float => vm.createFloat(std.math.nan(f64)),
+            .null_char => vm.createChar(' '),
+            .null_timestamp => vm.createTimestamp(@intFromEnum(KStruct.Long.null)),
+            .null_month => vm.createMonth(@intFromEnum(KStruct.Int.null)),
+            .null_date => vm.createDate(@intFromEnum(KStruct.Int.null)),
+            .null_datetime => vm.createDatetime(std.math.nan(f64)),
+            .null_timespan => vm.createTimespan(@intFromEnum(KStruct.Long.null)),
+            .null_minute => vm.createMinute(@intFromEnum(KStruct.Int.null)),
+            .null_second => vm.createSecond(@intFromEnum(KStruct.Int.null)),
+            .null_time => vm.createTime(@intFromEnum(KStruct.Int.null)),
+
+            .inf_short => vm.createShort(@intFromEnum(KStruct.Short.inf)),
+            .negative_inf_short => vm.createShort(@intFromEnum(KStruct.Short.neg_inf)),
+            .inf_int => vm.createInt(@intFromEnum(KStruct.Int.inf)),
+            .negative_inf_int => vm.createInt(@intFromEnum(KStruct.Int.neg_inf)),
+            .inf_long => vm.createLong(@intFromEnum(KStruct.Long.inf)),
+            .negative_inf_long => vm.createLong(@intFromEnum(KStruct.Long.neg_inf)),
+            .inf_real => vm.createReal(std.math.inf(f32)),
+            .negative_inf_real => vm.createReal(-std.math.inf(f32)),
+            .inf_float => vm.createFloat(std.math.inf(f64)),
+            .negative_inf_float => vm.createFloat(-std.math.inf(f64)),
+            .inf_timestamp => vm.createTimestamp(@intFromEnum(KStruct.Long.inf)),
+            .negative_inf_timestamp => vm.createTimestamp(@intFromEnum(KStruct.Long.neg_inf)),
+            .inf_month => vm.createMonth(@intFromEnum(KStruct.Int.inf)),
+            .negative_inf_month => vm.createMonth(@intFromEnum(KStruct.Int.neg_inf)),
+            .inf_date => vm.createDate(@intFromEnum(KStruct.Int.inf)),
+            .negative_inf_date => vm.createDate(@intFromEnum(KStruct.Int.neg_inf)),
+            .inf_datetime => vm.createDatetime(std.math.inf(f64)),
+            .negative_inf_datetime => vm.createDatetime(-std.math.inf(f64)),
+            .inf_timespan => vm.createTimespan(@intFromEnum(KStruct.Long.inf)),
+            .negative_inf_timespan => vm.createTimespan(@intFromEnum(KStruct.Long.neg_inf)),
+            .inf_minute => vm.createMinute(@intFromEnum(KStruct.Int.inf)),
+            .negative_inf_minute => vm.createMinute(@intFromEnum(KStruct.Int.neg_inf)),
+            .inf_second => vm.createSecond(@intFromEnum(KStruct.Int.inf)),
+            .negative_inf_second => vm.createSecond(@intFromEnum(KStruct.Int.neg_inf)),
+            .inf_time => vm.createTime(@intFromEnum(KStruct.Int.inf)),
+            .negative_inf_time => vm.createTime(@intFromEnum(KStruct.Int.neg_inf)),
 
             inline else => |t| std.debug.panic("NYI: {t}", .{t}),
         };
@@ -796,10 +783,17 @@ pub fn createBoolean(vm: *Vm, value: bool) !*KStruct {
     return self;
 }
 
+pub fn stealBooleanList(vm: *Vm, value: []u8) !*KStruct {
+    const self = try vm.gpa.create(KStruct);
+    errdefer vm.gpa.destroy(self);
+    self.* = .{ .type = .boolean_list, .as = .{ .list = value } };
+    return self;
+}
+
 pub fn createGuid(vm: *Vm, value: [16]u8) !*KStruct {
     const self = try vm.gpa.create(KStruct);
     errdefer vm.gpa.destroy(self);
-    const items = try vm.gpa.dupe(u8, value);
+    const items = try vm.gpa.dupe(u8, &value);
     errdefer comptime unreachable;
     self.* = .{ .type = .guid, .as = .{ .list = items } };
     return self;
@@ -812,10 +806,29 @@ pub fn createByte(vm: *Vm, value: u8) !*KStruct {
     return self;
 }
 
+pub fn createByteList(vm: *Vm, value: []const u32) !*KStruct {
+    const self = try vm.gpa.create(KStruct);
+    errdefer vm.gpa.destroy(self);
+    const items = try vm.gpa.alloc(u8, value.len);
+    errdefer comptime unreachable;
+    for (items, value) |*i, v| i.* = @intCast(v);
+    self.* = .{ .type = .byte_list, .as = .{ .list = items } };
+    return self;
+}
+
 pub fn createShort(vm: *Vm, value: i16) !*KStruct {
     const self = try vm.gpa.create(KStruct);
     errdefer comptime unreachable;
     self.* = .{ .type = .short, .as = .{ .short = value } };
+    return self;
+}
+
+pub fn createShortList(vm: *Vm, value: []const i16) !*KStruct {
+    const self = try vm.gpa.create(KStruct);
+    errdefer vm.gpa.destroy(self);
+    const items = try vm.gpa.dupe(u8, @ptrCast(value));
+    errdefer comptime unreachable;
+    self.* = .{ .type = .short_list, .as = .{ .list = items } };
     return self;
 }
 
@@ -1150,6 +1163,239 @@ pub const KStruct = struct {
             gpa.destroy(self);
         }
     }
+
+    pub fn format(self: *KStruct, w: *Io.Writer, vm: *Vm) !void {
+        switch (self.type) {
+            .list => {
+                const items: []*KStruct = @ptrCast(@alignCast(self.as.list));
+                try w.writeByte('(');
+                if (items.len > 0) {
+                    try w.print("{f}", .{items[0].alt(vm)});
+                    for (items[1..]) |k| try w.print(";{f}", .{k.alt(vm)});
+                }
+                try w.writeByte(')');
+            },
+            .boolean => try w.print("{d}b", .{self.as.byte}),
+            .boolean_list => {
+                const items = self.as.list;
+                if (items.len == 0) {
+                    try w.writeAll("`boolean$()");
+                } else {
+                    if (items.len == 1) try w.writeByte(',');
+                    for (items) |b| try w.print("{d}", .{b});
+                    try w.writeByte('b');
+                }
+            },
+            .guid => {
+                const items = self.as.list[0..16];
+                for (items[0..4]) |b| try w.print("{x:02}", .{b});
+                try w.writeByte('-');
+                for (items[4..6]) |b| try w.print("{x:02}", .{b});
+                try w.writeByte('-');
+                for (items[6..8]) |b| try w.print("{x:02}", .{b});
+                try w.writeByte('-');
+                for (items[8..10]) |b| try w.print("{x:02}", .{b});
+                try w.writeByte('-');
+                for (items[10..16]) |b| try w.print("{x:02}", .{b});
+            },
+            .byte => try w.print("0x{x:02}", .{self.as.byte}),
+            .byte_list => {
+                const items = self.as.list;
+                if (items.len == 0) {
+                    try w.writeAll("`byte$()");
+                } else {
+                    if (items.len == 1) try w.writeByte(',');
+                    try w.writeAll("0x");
+                    for (items) |b| try w.print("{x:02}", .{b});
+                }
+            },
+            .short => try w.print("{f}h", .{@as(Short, @enumFromInt(self.as.short))}),
+            .short_list => {
+                const items: []Short = @ptrCast(@alignCast(self.as.list));
+                if (items.len == 0) {
+                    try w.writeAll("`short$()");
+                } else {
+                    if (items.len == 1) try w.writeByte(',');
+                    try w.print("{f}", .{items[0]});
+                    for (items[1..]) |s| {
+                        try w.print(" {f}", .{s});
+                    }
+                    try w.writeByte('h');
+                }
+            },
+            .int => try w.print("{f}i", .{@as(Int, @enumFromInt(self.as.int))}),
+            .int_list => {
+                const items: []Int = @ptrCast(@alignCast(self.as.list));
+                if (items.len == 0) {
+                    try w.writeAll("`int$()");
+                } else {
+                    if (items.len == 1) try w.writeByte(',');
+                    try w.print("{f}", .{items[0]});
+                    for (items[1..]) |i| {
+                        try w.print(" {f}", .{i});
+                    }
+                    try w.writeByte('i');
+                }
+            },
+            .long => try w.print("{f}", .{@as(Long, @enumFromInt(self.as.long))}),
+            .long_list => {
+                const items: []Long = @ptrCast(@alignCast(self.as.list));
+                if (items.len == 0) {
+                    try w.writeAll("`long$()");
+                } else {
+                    if (items.len == 1) try w.writeByte(',');
+                    try w.print("{f}", .{items[0]});
+                    for (items[1..]) |l| {
+                        try w.print(" {f}", .{l});
+                    }
+                }
+            },
+            .real => try w.print("{d}e", .{self.as.real}),
+            .real_list => {
+                const items: []f32 = @ptrCast(@alignCast(self.as.list));
+                if (items.len == 0) {
+                    try w.writeAll("`real$()");
+                } else {
+                    if (items.len == 1) try w.writeByte(',');
+                    try w.print("{d}", .{items[0]});
+                    for (items[1..]) |f| try w.print(" {d}", .{f});
+                    try w.writeByte('e');
+                }
+            },
+            .float => try w.print("{d}f", .{self.as.real}),
+            .float_list => {
+                const items: []f64 = @ptrCast(@alignCast(self.as.list));
+                if (items.len == 0) {
+                    try w.writeAll("`float$()");
+                } else {
+                    if (items.len == 1) try w.writeByte(',');
+                    try w.print("{d}", .{items[0]});
+                    for (items[1..]) |f| try w.print(" {d}", .{f});
+                    try w.writeByte('f');
+                }
+            },
+            .char => try w.print("\"{c}\"", .{self.as.byte}),
+            .char_list => {
+                const items = self.as.list;
+                if (items.len == 1) try w.writeByte(',');
+                try w.print("\"{s}\"", .{items});
+            },
+            .symbol => try w.print("`{s}", .{vm.internedString(self.as.symbol)}),
+            .symbol_list => {
+                const symbols: []InternedString = @ptrCast(@alignCast(self.as.list));
+                for (symbols) |s| try w.print("`{s}", .{vm.internedString(s)});
+            },
+            .timestamp => @panic("NYI"),
+            .timestamp_list => @panic("NYI"),
+            .month => @panic("NYI"),
+            .month_list => @panic("NYI"),
+            .date => @panic("NYI"),
+            .date_list => @panic("NYI"),
+            .datetime => @panic("NYI"),
+            .datetime_list => @panic("NYI"),
+            .timespan => @panic("NYI"),
+            .timespan_list => @panic("NYI"),
+            .minute => @panic("NYI"),
+            .minute_list => @panic("NYI"),
+            .second => @panic("NYI"),
+            .second_list => @panic("NYI"),
+            .time => @panic("NYI"),
+            .time_list => @panic("NYI"),
+            .lambda => {
+                const lambda: Lambda = @bitCast(self.as.long);
+                const code = vm.code_list.items[lambda.code_index];
+                const extra = code.extraData(Zir.Inst.Lambda, lambda.extra_index);
+                const src_locs = code.extraData(Zir.Inst.Lambda.SrcLocs, extra.end + extra.data.body_len);
+                const source = code.nullTerminatedString(src_locs.data.source);
+                try w.print("{s}", .{source});
+            },
+            .unary_primitive => {
+                const unary_primitive: UnaryPrimitive = @enumFromInt(self.as.byte);
+                try w.print("{f}", .{unary_primitive});
+            },
+            .operator => {
+                const operator: Operator = @enumFromInt(self.as.byte);
+                try w.print("{f}", .{operator});
+            },
+            .iterator => {
+                const iterator: Iterator = @enumFromInt(self.as.byte);
+                try w.print("{f}", .{iterator});
+            },
+            .projection => {
+                const projection: *Projection = @ptrCast(@alignCast(self.as.list));
+                try w.print("{f}", .{projection.callee.alt(vm)});
+                try w.writeByte('[');
+                for (projection.args[0 .. projection.args.len - 1]) |opt_arg| {
+                    if (opt_arg) |arg| try w.print("{f}", .{arg.alt(vm)});
+                    try w.writeByte(';');
+                }
+                if (projection.args[projection.args.len - 1]) |arg| try w.print("{f}", .{arg.alt(vm)});
+                try w.writeByte(']');
+            },
+            inline else => |t| std.debug.panic("NYI: {t}", .{t}),
+        }
+    }
+
+    pub const Alt = struct {
+        vm: *Vm,
+        value: *KStruct,
+
+        pub fn format(data: @This(), w: *Io.Writer) Io.Writer.Error!void {
+            try data.value.format(w, data.vm);
+        }
+    };
+
+    pub fn alt(value: *KStruct, vm: *Vm) std.fmt.Alt(Alt, Alt.format) {
+        return .{ .data = .{ .vm = vm, .value = value } };
+    }
+
+    pub const Short = enum(i16) {
+        null = std.math.minInt(i16),
+        neg_inf = -std.math.maxInt(i16),
+        inf = std.math.maxInt(i16),
+        _,
+
+        pub fn format(self: @This(), w: *Io.Writer) !void {
+            try switch (self) {
+                .null => w.writeAll("0N"),
+                .neg_inf => w.writeAll("-0W"),
+                .inf => w.writeAll("0W"),
+                else => w.print("{d}", .{self}),
+            };
+        }
+    };
+
+    pub const Int = enum(i32) {
+        null = std.math.minInt(i32),
+        neg_inf = -std.math.maxInt(i32),
+        inf = std.math.maxInt(i32),
+        _,
+
+        pub fn format(self: @This(), w: *Io.Writer) !void {
+            try switch (self) {
+                .null => w.writeAll("0N"),
+                .neg_inf => w.writeAll("-0W"),
+                .inf => w.writeAll("0W"),
+                else => w.print("{d}", .{self}),
+            };
+        }
+    };
+
+    pub const Long = enum(i64) {
+        null = std.math.minInt(i64),
+        neg_inf = -std.math.maxInt(i64),
+        inf = std.math.maxInt(i64),
+        _,
+
+        pub fn format(self: @This(), w: *Io.Writer) !void {
+            try switch (self) {
+                .null => w.writeAll("0N"),
+                .neg_inf => w.writeAll("-0W"),
+                .inf => w.writeAll("0W"),
+                else => w.print("{d}", .{self}),
+            };
+        }
+    };
 };
 const Union = union {
     byte: u8,
