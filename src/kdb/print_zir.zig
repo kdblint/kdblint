@@ -207,7 +207,6 @@ const Writer = struct {
 
             .bool_list,
             .guid_list,
-            .byte_list,
             .short_list,
             .int_list,
             .long_list,
@@ -223,6 +222,9 @@ const Writer = struct {
             .second_list,
             .time_list,
             => try self.writePlNodeList(stream, inst),
+
+            .byte_list,
+            => try self.writePlNodeByteList(stream, inst),
 
             .str,
             .sym,
@@ -346,6 +348,22 @@ const Writer = struct {
         }
         try self.writeInstRef(stream, @enumFromInt(list[list.len - 1]));
         try stream.writeAll(") ");
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writePlNodeByteList(self: *Writer, stream: *Io.Writer, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.List, inst_data.payload_index);
+        const list = self.code.extra[extra.end..][0..extra.data.len];
+
+        if (list.len == 0) {
+            try stream.writeAll(") ");
+        } else {
+            for (list[0 .. list.len - 1]) |byte| {
+                try stream.print("{d}, ", .{byte});
+            }
+            try stream.print("{d}) ", .{list[list.len - 1]});
+        }
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
