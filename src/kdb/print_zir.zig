@@ -851,7 +851,7 @@ test "empty" {
         \\    %4 = apply(@add, %2, %3) node_offset:1:7 to :1:10
         \\    %5 = ret_node(%4) node_offset:1:7 to :1:10
         \\  }) (params=2,lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
-        \\  %6 = apply(%1, @one, @empty) node_offset:1:1 to :1:15
+        \\  %6 = apply(%1, @one, .none) node_offset:1:1 to :1:15
         \\  %7 = print(%6)
         \\})
     );
