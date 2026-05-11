@@ -2960,7 +2960,7 @@ const GenZir = struct {
     fn endsWithNoReturn(gz: GenZir) bool {
         if (gz.isEmpty()) return false;
         const tags: []Zir.Inst.Tag = gz.astgen.instructions.items(.tag);
-        return tags[@intFromEnum(gz.instructions.getLast())].isNoReturn();
+        return tags[@intFromEnum(gz.instructions.getLast().?)].isNoReturn();
     }
 
     fn instructionsSlice(self: *const GenZir) []Zir.Inst.Index {

@@ -374,12 +374,8 @@ pub const ScopeContext = struct {
             },
             .loc = loc,
             .parent_scope = context.current_scope,
-            .child_scopes = .{
-                .small = [_]Scope.OptionalIndex{.none} ** Scope.ChildScopes.small_size,
-            },
-            .child_declarations = .{
-                .small = [_]Declaration.OptionalIndex{.none} ** Scope.ChildDeclarations.small_size,
-            },
+            .child_scopes = .{ .small = @splat(.none) },
+            .child_declarations = .{ .small = @splat(.none) },
         });
         const new_scope_index: Scope.Index = @enumFromInt(context.doc_scope.scopes.len - 1);
         if (context.current_scope.unwrap()) |parent_scope| {

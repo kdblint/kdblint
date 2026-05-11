@@ -585,7 +585,7 @@ fn processMessageReportError(
         if (err == error.Canceled) return error.Canceled;
         std.log.err("failed to process {f}: {}", .{ fmtMessage(message), err });
         if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace);
+            std.debug.dumpErrorReturnTrace(trace);
         }
 
         switch (message) {

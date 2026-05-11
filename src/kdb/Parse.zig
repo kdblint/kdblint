@@ -384,7 +384,7 @@ fn parseVerb(p: *Parse, lhs: Node.Index, comptime sql_identifier: ?SqlIdentifier
     if (sql_identifier) |sql_id| if (p.peekIdentifier(sql_id)) |_| return lhs;
 
     const tag = p.peekTag();
-    if (p.ends_expr.getLastOrNull()) |ends_expr| if (tag == ends_expr) return lhs;
+    if (p.ends_expr.getLast()) |ends_expr| if (tag == ends_expr) return lhs;
 
     switch (tag) {
         .l_paren,
@@ -535,7 +535,7 @@ fn parseEmpty(p: *Parse) !Node.Index {
             .main_token = p.tok_i,
             .data = undefined,
         }),
-        else => return p.failExpected(p.ends_expr.getLast()),
+        else => return p.failExpected(p.ends_expr.getLast().?),
     }
 }
 
