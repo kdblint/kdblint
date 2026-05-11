@@ -6,17 +6,18 @@ jobs:
   npm_publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           submodules: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://npm.pkg.github.com
-      - uses: goto-bus-stop/setup-zig@v2
+      - uses: mlugg/setup-zig@v2
         with:
-          cache: false
+          version: master
+          use-cache: false
       - name: Run tests
         run: zig build test --summary new
       - name: Build wasm32-wasi
