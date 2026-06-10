@@ -764,7 +764,7 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
     const settings: Ast.ParseSettings = .{ .mode = mode, .version = version };
 
     for (0..source.len) |i| {
-        const src = try gpa.dupeZ(u8, source[0..i]);
+        const src = try gpa.dupeSentinel(u8, source[0..i], 0);
         defer gpa.free(src);
 
         var tree: Ast = try .parse(io, gpa, src, settings);
