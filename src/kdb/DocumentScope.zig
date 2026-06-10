@@ -1280,6 +1280,36 @@ pub fn getScopeDeclarationChain(
     return doc_scope.declaration_lookup_map.get(lookup);
 }
 
+pub const ResolvedDeclaration = struct {
+    scope: Scope.Index,
+    chain: DeclarationChain,
+};
+
+/// Resolves `name` starting at `start_scope` and walking parent scopes.
+/// q lambdas do not capture outer locals (AstGen's `Scope.findLocal` stops
+/// at lambda boundaries), so once the walk has left a `.function` scope,
+/// further `.function` scopes are skipped. Globals are always declared in
+/// the root `.container` scope (see AstGen's `pending_global_decls`), so
+/// they remain visible from any depth.
+pub fn resolveName(
+    doc_scope: DocumentScope,
+    start_scope: Scope.Index,
+    name: []const u8,
+) ?ResolvedDeclaration {
+    var scope = start_scope;
+    var left_function_scope = false;
+    while (true) {
+        const tag = doc_scope.getScopeTag(scope);
+        if (!(left_function_scope and tag == .function)) {
+            if (doc_scope.getScopeDeclarationChain(.{ .scope = scope, .name = name })) |chain| {
+                return .{ .scope = scope, .chain = chain };
+            }
+        }
+        if (tag == .function) left_function_scope = true;
+        scope = doc_scope.getScopeParent(scope).unwrap() orelse return null;
+    }
+}
+
 pub const DeclarationIterator = struct {
     doc_scope: *const DocumentScope,
     current: Declaration.OptionalIndex,
