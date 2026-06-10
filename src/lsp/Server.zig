@@ -12,6 +12,7 @@ const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
 const DocumentStore = @import("DocumentStore.zig");
 const diagnostics_gen = @import("features/diagnostics.zig");
 const goto = @import("features/goto.zig");
+const references = @import("features/references.zig");
 const semantic_tokens = @import("features/semantic_tokens.zig");
 const diff = @import("diff.zig");
 const Uri = @import("Uri.zig");
@@ -171,6 +172,7 @@ fn initialize(
                 },
             },
             .definitionProvider = .{ .bool = true },
+            .referencesProvider = .{ .bool = true },
         },
     };
 }
@@ -325,6 +327,26 @@ fn @"textDocument/definition"(
     );
 }
 
+fn @"textDocument/references"(
+    server: *Server,
+    arena: Allocator,
+    request: types.reference.Params,
+) !?[]const types.Location {
+    const document_uri = Uri.parse(arena, request.textDocument.uri) catch return error.InvalidParams;
+    const handle = server.document_store.getHandle(document_uri) orelse return null;
+
+    return try references.findReferences(
+        arena,
+        server.io,
+        server.gpa,
+        handle,
+        request.textDocument.uri,
+        request.position,
+        request.context.includeDeclaration,
+        server.offset_encoding,
+    );
+}
+
 fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
     if (!server.client_capabilities.supports_publish_diagnostics) return;
     const do = struct {
@@ -343,6 +365,7 @@ const HandledRequestParams = union(enum) {
     shutdown,
     @"textDocument/semanticTokens/full": types.semantic_tokens.Params,
     @"textDocument/definition": types.Definition.Params,
+    @"textDocument/references": types.reference.Params,
     other: lsp.MethodWithParams,
 };
 
@@ -367,6 +390,7 @@ fn isBlockingMessage(message: Message) bool {
             .initialize, .shutdown => true,
             .@"textDocument/semanticTokens/full",
             .@"textDocument/definition",
+            .@"textDocument/references",
             => false,
             .other => false,
         },
@@ -529,6 +553,7 @@ pub fn sendRequestSync(
         .shutdown => try server.shutdown(arena, params),
         .@"textDocument/semanticTokens/full" => try server.@"textDocument/semanticTokens/full"(arena, params),
         .@"textDocument/definition" => try server.@"textDocument/definition"(arena, params),
+        .@"textDocument/references" => try server.@"textDocument/references"(arena, params),
         .other => return null,
     };
 }

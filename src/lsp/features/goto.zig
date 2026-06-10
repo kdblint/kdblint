@@ -28,18 +28,13 @@ pub fn gotoDefinition(
 
     const doc_scope = try handle.getDocumentScope(io, gpa);
 
-    const chain = chain: {
-        var scope = doc_scope.innermostScopeAtIndex(@intCast(source_index));
-        while (true) {
-            if (doc_scope.getScopeDeclarationChain(.{ .scope = scope, .name = name })) |chain| {
-                break :chain chain;
-            }
-            scope = doc_scope.getScopeParent(scope).unwrap() orelse return null;
-        }
-    };
+    const resolved = doc_scope.resolveName(
+        doc_scope.innermostScopeAtIndex(@intCast(source_index)),
+        name,
+    ) orelse return null;
 
     var locations: std.ArrayList(types.Location) = .empty;
-    var it = doc_scope.iterateDeclarationChain(chain.first);
+    var it = doc_scope.iterateDeclarationChain(resolved.chain.first);
     while (it.next()) |decl_index| {
         const decl = doc_scope.declarations.get(@intFromEnum(decl_index));
         const name_token = decl.nameToken(tree);
@@ -60,7 +55,7 @@ pub fn gotoDefinition(
 /// Returns the `.identifier` token containing `source_index`, if any.
 /// A cursor immediately after the identifier (`source_index == loc.end`)
 /// also counts, matching typical editor behavior.
-fn identifierTokenAtIndex(tree: Ast, source_index: usize) ?Ast.TokenIndex {
+pub fn identifierTokenAtIndex(tree: Ast, source_index: usize) ?Ast.TokenIndex {
     const locs = tree.tokens.items(.loc);
 
     // Find the last token whose start is <= source_index.
@@ -184,6 +179,14 @@ test "cursor immediately after identifier" {
 
 test "local shadows global" {
     try testGotoDefinition("g:1;f:{g:2;g}", 11, &.{7});
+}
+
+test "nested lambda does not capture outer local" {
+    try testGotoDefinition("f:{a:1;h:{a}}", 10, &.{});
+}
+
+test "global resolved from nested lambda" {
+    try testGotoDefinition("a:1;f:{h:{a}}", 10, &.{0});
 }
 
 test "global resolved from inside lambda" {
