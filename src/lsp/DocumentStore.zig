@@ -28,6 +28,8 @@ pub const Handle = struct {
         lock: Io.Mutex = .init,
         lazy_condition: Io.Condition = .init,
         zir: Zir = undefined,
+        /// Computed together with `zir`; valid iff `Status.has_zir` is set.
+        doc_scope: DocumentScope = undefined,
     },
 
     const Status = packed struct(u32) {
@@ -65,7 +67,10 @@ pub const Handle = struct {
 
     pub fn deinit(self: *Handle, gpa: Allocator) void {
         const status = self.getStatus();
-        if (status.has_zir) self.impl.zir.deinit(gpa);
+        if (status.has_zir) {
+            self.impl.zir.deinit(gpa);
+            self.impl.doc_scope.deinit(gpa);
+        }
         gpa.free(self.tree.source);
         self.tree.deinit(gpa);
         self.* = undefined;
@@ -103,7 +108,7 @@ pub const Handle = struct {
             defer self.impl.lazy_condition.broadcast(io);
 
             var doc_scope: DocumentScope = .{};
-            defer doc_scope.deinit(gpa);
+            errdefer doc_scope.deinit(gpa);
             var context: DocumentScope.ScopeContext = .{
                 .gpa = gpa,
                 .tree = self.tree,
@@ -114,10 +119,19 @@ pub const Handle = struct {
             self.impl.zir = try AstGen.generate(io, gpa, &context);
             errdefer comptime unreachable;
 
+            self.impl.doc_scope = doc_scope;
+
             const old_has_data = self.impl.status.bitSet(@bitOffsetOf(Status, "has_zir"), .release);
             assert(old_has_data == 0); // race condition
         }
         return self.impl.zir;
+    }
+
+    /// The `DocumentScope` is computed lazily alongside the `Zir`.
+    /// The returned pointer is valid for the lifetime of the `Handle`.
+    pub fn getDocumentScope(self: *Handle, io: Io, gpa: Allocator) !*const DocumentScope {
+        _ = try self.getZir(io, gpa);
+        return &self.impl.doc_scope;
     }
 };
 
