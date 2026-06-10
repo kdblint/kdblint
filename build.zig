@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) !void {
     const version = try getVersion(b);
     const options = b.addOptions();
     options.addOption(std.SemanticVersion, "version", try .parse(version));
-    options.addOption([:0]const u8, "version_string", try b.allocator.dupeZ(u8, version));
+    options.addOption([:0]const u8, "version_string", try b.allocator.dupeSentinel(u8, version, 0));
     options.addOptionPath("tests_path", b.path("tests"));
 
     const lsp = b.dependency("lsp_kit", .{});

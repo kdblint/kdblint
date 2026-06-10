@@ -6460,7 +6460,7 @@ fn testRender(file_path: []const u8) !void {
     try std.testing.expectEqualStrings(expected_source, actual_source.written());
 
     // Re-render to check determinism
-    const duped_actual_source = try gpa.dupeZ(u8, actual_source.written());
+    const duped_actual_source = try gpa.dupeSentinel(u8, actual_source.written(), 0);
     defer gpa.free(duped_actual_source);
 
     var det_tree: Ast = try .parse(io, gpa, duped_actual_source, .{
