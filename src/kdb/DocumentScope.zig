@@ -12,6 +12,10 @@ const DocumentScope = @This();
 
 scopes: std.MultiArrayList(Scope) = .empty,
 declarations: std.MultiArrayList(Declaration) = .empty,
+/// In lockstep with `declarations`. `declaration_next[i]` is the next
+/// declaration of the same `(scope, name)`, forming a chain of
+/// re-declarations in source order. `.none` terminates the chain.
+declaration_next: std.ArrayListUnmanaged(Declaration.OptionalIndex) = .empty,
 /// used for looking up a child declaration in a given scope
 declaration_lookup_map: DeclarationLookupMap = .empty,
 extra: std.ArrayListUnmanaged(u32) = .empty,
@@ -46,14 +50,22 @@ pub const IdentifierTokenContext = struct {
     }
 };
 
-/// Every `index` inside this `ArrayhashMap` is equivalent to a `Declaration.Index`
-/// This means that every declaration is only the child of a single scope
+/// Maps `(scope, name)` to the chain of declarations of that name in the
+/// scope. A name can be declared multiple times (e.g. re-declaring a global);
+/// every declaration is only the child of a single scope.
 pub const DeclarationLookupMap = std.ArrayHashMapUnmanaged(
     DeclarationLookup,
-    void,
+    DeclarationChain,
     DeclarationLookupContext,
     false,
 );
+
+/// First and last declaration of a `(scope, name)`; the full chain is
+/// traversed via `declaration_next`.
+pub const DeclarationChain = struct {
+    first: Declaration.Index,
+    last: Declaration.Index,
+};
 
 pub const DeclarationLookup = struct {
     scope: Scope.Index,
@@ -284,7 +296,7 @@ pub const ScopeContext = struct {
         ) error{OutOfMemory}!void {
             const name = pushed.context.tree.tokenSlice(identifier_token);
             defer assert(
-                pushed.context.doc_scope.declarations.len == pushed.context.doc_scope.declaration_lookup_map.count(),
+                pushed.context.doc_scope.declarations.len == pushed.context.doc_scope.declaration_next.items.len,
             );
 
             const context = pushed.context;
@@ -295,10 +307,19 @@ pub const ScopeContext = struct {
                 .scope = pushed.scope,
                 .name = name,
             });
-            if (gop.found_existing) return;
 
             try doc_scope.declarations.append(gpa, declaration);
+            try doc_scope.declaration_next.append(gpa, .none);
             const declaration_index: Declaration.Index = @enumFromInt(doc_scope.declarations.len - 1);
+
+            if (gop.found_existing) {
+                // Chain the re-declaration; only the first declaration of a
+                // name is listed in the scope's `child_declarations`.
+                doc_scope.declaration_next.items[@intFromEnum(gop.value_ptr.last)] = declaration_index.toOptional();
+                gop.value_ptr.last = declaration_index;
+                return;
+            }
+            gop.value_ptr.* = .{ .first = declaration_index, .last = declaration_index };
 
             const data = &doc_scope.scopes.items(.data)[@intFromEnum(pushed.scope)];
             const child_declarations = &doc_scope.scopes.items(.child_declarations)[@intFromEnum(pushed.scope)];
@@ -360,7 +381,7 @@ pub const ScopeContext = struct {
             assert(context.current_scope.unwrap().? == pushed.scope);
             context.current_scope = context.doc_scope.getScopeParent(pushed.scope);
 
-            assert(context.doc_scope.declarations.len == context.doc_scope.declaration_lookup_map.count());
+            assert(context.doc_scope.declarations.len == context.doc_scope.declaration_next.items.len);
         }
     };
 
@@ -425,6 +446,7 @@ pub const ScopeContext = struct {
 pub fn deinit(scope: *DocumentScope, gpa: Allocator) void {
     scope.scopes.deinit(gpa);
     scope.declarations.deinit(gpa);
+    scope.declaration_next.deinit(gpa);
     scope.declaration_lookup_map.deinit(gpa);
     scope.extra.deinit(gpa);
 
@@ -1245,10 +1267,58 @@ pub fn getScopeDeclaration(
     doc_scope: DocumentScope,
     lookup: DeclarationLookup,
 ) Declaration.OptionalIndex {
-    return if (doc_scope.declaration_lookup_map.getIndex(lookup)) |idx|
-        @enumFromInt(idx)
+    return if (doc_scope.declaration_lookup_map.get(lookup)) |chain|
+        chain.first.toOptional()
     else
         .none;
+}
+
+pub fn getScopeDeclarationChain(
+    doc_scope: DocumentScope,
+    lookup: DeclarationLookup,
+) ?DeclarationChain {
+    return doc_scope.declaration_lookup_map.get(lookup);
+}
+
+pub const DeclarationIterator = struct {
+    doc_scope: *const DocumentScope,
+    current: Declaration.OptionalIndex,
+
+    pub fn next(it: *DeclarationIterator) ?Declaration.Index {
+        const index = it.current.unwrap() orelse return null;
+        it.current = it.doc_scope.declaration_next.items[@intFromEnum(index)];
+        return index;
+    }
+};
+
+pub fn iterateDeclarationChain(doc_scope: *const DocumentScope, first: Declaration.Index) DeclarationIterator {
+    return .{
+        .doc_scope = doc_scope,
+        .current = first.toOptional(),
+    };
+}
+
+/// Returns the innermost scope whose source range contains `source_index`.
+/// Falls back to `.root`, which spans the entire file.
+pub fn innermostScopeAtIndex(
+    doc_scope: DocumentScope,
+    source_index: u32,
+) Scope.Index {
+    var innermost: Scope.Index = .root;
+    var innermost_len: u32 = std.math.maxInt(u32);
+    for (doc_scope.scopes.items(.loc), 0..) |loc, i| {
+        if (loc.start <= source_index and source_index < loc.end) {
+            const len = loc.end - loc.start;
+            // `<=` so that on equal ranges the later scope wins: child scopes
+            // are appended after their parents, e.g. a lambda spanning the
+            // entire file has the same range as the root scope.
+            if (len <= innermost_len) {
+                innermost = @enumFromInt(i);
+                innermost_len = len;
+            }
+        }
+    }
+    return innermost;
 }
 
 pub fn getScopeDeclarationsConst(

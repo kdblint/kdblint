@@ -56,6 +56,12 @@ scratch: std.ArrayList(u32) = .empty,
 ///    of ZIR.
 /// The key is the ref operand; the value is the ref instruction.
 ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty,
+/// Identifier nodes of global assignments, in source order. Globals belong to
+/// the root scope, but `ScopeContext` shares its scratch lists across nested
+/// scopes with LIFO discipline, so pushing into the root scope while a lambda
+/// scope is open would corrupt the lambda's scratch region. Instead they are
+/// collected here and flushed into the root scope just before it is finalized.
+pending_global_decls: std.ArrayListUnmanaged(Ast.Node.Index) = .empty,
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -226,6 +232,12 @@ pub fn generate(io: Io, gpa: Allocator, context: *DocumentScope.ScopeContext) Al
             break :fatal true;
         };
 
+        // `astgen.scope` is the root scope again at this point; see
+        // `pending_global_decls` for why globals are flushed late.
+        for (astgen.pending_global_decls.items) |ident_node| {
+            try astgen.scope.pushDeclaration(tree.nodeMainToken(ident_node), .{ .ast_node = ident_node });
+        }
+
         try astgen.scope.finalize();
 
         break :compile .{ start.untilNow(io, .real).toMilliseconds(), fatal };
@@ -301,6 +313,7 @@ fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.imports.deinit(gpa);
     astgen.scratch.deinit(gpa);
     astgen.ref_table.deinit(gpa);
+    astgen.pending_global_decls.deinit(gpa);
 }
 
 fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
@@ -810,9 +823,9 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
-            try astgen.scope.pushDeclaration(ident_token, .{
-                .function_parameter = .{ .param_index = 0, .func = node },
-            });
+            // Implicit parameters have no parameter token; their first use
+            // is the closest thing to a declaration site.
+            try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = ident_node });
         } else if (ident_y != null or ident_z != null) {
             const param_inst = try fn_gz.addUnTok(
                 .param_implicit,
@@ -828,9 +841,6 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
-            try astgen.scope.pushDeclaration(full_lambda.l_brace, .{
-                .function_parameter = .{ .param_index = 0, .func = node },
-            });
         }
 
         if (ident_y) |ident_node| {
@@ -850,9 +860,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
-            try astgen.scope.pushDeclaration(ident_token, .{
-                .function_parameter = .{ .param_index = 1, .func = node },
-            });
+            try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = ident_node });
         } else if (ident_z != null) {
             const param_inst = try fn_gz.addUnTok(
                 .param_implicit,
@@ -868,9 +876,6 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
-            try astgen.scope.pushDeclaration(full_lambda.l_brace, .{
-                .function_parameter = .{ .param_index = 1, .func = node },
-            });
         }
 
         if (ident_z) |ident_node| {
@@ -890,9 +895,7 @@ fn lambda(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
                 .id_cat = .@"function parameter",
             };
             params_scope = &sub_scope.base;
-            try astgen.scope.pushDeclaration(ident_token, .{
-                .function_parameter = .{ .param_index = 2, .func = node },
-            });
+            try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = ident_node });
         }
 
         break :params_len if (found_z) 3 else if (found_y) 2 else 1;
@@ -1122,11 +1125,14 @@ fn findOrCreateGlobal(
     rhs: Zir.Inst.Ref,
     ident_name: Zir.NullTerminatedString,
     ident_token: Ast.TokenIndex,
+    ident_node: Ast.Node.Index,
 ) InnerError!Result {
     const astgen = gz.astgen;
     var scope = parent_scope;
 
     assert(op == .assign or op == .identity);
+
+    try astgen.pending_global_decls.append(astgen.gpa, ident_node);
 
     if (scope.findGlobal(ident_name)) |lhs| {
         return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
@@ -1143,7 +1149,6 @@ fn findOrCreateGlobal(
         .id_cat = .@"global variable",
     };
     scope = &sub_scope.base;
-    // try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = src_node });
 
     return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
 }
@@ -1182,6 +1187,7 @@ fn assign(
             rhs,
             ident_name,
             ident_token,
+            ident_node,
         );
     }
 
@@ -1236,6 +1242,7 @@ fn assign(
                 rhs,
                 ident_name,
                 ident_token,
+                ident_node,
             );
         }
     }
@@ -1249,10 +1256,12 @@ fn assign(
             rhs,
             ident_name,
             ident_token,
+            ident_node,
         );
     }
 
     if (scope.findLocal(ident_name)) |lhs| {
+        try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = ident_node });
         return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
     } else {
         const lhs = try gz.addStrTok(.local, ident_name, ident_token);
@@ -1266,7 +1275,7 @@ fn assign(
             .id_cat = .@"local variable",
         };
         scope = &sub_scope.base;
-        try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = src_node });
+        try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = ident_node });
 
         return .{ try gz.addApply(src_node, op, &.{ lhs, rhs }), scope };
     }
@@ -2759,7 +2768,10 @@ fn scanNode(
             const ident_token = tree.nodeMainToken(node);
             const ident_bytes = tree.tokenSlice(ident_token);
 
-            try identifiers.put(gpa, ident_bytes, node);
+            // Keep the first occurrence; it serves as the declaration site
+            // of implicit parameters.
+            const gop = try identifiers.getOrPut(gpa, ident_bytes);
+            if (!gop.found_existing) gop.value_ptr.* = node;
         },
 
         else => {},
