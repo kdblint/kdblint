@@ -1081,8 +1081,8 @@ pub const KStruct = struct {
 
     comptime {
         const expected_size = switch (@import("builtin").mode) {
-            .Debug, .ReleaseSafe => 32,
-            .ReleaseFast, .ReleaseSmall => 24,
+            .Debug, .ReleaseSafe => if (@import("builtin").os.tag == .wasi) 24 else 32,
+            .ReleaseFast, .ReleaseSmall => if (@import("builtin").os.tag == .wasi) 16 else 24,
         };
         assert(@sizeOf(@This()) == expected_size);
     }
