@@ -539,6 +539,8 @@ pub const Inst = struct {
         each_right,
         each_left,
 
+        nil,
+
         null_guid,
         null_short,
         null_int,

@@ -377,7 +377,7 @@ fn expr(gz: *GenZir, scope: *Scope, src_node: Ast.Node.Index) InnerError!Result 
     const node = tree.unwrapGroupedExpr(src_node);
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .empty => return .{ .none, scope },
+        .empty => return .{ .nil, scope },
 
         .grouped_expression => unreachable,
         .empty_list => return .{ .empty_list, scope },
@@ -1513,7 +1513,7 @@ fn call(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) InnerError!
 
     const callee, scope = try expr(gz, scope, full_call.func);
 
-    if (args.len == 1 and args[0] == .none) args[0] = .identity;
+    if (args.len == 1 and args[0] == .nil) args[0] = .identity;
     const ref = try gz.addApply(src_node, callee, args);
     return .{ ref, scope };
 }
@@ -1940,7 +1940,7 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
     const rhs_ref: Zir.Inst.Ref = if (maybe_rhs.unwrap()) |rhs| rhs_ref: {
         const rhs_ref, scope = try expr(gz, scope, rhs);
         break :rhs_ref rhs_ref;
-    } else .none;
+    } else .nil;
 
     if (tree.nodeTag(op_node).isCompoundAssignment()) {
         const op, scope = try compoundAssignExpr(gz, scope, op_node);
