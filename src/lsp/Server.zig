@@ -14,6 +14,7 @@ const diagnostics_gen = @import("features/diagnostics.zig");
 const goto = @import("features/goto.zig");
 const references = @import("features/references.zig");
 const semantic_tokens = @import("features/semantic_tokens.zig");
+const workspace = @import("workspace.zig");
 const diff = @import("diff.zig");
 const Uri = @import("Uri.zig");
 
@@ -29,10 +30,15 @@ status: Status = .uninitialized,
 
 wait_group: std.Io.Group = .init,
 client_capabilities: ClientCapabilities = .{},
+/// Canonicalized URIs of the client's workspace folders. Owned by `gpa`.
+/// Only mutated by `initialize` and blocking notification handlers, which
+/// never run concurrently with `wait_group` tasks.
+workspace_folders: std.ArrayListUnmanaged(Uri) = .empty,
 
 const ClientCapabilities = struct {
     supports_publish_diagnostics: bool = false,
     supports_semantic_tokens_overlapping: bool = false,
+    supports_watched_files_dynamic_registration: bool = false,
 };
 
 pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
@@ -61,6 +67,8 @@ pub fn destroy(server: *Server) void {
     server.wait_group.cancel(server.io);
     server.document_store.deinit();
     server.diagnostics_collection.deinit();
+    for (server.workspace_folders.items) |uri| uri.deinit(server.gpa);
+    server.workspace_folders.deinit(server.gpa);
     server.gpa.destroy(server);
 }
 
@@ -139,6 +147,26 @@ fn initialize(
         }
     }
 
+    if (request.capabilities.workspace) |workspace_capabilities| {
+        if (workspace_capabilities.didChangeWatchedFiles) |watched_files| {
+            server.client_capabilities.supports_watched_files_dynamic_registration = watched_files.dynamicRegistration orelse false;
+        }
+    }
+
+    if (request.workspaceFolders) |folders| {
+        for (folders) |folder| {
+            server.addWorkspaceFolder(folder.uri);
+        }
+    } else if (request.rootUri) |root_uri| {
+        server.addWorkspaceFolder(root_uri);
+    } else if (request.rootPath) |root_path| {
+        if (Uri.fromPath(server.gpa, root_path)) |uri| {
+            server.workspace_folders.append(server.gpa, uri) catch uri.deinit(server.gpa);
+        } else |err| {
+            std.log.warn("ignoring root path {s}: {t}", .{ root_path, err });
+        }
+    }
+
     return .{
         .serverInfo = .{
             .name = "kdblint Language Server",
@@ -185,12 +213,64 @@ fn shutdown(
     server.status = .shutdown;
 }
 
+fn addWorkspaceFolder(server: *Server, uri_text: []const u8) void {
+    const uri = Uri.parse(server.gpa, uri_text) catch |err| {
+        std.log.warn("ignoring workspace folder {s}: {t}", .{ uri_text, err });
+        return;
+    };
+    server.workspace_folders.append(server.gpa, uri) catch uri.deinit(server.gpa);
+}
+
+fn indexWorkspaceFoldersTask(server: *Server, folder_uris: []const Uri) void {
+    workspace.indexWorkspaceFolders(server.io, server.gpa, &server.document_store, folder_uris);
+}
+
 fn initialized(
     server: *Server,
-    _: Allocator,
+    arena: Allocator,
     _: types.InitializedParams,
 ) !void {
     server.status = .initialized;
+
+    server.registerWatchedFiles(arena) catch |err| {
+        std.log.warn("failed to register file watchers: {t}", .{err});
+    };
+
+    server.wait_group.async(server.io, indexWorkspaceFoldersTask, .{ server, server.workspace_folders.items });
+}
+
+const watched_files_response_id = "register-didChangeWatchedFiles";
+
+fn registerWatchedFiles(server: *Server, arena: Allocator) !void {
+    if (!server.client_capabilities.supports_watched_files_dynamic_registration) {
+        std.log.info("client does not support watched-file registration; workspace index may go stale on disk changes", .{});
+        return;
+    }
+
+    const registration_options: types.workspace.did_change_watched_files.RegistrationOptions = .{
+        .watchers = &.{
+            .{ .globPattern = .{ .pattern = "**/*.{q,k}" } },
+        },
+    };
+    // `Registration.registerOptions` is an `LSPAny`; round-trip through JSON
+    // text to build the `std.json.Value` tree.
+    const options_json = try std.json.Stringify.valueAlloc(arena, registration_options, .{
+        .emit_null_optional_fields = false,
+    });
+    const options_value = try std.json.parseFromSliceLeaky(std.json.Value, arena, options_json, .{});
+
+    const json = try server.sendToClientRequest(
+        .{ .string = watched_files_response_id },
+        "client/registerCapability",
+        types.Registration.Params{
+            .registrations = &.{.{
+                .id = "kdblint-watched-files",
+                .method = "workspace/didChangeWatchedFiles",
+                .registerOptions = options_value,
+            }},
+        },
+    );
+    server.gpa.free(json);
 }
 
 fn exit(
@@ -252,7 +332,7 @@ fn @"textDocument/didClose"(
     notification: types.TextDocument.DidCloseParams,
 ) !void {
     const document_uri = Uri.parse(arena, notification.textDocument.uri) catch return error.InvalidParams;
-    server.document_store.closeLspSyncedDocument(document_uri);
+    server.document_store.unsyncOrRemoveDocument(document_uri);
 
     if (server.client_capabilities.supports_publish_diagnostics) {
         server.diagnostics_collection.clearSingleDocumentDiagnostics(document_uri);
@@ -267,9 +347,19 @@ fn @"workspace/didChangeWatchedFiles"(
     arena: Allocator,
     notification: types.workspace.did_change_watched_files.Params,
 ) !void {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = notification; // autofix
+    for (notification.changes) |event| {
+        const uri = Uri.parse(arena, event.uri) catch {
+            std.log.warn("ignoring watched-file event for invalid uri {s}", .{event.uri});
+            continue;
+        };
+        switch (event.type) {
+            .Created, .Changed => server.document_store.loadDocumentFromDisk(uri, .if_not_lsp_synced) catch |err| {
+                std.log.warn("failed to reload watched file {s}: {t}", .{ event.uri, err });
+            },
+            .Deleted => server.document_store.removeDocument(uri, .non_synced_only),
+            _ => {},
+        }
+    }
 }
 
 fn @"workspace/didChangeWorkspaceFolders"(
@@ -277,9 +367,28 @@ fn @"workspace/didChangeWorkspaceFolders"(
     arena: Allocator,
     notification: types.workspace.folders.DidChangeParams,
 ) !void {
-    _ = server; // autofix
-    _ = arena; // autofix
-    _ = notification; // autofix
+    for (notification.event.removed) |folder| {
+        const uri = Uri.parse(arena, folder.uri) catch continue;
+        for (server.workspace_folders.items, 0..) |existing, i| {
+            if (existing.eql(uri)) {
+                existing.deinit(server.gpa);
+                _ = server.workspace_folders.swapRemove(i);
+                break;
+            }
+        }
+        server.document_store.removeDocumentsInFolder(uri);
+    }
+
+    const first_added = server.workspace_folders.items.len;
+    for (notification.event.added) |folder| {
+        server.addWorkspaceFolder(folder.uri);
+    }
+    if (server.workspace_folders.items.len > first_added) {
+        server.wait_group.async(server.io, indexWorkspaceFoldersTask, .{
+            server,
+            server.workspace_folders.items[first_added..],
+        });
+    }
 }
 
 fn @"workspace/didChangeConfiguration"(
@@ -320,8 +429,8 @@ fn @"textDocument/definition"(
         arena,
         server.io,
         server.gpa,
+        &server.document_store,
         handle,
-        request.textDocument.uri,
         request.position,
         server.offset_encoding,
     );
@@ -339,8 +448,8 @@ fn @"textDocument/references"(
         arena,
         server.io,
         server.gpa,
+        &server.document_store,
         handle,
-        request.textDocument.uri,
         request.position,
         request.context.includeDeclaration,
         server.offset_encoding,
@@ -485,7 +594,7 @@ fn sendToClientRequest(server: *Server, id: lsp.JsonRPCMessage.ID, method: []con
         .method = method,
         .params = params,
     };
-    return sendToClientInternal(server.gpa, server.transport, request);
+    return sendToClientInternal(server.io, server.gpa, server.transport, request);
 }
 
 fn sendToClientNotification(server: *Server, method: []const u8, params: anytype) ![]u8 {
@@ -497,7 +606,7 @@ fn sendToClientNotification(server: *Server, method: []const u8, params: anytype
         .method = method,
         .params = params,
     };
-    return sendToClientInternal(server.gpa, server.transport, notification);
+    return sendToClientInternal(server.io, server.gpa, server.transport, notification);
 }
 
 fn sendToClientResponseError(server: *Server, id: lsp.JsonRPCMessage.ID, err: lsp.JsonRPCMessage.Response.Error) ![]u8 {
@@ -725,6 +834,11 @@ fn handleResponse(_: *Server, response: lsp.JsonRPCMessage.Response) !void {
             std.log.err("Error response for '{s}': {}, {s}", .{ id, err.code, err.message });
             return;
         },
+    }
+
+    if (std.mem.eql(u8, id, watched_files_response_id)) {
+        std.log.debug("registered for watched-file notifications", .{});
+        return;
     }
 
     std.log.warn("received response from client with id '{s}' that has no handler!", .{id});
