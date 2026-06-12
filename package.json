@@ -13,7 +13,10 @@
   },
   "license": "MIT",
   "files": [
-    "zig-out/bin/kdblint.wasm",
+    "zig-out/linux/x86_64/kdblint",
+    "zig-out/macos/aarch64/kdblint",
+    "zig-out/wasi/wasm32/kdblint.wasm",
+    "zig-out/windows/x86_64/kdblint.exe",
     "LICENSE",
     "README.md"
   ]
