@@ -16,7 +16,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
       - uses: mlugg/setup-zig@v2
         with:
-          version: master
+          version: 0.17.0-dev.387+31f157d80
       - name: Run tests
         run: zig build test --summary new
       - name: Build wasm32-wasi
