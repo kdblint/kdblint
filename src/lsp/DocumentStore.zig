@@ -152,32 +152,12 @@ pub fn getHandle(self: *DocumentStore, uri: Uri) ?*Handle {
 }
 
 pub fn openLspSyncedDocument(self: *DocumentStore, uri: Uri, text: []const u8) !void {
-    if (self.handles.get(uri)) |handle| {
-        if (handle.isLspSynced()) {
-            std.log.warn("Document already open: {s}", .{uri.percent_encoded});
-        }
-    }
-
     const duped_text = try self.gpa.dupeSentinel(u8, text, 0);
-    _ = try self.createAndStoreDocument(uri, duped_text, true);
-}
-
-pub fn closeLspSyncedDocument(self: *DocumentStore, uri: Uri) void {
-    const kv = self.handles.fetchSwapRemove(uri) orelse {
-        std.log.warn("Document not found: {s}", .{uri.percent_encoded});
-        return;
-    };
-    if (!kv.value.isLspSynced()) {
-        std.log.warn("Document already closed: {s}", .{uri.percent_encoded});
-    }
-
-    kv.key.deinit(self.gpa);
-    kv.value.deinit(self.gpa);
-    self.gpa.destroy(kv.value);
+    _ = try self.createAndStoreDocument(uri, duped_text, true, .always);
 }
 
 pub fn refreshLspSyncedDocument(self: *DocumentStore, uri: Uri, new_text: [:0]const u8) !void {
-    if (self.handles.get(uri)) |handle| {
+    if (self.getHandle(uri)) |handle| {
         if (!handle.isLspSynced()) {
             std.log.warn("Document modified without being opened: {s}", .{uri.percent_encoded});
         }
@@ -185,11 +165,98 @@ pub fn refreshLspSyncedDocument(self: *DocumentStore, uri: Uri, new_text: [:0]co
         std.log.warn("Document modified without being opened: {s}", .{uri.percent_encoded});
     }
 
-    _ = try self.createAndStoreDocument(uri, new_text, true);
+    _ = try self.createAndStoreDocument(uri, new_text, true, .always);
+}
+
+/// What to do when a document already exists for the URI.
+pub const ReplacePolicy = enum {
+    always,
+    never,
+    if_not_lsp_synced,
+};
+
+/// Stores a document that is not synchronized through LSP `textDocument/did*`
+/// notifications. Used by workspace indexing, watched-file events and tests.
+/// Takes ownership of `source`.
+pub fn loadDocumentFromSource(self: *DocumentStore, uri: Uri, source: [:0]const u8, replace: ReplacePolicy) !void {
+    _ = try self.createAndStoreDocument(uri, source, false, replace);
+}
+
+/// Reads `uri` from disk and stores it as a non-lsp-synced document.
+pub fn loadDocumentFromDisk(self: *DocumentStore, uri: Uri, replace: ReplacePolicy) !void {
+    const path = try uri.toFsPath(self.gpa);
+    defer self.gpa.free(path);
+
+    const file = try Io.Dir.cwd().openFile(self.io, path, .{});
+    defer file.close(self.io);
+
+    var read_buffer: [1024]u8 = undefined;
+    var file_reader = file.reader(self.io, &read_buffer);
+    const source = std.zig.readSourceFileToEndAlloc(self.gpa, &file_reader) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
+
+    try self.loadDocumentFromSource(uri, source, replace);
+}
+
+pub const RemovePolicy = enum { any, non_synced_only };
+
+pub fn removeDocument(self: *DocumentStore, uri: Uri, policy: RemovePolicy) void {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+
+    const handle = self.handles.get(uri) orelse return;
+    if (policy == .non_synced_only and handle.isLspSynced()) return;
+
+    const kv = self.handles.fetchSwapRemove(uri).?;
+    kv.key.deinit(self.gpa);
+    kv.value.deinit(self.gpa);
+    self.gpa.destroy(kv.value);
+}
+
+/// `textDocument/didClose`: demote the document to a non-synced one backed by
+/// its on-disk content, or remove it if the file cannot be read (deleted,
+/// non-`file:` scheme, ...). Unsaved buffer changes are discarded either way.
+pub fn unsyncOrRemoveDocument(self: *DocumentStore, uri: Uri) void {
+    self.loadDocumentFromDisk(uri, .always) catch |err| {
+        std.log.debug("removing closed document {s}: {t}", .{ uri.percent_encoded, err });
+        self.removeDocument(uri, .any);
+    };
+}
+
+/// Snapshot of all handles, in insertion order. Handle pointers are
+/// heap-stable; the returned slice is allocated with `allocator`.
+pub fn collectHandles(self: *DocumentStore, allocator: Allocator) ![]*Handle {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+    return allocator.dupe(*Handle, self.handles.values());
+}
+
+/// Removes all non-lsp-synced documents whose URI is inside `folder_uri`.
+pub fn removeDocumentsInFolder(self: *DocumentStore, folder_uri: Uri) void {
+    self.mutex.lockUncancelable(self.io);
+    defer self.mutex.unlock(self.io);
+
+    const folder = folder_uri.percent_encoded;
+    var i: usize = self.handles.count();
+    while (i > 0) {
+        i -= 1;
+        const uri = self.handles.keys()[i];
+        const handle = self.handles.values()[i];
+        if (handle.isLspSynced()) continue;
+        if (!std.mem.startsWith(u8, uri.percent_encoded, folder)) continue;
+        if (uri.percent_encoded.len > folder.len and uri.percent_encoded[folder.len] != '/') continue;
+
+        handle.deinit(self.gpa);
+        self.gpa.destroy(handle);
+        uri.deinit(self.gpa);
+        self.handles.swapRemoveAt(i);
+    }
 }
 
 /// Takes ownership of `source`.
-fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, lsp_synced: bool) !*Handle {
+fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, lsp_synced: bool, replace: ReplacePolicy) !*Handle {
     var new_handle: Handle = handle: {
         errdefer self.gpa.free(source);
         break :handle try .init(self.io, self.gpa, uri, source, lsp_synced);
@@ -203,7 +270,15 @@ fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, 
     errdefer if (!gop.found_existing) assert(self.handles.swapRemove(uri));
 
     if (gop.found_existing) {
-        if (lsp_synced) {
+        const replace_existing = switch (replace) {
+            .always => true,
+            .never => false,
+            .if_not_lsp_synced => !gop.value_ptr.*.isLspSynced(),
+        };
+        if (replace_existing) {
+            if (lsp_synced and gop.value_ptr.*.isLspSynced()) {
+                std.log.warn("Document already open: {s}", .{uri.percent_encoded});
+            }
             new_handle.uri = gop.key_ptr.*;
             gop.value_ptr.*.deinit(self.gpa);
             gop.value_ptr.*.* = new_handle;
@@ -222,6 +297,86 @@ fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, 
     }
 
     return gop.value_ptr.*;
+}
+
+fn testLoadSource(store: *DocumentStore, uri_text: []const u8, source: [:0]const u8, replace: ReplacePolicy) !void {
+    const uri = try Uri.parse(store.gpa, uri_text);
+    defer uri.deinit(store.gpa);
+    const duped = try store.gpa.dupeSentinel(u8, source, 0);
+    try store.loadDocumentFromSource(uri, duped, replace);
+}
+
+test "replace policies" {
+    const gpa = std.testing.allocator;
+    var store: DocumentStore = .{ .io = std.testing.io, .gpa = gpa };
+    defer store.deinit();
+
+    const uri = try Uri.parse(gpa, "file:///a.q");
+    defer uri.deinit(gpa);
+
+    try testLoadSource(&store, "file:///a.q", "a:1", .never);
+    try std.testing.expectEqualStrings("a:1", store.getHandle(uri).?.tree.source);
+
+    // .never keeps the existing document
+    try testLoadSource(&store, "file:///a.q", "a:2", .never);
+    try std.testing.expectEqualStrings("a:1", store.getHandle(uri).?.tree.source);
+
+    // .if_not_lsp_synced replaces a non-synced document
+    try testLoadSource(&store, "file:///a.q", "a:3", .if_not_lsp_synced);
+    try std.testing.expectEqualStrings("a:3", store.getHandle(uri).?.tree.source);
+
+    // but not an lsp-synced one
+    try store.openLspSyncedDocument(uri, "a:4");
+    try testLoadSource(&store, "file:///a.q", "a:5", .if_not_lsp_synced);
+    try std.testing.expectEqualStrings("a:4", store.getHandle(uri).?.tree.source);
+
+    // .always replaces anything
+    try testLoadSource(&store, "file:///a.q", "a:6", .always);
+    try std.testing.expectEqualStrings("a:6", store.getHandle(uri).?.tree.source);
+    try std.testing.expect(!store.getHandle(uri).?.isLspSynced());
+}
+
+test "removeDocument honors the policy" {
+    const gpa = std.testing.allocator;
+    var store: DocumentStore = .{ .io = std.testing.io, .gpa = gpa };
+    defer store.deinit();
+
+    const uri = try Uri.parse(gpa, "file:///a.q");
+    defer uri.deinit(gpa);
+
+    try store.openLspSyncedDocument(uri, "a:1");
+    store.removeDocument(uri, .non_synced_only);
+    try std.testing.expect(store.getHandle(uri) != null);
+
+    store.removeDocument(uri, .any);
+    try std.testing.expectEqual(null, store.getHandle(uri));
+}
+
+test "collectHandles and removeDocumentsInFolder" {
+    const gpa = std.testing.allocator;
+    var store: DocumentStore = .{ .io = std.testing.io, .gpa = gpa };
+    defer store.deinit();
+
+    try testLoadSource(&store, "file:///proj/a.q", "a:1", .never);
+    try testLoadSource(&store, "file:///proj/sub/b.q", "b:1", .never);
+    try testLoadSource(&store, "file:///projother/c.q", "c:1", .never);
+
+    const synced_uri = try Uri.parse(gpa, "file:///proj/open.q");
+    defer synced_uri.deinit(gpa);
+    try store.openLspSyncedDocument(synced_uri, "o:1");
+
+    const handles = try store.collectHandles(gpa);
+    defer gpa.free(handles);
+    try std.testing.expectEqual(4, handles.len);
+
+    const folder = try Uri.parse(gpa, "file:///proj");
+    defer folder.deinit(gpa);
+    store.removeDocumentsInFolder(folder);
+
+    // non-synced docs under /proj are gone; the synced one and the
+    // sibling /projother dir survive
+    try std.testing.expectEqual(2, store.handles.count());
+    try std.testing.expect(store.getHandle(synced_uri) != null);
 }
 
 test {

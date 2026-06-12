@@ -16,8 +16,8 @@ pub fn gotoDefinition(
     arena: Allocator,
     io: Io,
     gpa: Allocator,
+    document_store: *DocumentStore,
     handle: *DocumentStore.Handle,
-    uri: types.DocumentUri,
     position: types.Position,
     encoding: offsets.Encoding,
 ) !?types.Definition.Result {
@@ -27,29 +27,77 @@ pub fn gotoDefinition(
     const name = tree.tokenSlice(ident_token);
 
     const doc_scope = try handle.getDocumentScope(io, gpa);
-
     const resolved = doc_scope.resolveName(
         doc_scope.innermostScopeAtIndex(@intCast(source_index)),
         name,
-    ) orelse return null;
+    );
 
     var locations: std.ArrayList(types.Location) = .empty;
-    var it = doc_scope.iterateDeclarationChain(resolved.chain.first);
-    while (it.next()) |decl_index| {
-        const decl = doc_scope.declarations.get(@intFromEnum(decl_index));
-        const name_token = decl.nameToken(tree);
-        const loc = tree.tokenLoc(name_token);
-        try locations.append(arena, .{
-            .uri = uri,
-            .range = offsets.locToRange(tree.source, .{ .start = loc.start, .end = loc.end }, encoding),
-        });
+
+    if (resolved) |r| {
+        if (r.scope != .root) {
+            // A local or function parameter never crosses file boundaries.
+            try appendChainLocations(arena, &locations, handle, doc_scope, r.chain, encoding);
+            return resultFromLocations(locations.items);
+        }
     }
 
-    return switch (locations.items.len) {
+    // A root-scope declaration or an unresolved identifier is a workspace
+    // global: in q, load order defines globals, so every file's root-scope
+    // declarations of this name are candidate definitions.
+    const handles = try document_store.collectHandles(arena);
+    try appendRootChainLocations(arena, &locations, io, gpa, handle, name, encoding);
+    for (handles) |other| {
+        if (other == handle) continue;
+        try appendRootChainLocations(arena, &locations, io, gpa, other, name, encoding);
+    }
+
+    return resultFromLocations(locations.items);
+}
+
+fn resultFromLocations(locations: []const types.Location) ?types.Definition.Result {
+    return switch (locations.len) {
         0 => null,
-        1 => .{ .definition = .{ .location = locations.items[0] } },
-        else => .{ .definition = .{ .locations = locations.items } },
+        1 => .{ .definition = .{ .location = locations[0] } },
+        else => .{ .definition = .{ .locations = locations } },
     };
+}
+
+fn appendChainLocations(
+    arena: Allocator,
+    locations: *std.ArrayList(types.Location),
+    handle: *DocumentStore.Handle,
+    doc_scope: *const DocumentScope,
+    chain: DocumentScope.DeclarationChain,
+    encoding: offsets.Encoding,
+) !void {
+    var it = doc_scope.iterateDeclarationChain(chain.first);
+    while (it.next()) |decl_index| {
+        const decl = doc_scope.declarations.get(@intFromEnum(decl_index));
+        const loc = handle.tree.tokenLoc(decl.nameToken(handle.tree));
+        try locations.append(arena, .{
+            .uri = handle.uri.percent_encoded,
+            .range = offsets.locToRange(
+                handle.tree.source,
+                .{ .start = loc.start, .end = loc.end },
+                encoding,
+            ),
+        });
+    }
+}
+
+fn appendRootChainLocations(
+    arena: Allocator,
+    locations: *std.ArrayList(types.Location),
+    io: Io,
+    gpa: Allocator,
+    handle: *DocumentStore.Handle,
+    name: []const u8,
+    encoding: offsets.Encoding,
+) !void {
+    const doc_scope = try handle.getDocumentScope(io, gpa);
+    const chain = doc_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name }) orelse return;
+    try appendChainLocations(arena, locations, handle, doc_scope, chain, encoding);
 }
 
 /// Returns the `.identifier` token containing `source_index`, if any.
@@ -83,20 +131,47 @@ pub fn identifierTokenAtIndex(tree: Ast, source_index: usize) ?Ast.TokenIndex {
     return null;
 }
 
-fn testGotoDefinition(
-    source: [:0]const u8,
+pub const TestFile = struct { uri: []const u8, source: [:0]const u8 };
+pub const TestLocation = struct { file: usize, offset: usize };
+
+/// Builds a `DocumentStore` containing `files` and returns the handle of
+/// `files[0]`, the "current" document. Shared with references.zig tests.
+pub fn testStoreWithFiles(store: *DocumentStore, files: []const TestFile) !*DocumentStore.Handle {
+    for (files) |file| {
+        const uri = try Uri.parse(store.gpa, file.uri);
+        defer uri.deinit(store.gpa);
+        const source = try store.gpa.dupeSentinel(u8, file.source, 0);
+        try store.loadDocumentFromSource(uri, source, .never);
+    }
+
+    const current_uri = try Uri.parse(store.gpa, files[0].uri);
+    defer current_uri.deinit(store.gpa);
+    return store.getHandle(current_uri).?;
+}
+
+/// Asserts that `location` points into `files[expected.file]` at byte offset
+/// `expected.offset`. Shared with references.zig tests.
+pub fn expectTestLocation(
+    files: []const TestFile,
+    location: types.Location,
+    expected: TestLocation,
+) !void {
+    try std.testing.expectEqualStrings(files[expected.file].uri, location.uri);
+    const start = offsets.positionToIndex(files[expected.file].source, location.range.start, .@"utf-8");
+    try std.testing.expectEqual(expected.offset, start);
+}
+
+fn testGotoDefinitionMulti(
+    files: []const TestFile,
     cursor_offset: usize,
-    expected_decl_offsets: []const usize,
+    expected: []const TestLocation,
 ) !void {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    const test_uri = "file:///test.q";
 
-    const uri = try Uri.parse(gpa, test_uri);
-    defer uri.deinit(gpa);
-
-    var handle: DocumentStore.Handle = try .init(io, gpa, uri, try gpa.dupeSentinel(u8, source, 0), true);
-    defer handle.deinit(gpa);
+    var store: DocumentStore = .{ .io = io, .gpa = gpa };
+    defer store.deinit();
+    const handle = try testStoreWithFiles(&store, files);
 
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
@@ -105,13 +180,13 @@ fn testGotoDefinition(
         arena_instance.allocator(),
         io,
         gpa,
-        &handle,
-        test_uri,
-        offsets.indexToPosition(source, cursor_offset, .@"utf-8"),
+        &store,
+        handle,
+        offsets.indexToPosition(files[0].source, cursor_offset, .@"utf-8"),
         .@"utf-8",
     );
 
-    if (expected_decl_offsets.len == 0) {
+    if (expected.len == 0) {
         try std.testing.expectEqual(null, result);
         return;
     }
@@ -129,12 +204,26 @@ fn testGotoDefinition(
         .locations => |locations| locations,
     };
 
-    try std.testing.expectEqual(expected_decl_offsets.len, locations.len);
-    for (locations, expected_decl_offsets) |location, expected_offset| {
-        try std.testing.expectEqualStrings(test_uri, location.uri);
-        const start = offsets.positionToIndex(source, location.range.start, .@"utf-8");
-        try std.testing.expectEqual(expected_offset, start);
+    try std.testing.expectEqual(expected.len, locations.len);
+    for (locations, expected) |location, expected_location| {
+        try expectTestLocation(files, location, expected_location);
     }
+}
+
+fn testGotoDefinition(
+    source: [:0]const u8,
+    cursor_offset: usize,
+    expected_decl_offsets: []const usize,
+) !void {
+    var expected_buf: [8]TestLocation = undefined;
+    for (expected_decl_offsets, 0..) |offset, i| {
+        expected_buf[i] = .{ .file = 0, .offset = offset };
+    }
+    try testGotoDefinitionMulti(
+        &.{.{ .uri = "file:///test.q", .source = source }},
+        cursor_offset,
+        expected_buf[0..expected_decl_offsets.len],
+    );
 }
 
 test "local variable" {
@@ -199,6 +288,41 @@ test "undeclared identifier" {
 
 test "cursor on number literal" {
     try testGotoDefinition("g:1;g", 2, &.{});
+}
+
+test "cross-file: global defined in another file" {
+    try testGotoDefinitionMulti(&.{
+        .{ .uri = "file:///b.q", .source = "g+1" },
+        .{ .uri = "file:///a.q", .source = "g:1" },
+    }, 0, &.{.{ .file = 1, .offset = 0 }});
+}
+
+test "cross-file: global defined in both files, current file first" {
+    try testGotoDefinitionMulti(&.{
+        .{ .uri = "file:///b.q", .source = "g:2;g" },
+        .{ .uri = "file:///a.q", .source = "g:1" },
+    }, 4, &.{ .{ .file = 0, .offset = 0 }, .{ .file = 1, .offset = 0 } });
+}
+
+test "cross-file: local in another file is not visible" {
+    try testGotoDefinitionMulti(&.{
+        .{ .uri = "file:///b.q", .source = "l+1" },
+        .{ .uri = "file:///a.q", .source = "f:{l:1;l}" },
+    }, 0, &.{});
+}
+
+test "cross-file: namespaced global" {
+    try testGotoDefinitionMulti(&.{
+        .{ .uri = "file:///b.q", .source = ".ns.f 1" },
+        .{ .uri = "file:///a.q", .source = ".ns.f:{x}" },
+    }, 0, &.{.{ .file = 1, .offset = 0 }});
+}
+
+test "cross-file: local shadowing keeps single-file behavior" {
+    try testGotoDefinitionMulti(&.{
+        .{ .uri = "file:///b.q", .source = "f:{g:2;g}" },
+        .{ .uri = "file:///a.q", .source = "g:1" },
+    }, 7, &.{.{ .file = 0, .offset = 3 }});
 }
 
 test {

@@ -298,13 +298,13 @@ fn errorBundleSourceLocationToRange(
 
 fn pathToUri(gpa: Allocator, base_path: ?[]const u8, src_path: []const u8) !?Uri {
     if (std.fs.path.isAbsolute(src_path)) {
-        return try .parse(gpa, src_path);
+        return try .fromPath(gpa, src_path);
     }
     const base = base_path orelse return null;
     const absolute_src_path = try std.fs.path.join(gpa, &.{ base, src_path });
     defer gpa.free(absolute_src_path);
 
-    return try .parse(gpa, absolute_src_path);
+    return try .fromPath(gpa, absolute_src_path);
 }
 
 test {
