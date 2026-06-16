@@ -12,6 +12,7 @@ const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
 const DocumentStore = @import("DocumentStore.zig");
 const diagnostics_gen = @import("features/diagnostics.zig");
 const goto = @import("features/goto.zig");
+const hover_feature = @import("features/hover.zig");
 const references = @import("features/references.zig");
 const semantic_tokens = @import("features/semantic_tokens.zig");
 const workspace = @import("workspace.zig");
@@ -201,6 +202,7 @@ fn initialize(
             },
             .definitionProvider = .{ .bool = true },
             .referencesProvider = .{ .bool = true },
+            .hoverProvider = .{ .bool = true },
         },
     };
 }
@@ -456,6 +458,25 @@ fn @"textDocument/references"(
     );
 }
 
+fn @"textDocument/hover"(
+    server: *Server,
+    arena: Allocator,
+    request: types.Hover.Params,
+) !?types.Hover {
+    const document_uri = Uri.parse(arena, request.textDocument.uri) catch return error.InvalidParams;
+    const handle = server.document_store.getHandle(document_uri) orelse return null;
+
+    return try hover_feature.hover(
+        arena,
+        server.io,
+        server.gpa,
+        &server.document_store,
+        handle,
+        request.position,
+        server.offset_encoding,
+    );
+}
+
 fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
     if (!server.client_capabilities.supports_publish_diagnostics) return;
     const do = struct {
@@ -475,6 +496,7 @@ const HandledRequestParams = union(enum) {
     @"textDocument/semanticTokens/full": types.semantic_tokens.Params,
     @"textDocument/definition": types.Definition.Params,
     @"textDocument/references": types.reference.Params,
+    @"textDocument/hover": types.Hover.Params,
     other: lsp.MethodWithParams,
 };
 
@@ -500,6 +522,7 @@ fn isBlockingMessage(message: Message) bool {
             .@"textDocument/semanticTokens/full",
             .@"textDocument/definition",
             .@"textDocument/references",
+            .@"textDocument/hover",
             => false,
             .other => false,
         },
@@ -663,6 +686,7 @@ pub fn sendRequestSync(
         .@"textDocument/semanticTokens/full" => try server.@"textDocument/semanticTokens/full"(arena, params),
         .@"textDocument/definition" => try server.@"textDocument/definition"(arena, params),
         .@"textDocument/references" => try server.@"textDocument/references"(arena, params),
+        .@"textDocument/hover" => try server.@"textDocument/hover"(arena, params),
         .other => return null,
     };
 }
