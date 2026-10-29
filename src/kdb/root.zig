@@ -7,7 +7,6 @@ const tokenizer = @import("tokenizer.zig");
 
 pub const Ast = @import("Ast.zig");
 pub const AstGen = @import("AstGen.zig");
-pub const ErrorBundle = @import("ErrorBundle.zig");
 pub const Parse = @import("Parse.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
@@ -17,17 +16,17 @@ pub const print_zir = @import("print_zir.zig");
 pub const DocumentScope = @import("DocumentScope.zig");
 pub const InternPool = @import("InternPool.zig");
 pub const Vm = @import("Vm.zig");
+pub const ErrorBundle = @import("ErrorBundle.zig");
 
 pub fn printAstErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, path: []const u8, color: Color) !void {
-    var wip_errors: ErrorBundle.Wip = undefined;
-    try wip_errors.init(gpa);
+    var wip_errors: ErrorBundle.Wip = try .init(gpa);
     defer wip_errors.deinit();
 
     try putAstErrorsIntoBundle(gpa, io, tree, path, &wip_errors);
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    return error_bundle.renderToStdErr(io, .{}, color);
+    return error_bundle.renderToStderr(io, .{}, color);
 }
 
 pub fn putAstErrorsIntoBundle(
@@ -52,15 +51,14 @@ pub fn putAstErrorsIntoBundle(
 }
 
 pub fn printZirErrorsToStderr(gpa: Allocator, io: Io, tree: Ast, zir: Zir, path: []const u8, color: Color) !void {
-    var wip_errors: ErrorBundle.Wip = undefined;
-    try wip_errors.init(gpa);
+    var wip_errors: ErrorBundle.Wip = try .init(gpa);
     defer wip_errors.deinit();
 
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    return error_bundle.renderToStdErr(io, .{}, color);
+    return error_bundle.renderToStderr(io, .{}, color);
 }
 
 test {

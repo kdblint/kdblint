@@ -394,8 +394,9 @@ pub const Token = struct {
         }
 
         test "Token tags which have a known lexeme tokenize as expected" {
-            inline for (std.meta.fields(Token.Tag)) |field| {
-                const tag: Token.Tag = @enumFromInt(field.value);
+            const info = @typeInfo(Token.Tag).@"enum";
+            inline for (info.field_values) |field_value| {
+                const tag: Token.Tag = @fromBackingInt(@intCast(field_value));
                 if (comptime tag.lexeme()) |l| {
                     try testTokenize("(" ++ l ++ ")", &.{ .l_paren, tag, .r_paren });
                 }
@@ -419,8 +420,9 @@ pub const Token = struct {
         }
 
         test "Token tags are not unreachable when calling symbol()" {
-            inline for (std.meta.fields(Token.Tag)) |field| {
-                const tag: Token.Tag = @enumFromInt(field.value);
+            const info = @typeInfo(Token.Tag).@"enum";
+            inline for (info.field_values) |field_value| {
+                const tag: Token.Tag = @fromBackingInt(@intCast(field_value));
                 _ = tag.symbol();
             }
         }
@@ -2160,9 +2162,10 @@ fn testTokenize(
     source: [:0]const u8,
     expected_token_tags: []const Token.Tag,
 ) !void {
-    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+    const info = @typeInfo(Mode).@"enum";
+    inline for (info.field_values) |field_value| {
         try testTokenizeMode(
-            @enumFromInt(field.value),
+            @fromBackingInt(@intCast(field_value)),
             source,
             expected_token_tags,
         );
@@ -2174,9 +2177,10 @@ fn testTokenizeContent(
     expected_token_tags: []const Token.Tag,
     expected_token_slices: []const []const u8,
 ) !void {
-    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+    const info = @typeInfo(Mode).@"enum";
+    inline for (info.field_values) |field_value| {
         try testTokenizeContentMode(
-            @enumFromInt(field.value),
+            @fromBackingInt(@intCast(field_value)),
             source,
             expected_token_tags,
             expected_token_slices,

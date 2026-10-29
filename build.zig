@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) !void {
     const options = b.addOptions();
     options.addOption(std.SemanticVersion, "version", try .parse(version));
     options.addOption([:0]const u8, "version_string", try b.allocator.dupeSentinel(u8, version, 0));
-    options.addOptionPath("tests_path", b.path("tests"));
+    options.addOptionPathDirectory("tests_path", b.path("tests"));
 
     const lsp = b.dependency("lsp_kit", .{});
     const lsp_mod = lsp.module("lsp");
@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) !void {
     exe_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
-        .name = if (optimize == .Debug) "kdblint.Debug" else "kdblint",
+        .name = if (optimize == .debug) "kdblint.Debug" else "kdblint",
         .root_module = exe_mod,
     });
 
@@ -45,9 +45,7 @@ pub fn build(b: *std.Build) !void {
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
@@ -72,8 +70,7 @@ pub fn build(b: *std.Build) !void {
 
 fn getVersion(b: *std.Build) ![]const u8 {
     if (!std.process.can_spawn) {
-        std.debug.print("error: version info cannot be retrieved from git.", .{});
-        std.process.exit(1);
+        std.process.fatal("version info cannot be retrieved from git.", .{});
     }
     const version_string = b.fmt("{d}.{d}.{d}", .{
         kdblint_version.major, kdblint_version.minor, kdblint_version.patch,
@@ -82,26 +79,20 @@ fn getVersion(b: *std.Build) ![]const u8 {
     var code: u8 = undefined;
     const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
         "git",
-        "-C",
-        b.build_root.path orelse ".",
-        "describe",
-        "--match",
-        "*.*.*",
-        "--tags",
-        "--abbrev=9",
-    }, &code, .ignore) catch {
-        return version_string;
-    };
+        "-C", b.fmt("{f}", .{b.root}), // affects the --git-dir argument
+        "--git-dir", ".git", // affected by the -C argument
+        "describe", "--match",    "*.*.*", //
+        "--tags",   "--abbrev=9",
+    }, &code, .ignore) catch return version_string;
     const git_describe = std.mem.trim(u8, git_describe_untrimmed, " \n\r");
 
-    switch (std.mem.count(u8, git_describe, "-")) {
+    switch (std.mem.countScalar(u8, git_describe, '-')) {
         0 => {
             // Tagged release version (e.g. 0.10.0).
             if (!std.mem.eql(u8, git_describe, version_string)) {
-                std.debug.print("kdblint version '{s}' does not match git tag '{s}'\n", .{
+                std.process.fatal("kdblint version '{s}' does not match git tag '{s}'\n", .{
                     version_string, git_describe,
                 });
-                std.process.exit(1);
             }
             return version_string;
         },
@@ -114,10 +105,9 @@ fn getVersion(b: *std.Build) ![]const u8 {
 
             const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
             if (kdblint_version.order(ancestor_ver) != .gt) {
-                std.debug.print("kdblint version '{f}' must be greater than tagged ancestor '{f}'\n", .{
+                std.process.fatal("kdblint version '{f}' must be greater than tagged ancestor '{f}'\n", .{
                     kdblint_version, ancestor_ver,
                 });
-                std.process.exit(1);
             }
 
             // Check that the commit hash is prefixed with a 'g' (a Git convention).

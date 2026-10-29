@@ -256,7 +256,7 @@ fn convertErrorBundleToLspDiagnostics(
                 .note => .Information,
             },
             .source = "kdblint",
-            .message = eb.nullTerminatedString(err.msg),
+            .message = .{ .string = eb.nullTerminatedString(err.msg) },
             .relatedInformation = related_information,
         });
     }

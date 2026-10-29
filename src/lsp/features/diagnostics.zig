@@ -29,8 +29,7 @@ pub fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) !void
             .{ .error_bundle = error_bundle },
         );
     } else {
-        var wip: ErrorBundle.Wip = undefined;
-        try wip.init(server.gpa);
+        var wip: ErrorBundle.Wip = try .init(server.gpa);
         defer wip.deinit();
 
         try collectParseDiagnostics(handle.tree, &wip);
@@ -113,8 +112,7 @@ fn getAstCheckDiagnostics(server: *Server, handle: *DocumentStore.Handle) !Error
 
     if (!zir.hasCompileErrors() and !zir.hasCompileWarnings()) return .empty;
 
-    var eb: ErrorBundle.Wip = undefined;
-    try eb.init(server.gpa);
+    var eb: ErrorBundle.Wip = try .init(server.gpa);
     defer eb.deinit();
     try eb.addZirErrorMessages(zir, handle.tree, handle.tree.source, "");
     return try eb.toOwnedBundle("");

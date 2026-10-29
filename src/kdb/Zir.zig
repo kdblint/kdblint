@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 
 const kdb = @import("root.zig");
 const Ast = kdb.Ast;
+const ErrorBundle = kdb.ErrorBundle;
 
 const Zir = @This();
 
@@ -42,11 +43,11 @@ fn ExtraData(comptime T: type) type {
 }
 
 pub fn instTag(code: Zir, inst: Inst.Index) Inst.Tag {
-    return code.instructions.items(.tag)[@intFromEnum(inst)];
+    return code.instructions.items(.tag)[@backingInt(inst)];
 }
 
 pub fn instData(code: Zir, inst: Inst.Index) Inst.Data {
-    return code.instructions.items(.data)[@intFromEnum(inst)];
+    return code.instructions.items(.data)[@backingInt(inst)];
 }
 
 pub fn extraSlice(code: Zir, comptime T: type, start: usize, len: usize) []const T {
@@ -56,11 +57,11 @@ pub fn extraSlice(code: Zir, comptime T: type, start: usize, len: usize) []const
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
-    const fields = @typeInfo(T).@"struct".fields;
+    const info = @typeInfo(T).@"struct";
     var i: usize = index;
     var result: T = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        @field(result, field_name) = switch (field_type) {
             u32 => code.extra[i],
 
             Inst.Ref,
@@ -71,13 +72,13 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Ast.OptionalTokenIndex,
             Ast.Node.Index,
             Ast.Node.OptionalIndex,
-            => @enumFromInt(code.extra[i]),
+            => @fromBackingInt(@intCast(code.extra[i])),
 
             Ast.TokenOffset,
             Ast.OptionalTokenOffset,
             Ast.Node.Offset,
             Ast.Node.OptionalOffset,
-            => @enumFromInt(@as(i32, @bitCast(code.extra[i]))),
+            => @fromBackingInt(@intCast(@as(i32, @bitCast(code.extra[i])))),
 
             else => |t| @compileError("bad field type: " ++ @typeName(t)),
         };
@@ -96,7 +97,7 @@ pub const NullTerminatedString = enum(u32) {
 
 /// Given an index into `string_bytes` returns the null-terminated string found there.
 pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8 {
-    const slice = code.string_bytes[@intFromEnum(index)..];
+    const slice = code.string_bytes[@backingInt(index)..];
     return slice[0..std.mem.findScalar(u8, slice, 0).? :0];
 }
 
@@ -105,11 +106,11 @@ pub fn bodySlice(code: Zir, start: usize, len: usize) []Inst.Index {
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
-    return code.extra[@intFromEnum(ExtraIndex.compile_errors)] != 0;
+    return code.extra[@backingInt(ExtraIndex.compile_errors)] != 0;
 }
 
 pub fn hasCompileWarnings(code: Zir) bool {
-    return code.extra[@intFromEnum(ExtraIndex.compile_warnings)] != 0;
+    return code.extra[@backingInt(ExtraIndex.compile_warnings)] != 0;
 }
 
 pub fn deinit(code: *Zir, gpa: Allocator) void {
@@ -420,10 +421,10 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = @intFromEnum(Ref.nyi) + 1;
+        pub const static_len = @backingInt(Ref.nyi) + 1;
 
         pub fn toRef(i: Index) Inst.Ref {
-            return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
+            return @fromBackingInt(@intCast(@backingInt(Index.ref_start_index) + @backingInt(i)));
         }
     };
 
@@ -594,9 +595,9 @@ pub const Inst = struct {
 
         pub fn toIndex(inst: Ref) ?Index {
             assert(inst != .none);
-            const ref_int = @intFromEnum(inst);
-            if (ref_int >= @intFromEnum(Index.ref_start_index)) {
-                return @enumFromInt(ref_int - @intFromEnum(Index.ref_start_index));
+            const ref_int = @backingInt(inst);
+            if (ref_int >= @backingInt(Index.ref_start_index)) {
+                return @fromBackingInt(@intCast(ref_int - @backingInt(Index.ref_start_index)));
             } else {
                 return null;
             }
@@ -680,7 +681,7 @@ pub const Inst = struct {
         // bigger than expected. Note that in Debug builds, Zig is allowed
         // to insert a secret field for safety checks.
         comptime {
-            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+            if (builtin.mode != .debug and builtin.mode != .safe) {
                 assert(@sizeOf(Data) == 8);
             }
         }

@@ -40,15 +40,15 @@ pub const OptionalTokenIndex = enum(u32) {
     _,
 
     pub fn unwrap(oti: OptionalTokenIndex) ?TokenIndex {
-        return if (oti == .none) null else @intFromEnum(oti);
+        return if (oti == .none) null else @backingInt(oti);
     }
 
     pub fn fromToken(ti: TokenIndex) OptionalTokenIndex {
-        return @enumFromInt(ti);
+        return @fromBackingInt(@intCast(ti));
     }
 
     pub fn fromOptional(oti: ?TokenIndex) OptionalTokenIndex {
-        return if (oti) |ti| @enumFromInt(ti) else .none;
+        return if (oti) |ti| @fromBackingInt(@intCast(ti)) else .none;
     }
 };
 
@@ -60,17 +60,17 @@ pub const TokenOffset = enum(i32) {
     pub fn init(base: TokenIndex, destination: TokenIndex) TokenOffset {
         const base_i64: i64 = base;
         const destination_i64: i64 = destination;
-        return @enumFromInt(destination_i64 - base_i64);
+        return @fromBackingInt(@intCast(destination_i64 - base_i64));
     }
 
     pub fn toOptional(to: TokenOffset) OptionalTokenOffset {
-        const result: OptionalTokenOffset = @enumFromInt(@intFromEnum(to));
+        const result: OptionalTokenOffset = @fromBackingInt(@intCast(@backingInt(to)));
         assert(result != .none);
         return result;
     }
 
     pub fn toAbsolute(offset: TokenOffset, base: TokenIndex) TokenIndex {
-        return @intCast(@as(i64, base) + @intFromEnum(offset));
+        return @intCast(@as(i64, base) + @backingInt(offset));
     }
 };
 
@@ -80,7 +80,7 @@ pub const OptionalTokenOffset = enum(i32) {
     _,
 
     pub fn unwrap(oto: OptionalTokenOffset) ?TokenOffset {
-        return if (oto == .none) null else @enumFromInt(@intFromEnum(oto));
+        return if (oto == .none) null else @fromBackingInt(@intCast(@backingInt(oto)));
     }
 };
 
@@ -101,15 +101,15 @@ pub fn tokenLoc(tree: *const Ast, token_index: TokenIndex) Token.Loc {
 }
 
 pub fn nodeTag(tree: *const Ast, node: Node.Index) Node.Tag {
-    return tree.nodes.items(.tag)[@intFromEnum(node)];
+    return tree.nodes.items(.tag)[@backingInt(node)];
 }
 
 pub fn nodeMainToken(tree: *const Ast, node: Node.Index) TokenIndex {
-    return tree.nodes.items(.main_token)[@intFromEnum(node)];
+    return tree.nodes.items(.main_token)[@backingInt(node)];
 }
 
 pub fn nodeData(tree: *const Ast, node: Node.Index) Node.Data {
-    return tree.nodes.items(.data)[@intFromEnum(node)];
+    return tree.nodes.items(.data)[@backingInt(node)];
 }
 
 pub const Location = struct {
@@ -246,7 +246,7 @@ pub fn nodeSlice(tree: Ast, node: Node.Index) []const u8 {
 }
 
 pub fn extraDataSlice(tree: Ast, range: Node.SubRange, comptime T: type) []const T {
-    return @ptrCast(tree.extra_data[@intFromEnum(range.start)..@intFromEnum(range.end)]);
+    return @ptrCast(tree.extra_data[@backingInt(range.start)..@backingInt(range.end)]);
 }
 
 pub fn tokenLen(tree: Ast, token_index: TokenIndex) usize {
@@ -255,17 +255,17 @@ pub fn tokenLen(tree: Ast, token_index: TokenIndex) usize {
 }
 
 pub fn extraData(tree: Ast, index: ExtraIndex, comptime T: type) T {
-    const fields = std.meta.fields(T);
+    const info = @typeInfo(T).@"struct";
     var result: T = undefined;
-    inline for (fields, 0..) |field, i| {
-        @field(result, field.name) = switch (field.type) {
+    inline for (info.field_names, info.field_types, 0..) |field_name, field_type, i| {
+        @field(result, field_name) = switch (field_type) {
             Node.Index,
             Node.OptionalIndex,
             OptionalTokenIndex,
             ExtraIndex,
-            => @enumFromInt(tree.extra_data[@intFromEnum(index) + i]),
-            TokenIndex => tree.extra_data[@intFromEnum(index) + i],
-            else => @compileError("unexpected field type: " ++ @typeName(field.type)),
+            => @fromBackingInt(@intCast(tree.extra_data[@backingInt(index) + i])),
+            TokenIndex => tree.extra_data[@backingInt(index) + i],
+            else => @compileError("unexpected field type: " ++ @typeName(field_type)),
         };
     }
     return result;
@@ -500,7 +500,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         => n = tree.nodeData(n).node_and_node[1],
 
         .apply_binary,
-        => n = tree.nodeData(n).node_and_opt_node[1].unwrap() orelse @enumFromInt(tree.nodeMainToken(n)),
+        => n = tree.nodeData(n).node_and_opt_node[1].unwrap() orelse @fromBackingInt(@intCast(tree.nodeMainToken(n))),
 
         .number_literal,
         .string_literal,
@@ -1073,15 +1073,15 @@ pub const Node = struct {
         _,
 
         pub fn toOptional(i: Index) OptionalIndex {
-            const result: OptionalIndex = @enumFromInt(@intFromEnum(i));
+            const result: OptionalIndex = @fromBackingInt(@intCast(@backingInt(i)));
             assert(result != .none);
             return result;
         }
 
         pub fn toOffset(base: Index, destination: Index) Offset {
-            const base_i64: i64 = @intFromEnum(base);
-            const destination_i64: i64 = @intFromEnum(destination);
-            return @enumFromInt(destination_i64 - base_i64);
+            const base_i64: i64 = @backingInt(base);
+            const destination_i64: i64 = @backingInt(destination);
+            return @fromBackingInt(@intCast(destination_i64 - base_i64));
         }
     };
 
@@ -1092,7 +1092,7 @@ pub const Node = struct {
         _,
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
-            return if (oi == .none) null else @enumFromInt(@intFromEnum(oi));
+            return if (oi == .none) null else @fromBackingInt(@intCast(@backingInt(oi)));
         }
 
         pub fn fromIndex(i: Index) OptionalIndex {
@@ -1110,13 +1110,13 @@ pub const Node = struct {
         _,
 
         pub fn toOptional(o: Offset) OptionalOffset {
-            const result: OptionalOffset = @enumFromInt(@intFromEnum(o));
+            const result: OptionalOffset = @fromBackingInt(@intCast(@backingInt(o)));
             assert(result != .none);
             return result;
         }
 
         pub fn toAbsolute(offset: Offset, base: Index) Index {
-            return @enumFromInt(@as(i64, @intFromEnum(base)) + @intFromEnum(offset));
+            return @fromBackingInt(@intCast(@as(i64, @backingInt(base)) + @backingInt(offset)));
         }
     };
 
@@ -1126,7 +1126,7 @@ pub const Node = struct {
         _,
 
         pub fn unwrap(oo: OptionalOffset) ?Offset {
-            return if (oo == .none) null else @enumFromInt(@intFromEnum(oo));
+            return if (oo == .none) null else @fromBackingInt(@intCast(@backingInt(oo)));
         }
     };
 
@@ -1634,7 +1634,7 @@ pub fn nodeToSpan(tree: *const Ast, node: Node.Index) Span {
     assert(node != .root);
     const main = switch (tree.nodeTag(node)) {
         .apply_unary => tree.firstToken(node),
-        .apply_binary => tree.firstToken(@enumFromInt(tree.nodeMainToken(node))),
+        .apply_binary => tree.firstToken(@fromBackingInt(@intCast(tree.nodeMainToken(node)))),
         else => tree.nodeMainToken(node),
     };
     return tokensToSpan(tree, tree.firstToken(node), tree.lastToken(node), main);
@@ -1666,7 +1666,7 @@ pub fn tokensToSpan(tree: *const Ast, start: TokenIndex, end: TokenIndex, main: 
 
 pub fn isCompoundAssignment(tree: *const Ast, node: Node.Index) bool {
     return switch (tree.nodeTag(node)) {
-        .apply_binary => tree.nodeTag(@enumFromInt(tree.nodeMainToken(node))).isCompoundAssignment(),
+        .apply_binary => tree.nodeTag(@fromBackingInt(@intCast(tree.nodeMainToken(node)))).isCompoundAssignment(),
         else => false,
     };
 }
@@ -1676,7 +1676,7 @@ pub fn listLen(tree: *const Ast, node: Node.Index) ?usize {
         .empty_list => 0,
         .list => blk: {
             const sub_range = tree.nodeData(node).extra_range;
-            break :blk @intFromEnum(sub_range.end) - @intFromEnum(sub_range.start);
+            break :blk @backingInt(sub_range.end) - @backingInt(sub_range.start);
         },
         .number_list_literal, .symbol_list_literal => tree.nodeData(node).token - tree.nodeMainToken(node) + 1,
         .string_literal => tree.tokenSlice(tree.nodeMainToken(node)).len - 2,
@@ -1690,9 +1690,10 @@ fn testAstRender(
     expected_tokens: []const Token.Tag,
     expected_nodes: []const Node.Tag,
 ) !void {
-    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+    const info = @typeInfo(Mode).@"enum";
+    inline for (info.field_values) |field_value| {
         try testAstModeRender(
-            @enumFromInt(field.value),
+            @fromBackingInt(@intCast(field_value)),
             source_code,
             formatted_code,
             expected_tokens,
@@ -1706,9 +1707,10 @@ fn testAst(
     expected_tokens: []const Token.Tag,
     expected_nodes: []const Node.Tag,
 ) !void {
-    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+    const info = @typeInfo(Mode).@"enum";
+    inline for (info.field_values) |field_value| {
         try testAstModeRender(
-            @enumFromInt(field.value),
+            @fromBackingInt(@intCast(field_value)),
             source_code,
             null,
             expected_tokens,
@@ -1811,9 +1813,10 @@ fn failAst(
     expected_tokens: []const Token.Tag,
     expected_errors: []const Error.Tag,
 ) !void {
-    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+    const info = @typeInfo(Mode).@"enum";
+    inline for (info.field_values) |field_value| {
         try failAstMode(
-            @enumFromInt(field.value),
+            @fromBackingInt(@intCast(field_value)),
             source_code,
             expected_tokens,
             expected_errors,
@@ -6425,7 +6428,7 @@ fn testRender(file_path: []const u8) !void {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var dir = try Io.Dir.openDirAbsolute(io, @import("build_options").tests_path, .{});
+    var dir = try Io.Dir.cwd().openDir(io, @import("build_options").tests_path, .{});
     defer dir.close(io);
     const source_code = try dir.readFileAllocOptions(io, file_path, gpa, .unlimited, .of(u8), 0);
     defer gpa.free(source_code);
