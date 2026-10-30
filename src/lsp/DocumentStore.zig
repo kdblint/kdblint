@@ -47,7 +47,7 @@ pub const Handle = struct {
 
     /// Takes ownership of `source` on success.
     pub fn init(io: Io, gpa: Allocator, uri: Uri, source: [:0]const u8, lsp_synced: bool) !Handle {
-        const mode: Ast.Mode = if (std.mem.eql(u8, std.fs.path.extension(uri.percent_encoded), ".k")) .k else .q;
+        const mode: Ast.Mode = if (std.mem.eql(u8, std.fs.path.extension(uri.raw), ".k")) .k else .q;
         const tree: Ast = try .parse(io, gpa, source, .{
             .mode = mode,
             .version = .@"4.0",
@@ -159,10 +159,10 @@ pub fn openLspSyncedDocument(self: *DocumentStore, uri: Uri, text: []const u8) !
 pub fn refreshLspSyncedDocument(self: *DocumentStore, uri: Uri, new_text: [:0]const u8) !void {
     if (self.getHandle(uri)) |handle| {
         if (!handle.isLspSynced()) {
-            std.log.warn("Document modified without being opened: {s}", .{uri.percent_encoded});
+            std.log.warn("Document modified without being opened: {s}", .{uri.raw});
         }
     } else {
-        std.log.warn("Document modified without being opened: {s}", .{uri.percent_encoded});
+        std.log.warn("Document modified without being opened: {s}", .{uri.raw});
     }
 
     _ = try self.createAndStoreDocument(uri, new_text, true, .always);
@@ -220,7 +220,7 @@ pub fn removeDocument(self: *DocumentStore, uri: Uri, policy: RemovePolicy) void
 /// non-`file:` scheme, ...). Unsaved buffer changes are discarded either way.
 pub fn unsyncOrRemoveDocument(self: *DocumentStore, uri: Uri) void {
     self.loadDocumentFromDisk(uri, .always) catch |err| {
-        std.log.debug("removing closed document {s}: {t}", .{ uri.percent_encoded, err });
+        std.log.debug("removing closed document {s}: {t}", .{ uri.raw, err });
         self.removeDocument(uri, .any);
     };
 }
@@ -238,15 +238,15 @@ pub fn removeDocumentsInFolder(self: *DocumentStore, folder_uri: Uri) void {
     self.mutex.lockUncancelable(self.io);
     defer self.mutex.unlock(self.io);
 
-    const folder = folder_uri.percent_encoded;
+    const folder = folder_uri.raw;
     var i: usize = self.handles.count();
     while (i > 0) {
         i -= 1;
         const uri = self.handles.keys()[i];
         const handle = self.handles.values()[i];
         if (handle.isLspSynced()) continue;
-        if (!std.mem.startsWith(u8, uri.percent_encoded, folder)) continue;
-        if (uri.percent_encoded.len > folder.len and uri.percent_encoded[folder.len] != '/') continue;
+        if (!std.mem.startsWith(u8, uri.raw, folder)) continue;
+        if (uri.raw.len > folder.len and uri.raw[folder.len] != '/') continue;
 
         handle.deinit(self.gpa);
         self.gpa.destroy(handle);
@@ -277,7 +277,7 @@ fn createAndStoreDocument(self: *DocumentStore, uri: Uri, source: [:0]const u8, 
         };
         if (replace_existing) {
             if (lsp_synced and gop.value_ptr.*.isLspSynced()) {
-                std.log.warn("Document already open: {s}", .{uri.percent_encoded});
+                std.log.warn("Document already open: {s}", .{uri.raw});
             }
             new_handle.uri = gop.key_ptr.*;
             gop.value_ptr.*.deinit(self.gpa);

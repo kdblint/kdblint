@@ -154,7 +154,7 @@ fn collectChainNameTokens(
 ) !void {
     var it = doc_scope.iterateDeclarationChain(chain.first);
     while (it.next()) |decl_index| {
-        const decl = doc_scope.declarations.get(@intFromEnum(decl_index));
+        const decl = doc_scope.declarations.get(@backingInt(decl_index));
         try decl_tokens.append(arena, decl.nameToken(tree));
     }
 }
@@ -168,7 +168,7 @@ fn appendTokenLocation(
 ) !void {
     const loc = handle.tree.tokenLoc(token);
     try locations.append(arena, .{
-        .uri = handle.uri.percent_encoded,
+        .uri = handle.uri.raw,
         .range = offsets.locToRange(
             handle.tree.source,
             .{ .start = loc.start, .end = loc.end },

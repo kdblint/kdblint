@@ -146,7 +146,7 @@ pub fn publishDiagnostics(collection: *DiagnosticsCollection) !void {
             const notification: lsp.TypedJsonRPCNotification(types.publish_diagnostics.Params) = .{
                 .method = "textDocument/publishDiagnostics",
                 .params = .{
-                    .uri = uri.percent_encoded,
+                    .uri = uri.raw,
                     .diagnostics = diagnostics.items,
                 },
             };
@@ -239,7 +239,7 @@ fn convertErrorBundleToLspDiagnostics(
 
                 lsp_note.* = .{
                     .location = .{
-                        .uri = note_uri.percent_encoded,
+                        .uri = note_uri.raw,
                         .range = note_src_range,
                     },
                     .message = eb.nullTerminatedString(eb_note.msg),

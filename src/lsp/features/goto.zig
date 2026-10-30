@@ -73,10 +73,10 @@ fn appendChainLocations(
 ) !void {
     var it = doc_scope.iterateDeclarationChain(chain.first);
     while (it.next()) |decl_index| {
-        const decl = doc_scope.declarations.get(@intFromEnum(decl_index));
+        const decl = doc_scope.declarations.get(@backingInt(decl_index));
         const loc = handle.tree.tokenLoc(decl.nameToken(handle.tree));
         try locations.append(arena, .{
-            .uri = handle.uri.percent_encoded,
+            .uri = handle.uri.raw,
             .range = offsets.locToRange(
                 handle.tree.source,
                 .{ .start = loc.start, .end = loc.end },

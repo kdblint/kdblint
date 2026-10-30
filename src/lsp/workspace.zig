@@ -19,13 +19,13 @@ pub fn indexWorkspaceFolders(
 
     for (folder_uris) |folder_uri| {
         const path = folder_uri.toFsPath(gpa) catch |err| {
-            std.log.warn("cannot index workspace folder {s}: {t}", .{ folder_uri.percent_encoded, err });
+            std.log.warn("cannot index workspace folder {s}: {t}", .{ folder_uri.raw, err });
             continue;
         };
         defer gpa.free(path);
 
         indexDir(io, gpa, document_store, &seen, path) catch |err| {
-            std.log.warn("failed to index workspace folder {s}: {t}", .{ folder_uri.percent_encoded, err });
+            std.log.warn("failed to index workspace folder {s}: {t}", .{ folder_uri.raw, err });
         };
     }
 }
