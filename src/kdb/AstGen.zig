@@ -1204,7 +1204,7 @@ fn assign(
                 .apply_binary => tree.unwrapGroupedExpr(tree.nodeData(local_decl).node_and_opt_node[0]),
                 .call => blk: {
                     const nodes = tree.extraDataSlice(tree.nodeData(local_decl).extra_range, Ast.Node.Index);
-                    break :blk tree.unwrapGroupedExpr(nodes[0]);
+                    break :blk tree.unwrapGroupedExpr(nodes[1]);
                 },
                 else => unreachable,
             };
@@ -2478,7 +2478,7 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Resul
             .apply_binary => tree.unwrapGroupedExpr(tree.nodeData(local_decl).node_and_opt_node[0]),
             .call => blk: {
                 const nodes = tree.extraDataSlice(tree.nodeData(local_decl).extra_range, Ast.Node.Index);
-                break :blk tree.unwrapGroupedExpr(nodes[0]);
+                break :blk tree.unwrapGroupedExpr(nodes[1]);
             },
             else => unreachable,
         };

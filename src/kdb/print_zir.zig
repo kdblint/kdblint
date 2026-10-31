@@ -597,7 +597,6 @@ fn testZir(source: [:0]const u8, expected: []const u8) !void {
     inline for (info.field_values) |field_value| {
         try testZirMode(@fromBackingInt(@intCast(field_value)), source, expected);
     }
-    // try noFailZir(source);
 }
 
 fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
@@ -629,12 +628,12 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
         return error.Unexpected;
     }
 
-    // TODO: Warnings
-    // if (zir.hasCompileWarnings()) {
-    //     std.debug.print("warning\n", .{});
-    //     try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
-    //     return error.Unexpected;
-    // }
+    // Warnings
+    if (zir.hasCompileWarnings()) {
+        std.debug.print("warning\n", .{});
+        try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
+        return error.Unexpected;
+    }
 
     var output: Io.Writer.Allocating = .init(gpa);
     defer output.deinit();
@@ -650,7 +649,6 @@ fn warnZir(source: [:0]const u8, expected: []const u8) !void {
     inline for (info.field_values) |field_value| {
         try warnZirMode(@fromBackingInt(@intCast(field_value)), source, expected);
     }
-    try noFailZir(source);
 }
 
 fn warnZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
@@ -708,7 +706,6 @@ fn failZir(source: [:0]const u8, expected: []const u8) !void {
     inline for (info.field_values) |field_value| {
         try failZirMode(@fromBackingInt(@intCast(field_value)), source, expected);
     }
-    try noFailZir(source);
 }
 
 fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void {
@@ -735,6 +732,13 @@ fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
 
     try std.testing.expect(zir.hasCompileErrors());
 
+    // Warnings
+    if (zir.hasCompileWarnings()) {
+        std.debug.print("warning\n", .{});
+        try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
+        return error.Unexpected;
+    }
+
     var wip_errors: ErrorBundle.Wip = try .init(gpa);
     defer wip_errors.deinit();
 
@@ -750,103 +754,6 @@ fn failZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     const written = output.written();
     try std.testing.expectEqualStrings(expected, written[0 .. written.len - 1]);
     try std.testing.expectEqual('\n', written[written.len - 1]);
-}
-
-fn noFailZir(source: [:0]const u8) !void {
-    const mode_info = @typeInfo(Ast.Mode).@"enum";
-    const version_info = @typeInfo(Ast.Version).@"enum";
-    inline for (mode_info.field_values) |mode_field_value| {
-        inline for (version_info.field_values) |version_field_value| {
-            try noFailZirModeVersion(
-                @fromBackingInt(@intCast(mode_field_value)),
-                @fromBackingInt(@intCast(version_field_value)),
-                source,
-            );
-        }
-    }
-}
-
-fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const u8) !void {
-    const io = std.testing.io;
-    const gpa = std.testing.allocator;
-
-    const settings: Ast.ParseSettings = .{ .mode = mode, .version = version };
-
-    for (0..source.len) |i| {
-        const src = try gpa.dupeSentinel(u8, source[0..i], 0);
-        defer gpa.free(src);
-
-        var tree: Ast = try .parse(io, gpa, src, settings);
-        defer tree.deinit(gpa);
-
-        var doc_scope: DocumentScope = .{};
-        defer doc_scope.deinit(gpa);
-        var context: DocumentScope.ScopeContext = .{
-            .gpa = gpa,
-            .tree = tree,
-            .doc_scope = &doc_scope,
-        };
-        defer context.deinit();
-
-        var zir = try AstGen.generate(io, gpa, &context);
-        defer zir.deinit(gpa);
-    }
-
-    for (0..source.len) |i| {
-        const src = try gpa.allocSentinel(u8, source.len - 1, 0);
-        defer gpa.free(src);
-
-        @memcpy(src[0..i], source[0..i]);
-        @memcpy(src[i..], source[i + 1 ..]);
-
-        var tree: Ast = try .parse(io, gpa, src, settings);
-        defer tree.deinit(gpa);
-
-        var doc_scope: DocumentScope = .{};
-        defer doc_scope.deinit(gpa);
-        var context: DocumentScope.ScopeContext = .{
-            .gpa = gpa,
-            .tree = tree,
-            .doc_scope = &doc_scope,
-        };
-        defer context.deinit();
-
-        var zir = try AstGen.generate(io, gpa, &context);
-        defer zir.deinit(gpa);
-    }
-}
-
-/// Like `testZir`, but also asserts that no warnings were emitted.
-fn noWarnZir(source: [:0]const u8, expected: []const u8) !void {
-    try testZir(source, expected);
-
-    const gpa = std.testing.allocator;
-    const io = std.testing.io;
-    const info = @typeInfo(Ast.Mode).@"enum";
-    inline for (info.field_values) |field_value| {
-        var tree: Ast = try .parse(io, gpa, source, .{
-            .mode = @fromBackingInt(@intCast(field_value)),
-            .version = .@"4.0",
-        });
-        defer tree.deinit(gpa);
-
-        var doc_scope: DocumentScope = .{};
-        defer doc_scope.deinit(gpa);
-        var context: DocumentScope.ScopeContext = .{
-            .gpa = gpa,
-            .tree = tree,
-            .doc_scope = &doc_scope,
-        };
-        defer context.deinit();
-
-        var zir = try AstGen.generate(io, gpa, &context);
-        defer zir.deinit(gpa);
-
-        if (zir.hasCompileWarnings()) {
-            try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
-            return error.UnexpectedWarning;
-        }
-    }
 }
 
 // TODO: \d .ns
@@ -1659,7 +1566,10 @@ test "print_zir: lambda" {
         \\  %3 = print(%1)
         \\})
     );
-    try testZir("{[x]}",
+    try warnZir("{[x]}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1668,7 +1578,13 @@ test "print_zir: lambda" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x;y]}",
+    try warnZir("{[x;y]}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1695,7 +1611,10 @@ test "print_zir: lambda" {
         \\  %3 = print(%1)
         \\})
     );
-    try testZir("{[x]1}",
+    try warnZir("{[x]1}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]1}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1704,7 +1623,13 @@ test "print_zir: lambda" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x;y]1}",
+    try warnZir("{[x;y]1}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]1}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]1}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1733,7 +1658,10 @@ test "print_zir: lambda" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x]2}",
+    try warnZir("{[x]2}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]2}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1743,7 +1671,13 @@ test "print_zir: lambda" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[x;y]2}",
+    try warnZir("{[x;y]2}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]2}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]2}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1782,7 +1716,10 @@ test "print_zir: lambda" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x;y]x}",
+    try warnZir("{[x;y]x}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]x}
+        \\    ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1793,7 +1730,13 @@ test "print_zir: lambda" {
         \\})
     );
 
-    try testZir("{y}",
+    try warnZir("{y}",
+        \\test:1:1: warn: unused function parameter 'x'
+        \\{y}
+        \\^
+        \\test:1:2: note: consider renaming 'y' to 'x'
+        \\{y}
+        \\ ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
@@ -1812,7 +1755,10 @@ test "print_zir: lambda" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x]y}",
+    try warnZir("{[x]y}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]y}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1822,7 +1768,10 @@ test "print_zir: lambda" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[x;y]y}",
+    try warnZir("{[x;y]y}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]y}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1833,7 +1782,19 @@ test "print_zir: lambda" {
         \\})
     );
 
-    try testZir("{z}",
+    try warnZir("{z}",
+        \\test:1:1: warn: unused function parameter 'y'
+        \\{z}
+        \\^
+        \\test:1:2: note: consider renaming 'z' to 'x'
+        \\{z}
+        \\ ^
+        \\test:1:1: warn: unused function parameter 'x'
+        \\{z}
+        \\^
+        \\test:1:2: note: consider renaming 'z' to 'x'
+        \\{z}
+        \\ ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
@@ -1853,7 +1814,10 @@ test "print_zir: lambda" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x]z}",
+    try warnZir("{[x]z}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]z}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1863,7 +1827,13 @@ test "print_zir: lambda" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[x;y]z}",
+    try warnZir("{[x;y]z}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]z}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]z}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1893,7 +1863,10 @@ test "print_zir: lambda semicolon" {
         \\  %3 = print(%1)
         \\})
     );
-    try testZir("{[x];}",
+    try warnZir("{[x];}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x];}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1902,7 +1875,13 @@ test "print_zir: lambda semicolon" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x;y];}",
+    try warnZir("{[x;y];}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y];}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y];}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1929,7 +1908,10 @@ test "print_zir: lambda semicolon" {
         \\  %3 = print(%1)
         \\})
     );
-    try testZir("{[x]1;}",
+    try warnZir("{[x]1;}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]1;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1938,7 +1920,13 @@ test "print_zir: lambda semicolon" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x;y]1;}",
+    try warnZir("{[x;y]1;}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]1;}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]1;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1967,7 +1955,10 @@ test "print_zir: lambda semicolon" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x]2;}",
+    try warnZir("{[x]2;}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]2;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -1977,7 +1968,13 @@ test "print_zir: lambda semicolon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[x;y]2;}",
+    try warnZir("{[x;y]2;}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]2;}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]2;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -2016,7 +2013,10 @@ test "print_zir: lambda semicolon" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x;y]x;}",
+    try warnZir("{[x;y]x;}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]x;}
+        \\    ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -2027,7 +2027,13 @@ test "print_zir: lambda semicolon" {
         \\})
     );
 
-    try testZir("{y;}",
+    try warnZir("{y;}",
+        \\test:1:1: warn: unused function parameter 'x'
+        \\{y;}
+        \\^
+        \\test:1:2: note: consider renaming 'y' to 'x'
+        \\{y;}
+        \\ ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
@@ -2046,7 +2052,10 @@ test "print_zir: lambda semicolon" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x]y;}",
+    try warnZir("{[x]y;}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]y;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -2056,7 +2065,10 @@ test "print_zir: lambda semicolon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[x;y]y;}",
+    try warnZir("{[x;y]y;}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]y;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -2067,7 +2079,19 @@ test "print_zir: lambda semicolon" {
         \\})
     );
 
-    try testZir("{z;}",
+    try warnZir("{z;}",
+        \\test:1:1: warn: unused function parameter 'y'
+        \\{z;}
+        \\^
+        \\test:1:2: note: consider renaming 'z' to 'x'
+        \\{z;}
+        \\ ^
+        \\test:1:1: warn: unused function parameter 'x'
+        \\{z;}
+        \\^
+        \\test:1:2: note: consider renaming 'z' to 'x'
+        \\{z;}
+        \\ ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
@@ -2087,7 +2111,10 @@ test "print_zir: lambda semicolon" {
         \\  %4 = print(%1)
         \\})
     );
-    try testZir("{[x]z;}",
+    try warnZir("{[x]z;}",
+        \\test:1:3: warn: unused function parameter
+        \\{[x]z;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -2097,7 +2124,13 @@ test "print_zir: lambda semicolon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[x;y]z;}",
+    try warnZir("{[x;y]z;}",
+        \\test:1:5: warn: unused function parameter
+        \\{[x;y]z;}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[x;y]z;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("x") node_offset:1:3 to :1:4
@@ -2570,7 +2603,10 @@ test "print_zir: top-level namespace global assign" {
 }
 
 test "print_zir: lambda assign" {
-    try testZir("{[]x:1}",
+    try warnZir("{[]x:1}",
+        \\test:1:4: warn: unused local variable
+        \\{[]x:1}
+        \\   ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:4 to :1:5
@@ -2580,7 +2616,10 @@ test "print_zir: lambda assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[]x:x:1}",
+    try warnZir("{[]x:x:1}",
+        \\test:1:6: warn: unused local variable
+        \\{[]x:x:1}
+        \\     ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:6 to :1:7
@@ -2591,7 +2630,10 @@ test "print_zir: lambda assign" {
         \\  %6 = print(%1)
         \\})
     );
-    try testZir("{[](x):1}",
+    try warnZir("{[](x):1}",
+        \\test:1:5: warn: unused local variable
+        \\{[](x):1}
+        \\    ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:5 to :1:6
@@ -2601,7 +2643,10 @@ test "print_zir: lambda assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[](x):(x):1}",
+    try warnZir("{[](x):(x):1}",
+        \\test:1:9: warn: unused local variable
+        \\{[](x):(x):1}
+        \\        ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:9 to :1:10
@@ -2613,7 +2658,10 @@ test "print_zir: lambda assign" {
         \\})
     );
 
-    try testZir("{[]:[x;1]}",
+    try warnZir("{[]:[x;1]}",
+        \\test:1:6: warn: unused local variable
+        \\{[]:[x;1]}
+        \\     ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:6 to :1:7
@@ -2623,7 +2671,10 @@ test "print_zir: lambda assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[]:[x;:[x;1]]}",
+    try warnZir("{[]:[x;:[x;1]]}",
+        \\test:1:10: warn: unused local variable
+        \\{[]:[x;:[x;1]]}
+        \\         ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:10 to :1:11
@@ -2634,7 +2685,10 @@ test "print_zir: lambda assign" {
         \\  %6 = print(%1)
         \\})
     );
-    try testZir("{[]:[(x);1]}",
+    try warnZir("{[]:[(x);1]}",
+        \\test:1:7: warn: unused local variable
+        \\{[]:[(x);1]}
+        \\      ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:7 to :1:8
@@ -2644,7 +2698,10 @@ test "print_zir: lambda assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[]:[(x);:[(x);1]]}",
+    try warnZir("{[]:[(x);:[(x);1]]}",
+        \\test:1:13: warn: unused local variable
+        \\{[]:[(x);:[(x);1]]}
+        \\            ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:13 to :1:14
@@ -3162,7 +3219,10 @@ test "print_zir: assign" {
         \\})
     );
 
-    try testZir("{[]x:1}",
+    try warnZir("{[]x:1}",
+        \\test:1:4: warn: unused local variable
+        \\{[]x:1}
+        \\   ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:4 to :1:5
@@ -3172,7 +3232,10 @@ test "print_zir: assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[](x):1}",
+    try warnZir("{[](x):1}",
+        \\test:1:5: warn: unused local variable
+        \\{[](x):1}
+        \\    ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:5 to :1:6
@@ -3182,7 +3245,10 @@ test "print_zir: assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[]:[x;1]}",
+    try warnZir("{[]:[x;1]}",
+        \\test:1:6: warn: unused local variable
+        \\{[]:[x;1]}
+        \\     ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:6 to :1:7
@@ -3192,7 +3258,10 @@ test "print_zir: assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[](:)[x;1]}",
+    try warnZir("{[](:)[x;1]}",
+        \\test:1:8: warn: unused local variable
+        \\{[](:)[x;1]}
+        \\       ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:8 to :1:9
@@ -3202,7 +3271,10 @@ test "print_zir: assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[]:[(x);1]}",
+    try warnZir("{[]:[(x);1]}",
+        \\test:1:7: warn: unused local variable
+        \\{[]:[(x);1]}
+        \\      ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:7 to :1:8
@@ -3212,7 +3284,10 @@ test "print_zir: assign" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{[](:)[(x);1]}",
+    try warnZir("{[](:)[(x);1]}",
+        \\test:1:9: warn: unused local variable
+        \\{[](:)[(x);1]}
+        \\        ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:9 to :1:10
@@ -3394,7 +3469,10 @@ test "print_zir: colon" {
         \\{(:)1}
         \\ ^~~
     );
-    try testZir("{a:1}",
+    try warnZir("{a:1}",
+        \\test:1:2: warn: unused local variable
+        \\{a:1}
+        \\ ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:2 to :1:3
@@ -3404,7 +3482,10 @@ test "print_zir: colon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{a:1;}",
+    try warnZir("{a:1;}",
+        \\test:1:2: warn: unused local variable
+        \\{a:1;}
+        \\ ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:2 to :1:3
@@ -3414,7 +3495,10 @@ test "print_zir: colon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{:a:1}",
+    try warnZir("{:a:1}",
+        \\test:1:3: warn: unused local variable
+        \\{:a:1}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:3 to :1:4
@@ -3424,7 +3508,10 @@ test "print_zir: colon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{:a:1;}",
+    try warnZir("{:a:1;}",
+        \\test:1:3: warn: unused local variable
+        \\{:a:1;}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:3 to :1:4
@@ -3434,7 +3521,10 @@ test "print_zir: colon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{:[a;1]}",
+    try warnZir("{:[a;1]}",
+        \\test:1:4: warn: unused local variable
+        \\{:[a;1]}
+        \\   ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:4 to :1:5
@@ -3444,7 +3534,10 @@ test "print_zir: colon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{:[a;1];}",
+    try warnZir("{:[a;1];}",
+        \\test:1:4: warn: unused local variable
+        \\{:[a;1];}
+        \\   ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:4 to :1:5
@@ -3454,7 +3547,10 @@ test "print_zir: colon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{: :[a;1]}",
+    try warnZir("{: :[a;1]}",
+        \\test:1:6: warn: unused local variable
+        \\{: :[a;1]}
+        \\     ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:6 to :1:7
@@ -3464,7 +3560,10 @@ test "print_zir: colon" {
         \\  %5 = print(%1)
         \\})
     );
-    try testZir("{: :[a;1];}",
+    try warnZir("{: :[a;1];}",
+        \\test:1:6: warn: unused local variable
+        \\{: :[a;1];}
+        \\     ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("a") token_offset:1:6 to :1:7
@@ -4010,7 +4109,31 @@ test "print_zir: cond" {
 }
 
 test "print_zir: too many parameters" {
-    try testZir("{[a;b;c;d;e;f;g;h]}",
+    try warnZir("{[a;b;c;d;e;f;g;h]}",
+        \\test:1:17: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\                ^
+        \\test:1:15: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\              ^
+        \\test:1:13: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\            ^
+        \\test:1:11: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\          ^
+        \\test:1:9: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\        ^
+        \\test:1:7: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\      ^
+        \\test:1:5: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\    ^
+        \\test:1:3: warn: unused function parameter
+        \\{[a;b;c;d;e;f;g;h]}
+        \\  ^
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_node("a") node_offset:1:3 to :1:4
@@ -4523,7 +4646,7 @@ test "print_zir: conditionally declared local variable" {
         \\})
     );
     // Only used inside the body that declares it.
-    try noWarnZir("{if[x;a:1;a+1];2}",
+    try testZir("{if[x;a:1;a+1];2}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:5 to :1:6
@@ -4535,7 +4658,7 @@ test "print_zir: conditionally declared local variable" {
         \\})
     );
     // Unconditionally re-assigned before the read.
-    try noWarnZir("{if[x;a:1];a:2;a}",
+    try testZir("{if[x;a:1];a:2;a}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:5 to :1:6
@@ -4606,7 +4729,7 @@ test "print_zir: conditionally declared local variable" {
 test "print_zir: conditionally declared local variable in all branches" {
     if (true) return error.SkipZigTest;
     // Declared in all branches
-    try noWarnZir("{$[x;a:1;a:2];a}",
+    try testZir("{$[x;a:1;a:2];a}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
