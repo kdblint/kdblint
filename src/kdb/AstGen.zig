@@ -1541,13 +1541,52 @@ fn cond(gz: *GenZir, parent_scope: *Scope, full_call: Ast.full.Call) InnerError!
     // Each branch is its own conditional body: a local assigned in one branch
     // may be unassigned in another (see the `cond` test in `print_zir.zig`).
     const args = full_call.args[1..];
+    // `$[c;a;b]` and `$[c1;a;c2;b;e]` have an else branch; `$[c1;a;c2;b]`
+    // falls through to an implicit empty one, so nothing is assigned in all
+    // branches.
+    const has_else = args.len % 2 == 0;
+    // Locals assigned in every branch lowered so far. Such a local is as good
+    // as assigned in the enclosing body, so its `cond_block` is widened below.
+    var in_all_branches: std.ArrayListUnmanaged(*Scope.LocalVal) = .empty;
+    defer in_all_branches.deinit(astgen.gpa);
     var inst: Zir.Inst.Ref = undefined;
-    for (args) |arg| {
+    for (args, 0..) |arg, i| {
         const branch_scope = scope;
         const cond_block = try astgen.pushCondBlock();
         defer astgen.popCondBlock(cond_block);
         inst, scope = try expr(gz, scope, arg);
         markCondDecls(branch_scope, scope, cond_block);
+
+        // Odd indices are chained conditions, except the trailing else.
+        const is_branch = i % 2 == 0 or i == args.len - 1;
+        if (!has_else or !is_branch) continue;
+        if (i == 0) {
+            // Seed with the locals the first branch declared.
+            var s = scope;
+            while (s != branch_scope) switch (s.tag) {
+                .local_val => {
+                    const local_val = s.cast(Scope.LocalVal).?;
+                    if (local_val.cond_block == cond_block) {
+                        try in_all_branches.append(astgen.gpa, local_val);
+                    }
+                    s = local_val.parent;
+                },
+                else => s = s.parent().?,
+            };
+        } else {
+            // Keep only those this branch re-assigned (see `assign`).
+            var j: usize = 0;
+            while (j < in_all_branches.items.len) {
+                if (in_all_branches.items[j].cond_block == cond_block) {
+                    j += 1;
+                } else {
+                    _ = in_all_branches.swapRemove(j);
+                }
+            }
+        }
+    }
+    for (in_all_branches.items) |local_val| {
+        local_val.cond_block = astgen.active_cond_blocks.getLastOrNull() orelse 0;
     }
 
     return .{ inst, scope };

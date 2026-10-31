@@ -3928,6 +3928,56 @@ test "print_zir: cond" {
         \\{$[x;a;a;a;a:1]}
         \\           ^
     );
+
+    try testZir("{$[x;a:1;a:2];a}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = local("a") token_offset:1:6 to :1:7
+        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
+        \\    %5 = long(2)
+        \\    %6 = apply(@assign, %3, %5) node_offset:1:10 to :1:13
+        \\    %7 = ret_node(%3) node_offset:1:15 to :1:16
+        \\  }) (params=1,lbrace=1:1,rbrace=1:16) node_offset:1:1 to :1:17
+        \\  %8 = print(%1)
+        \\})
+    );
+    try warnZir("{$[x;a:1;y;a:2];a}",
+        \\test:1:17: warn: use of conditionally declared local variable 'a'
+        \\{$[x;a:1;y;a:2];a}
+        \\                ^
+        \\test:1:6: note: declared here
+        \\{$[x;a:1;y;a:2];a}
+        \\     ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = param_implicit(@y) token_offset:1:10 to :1:11
+        \\    %4 = local("a") token_offset:1:6 to :1:7
+        \\    %5 = apply(@assign, %4, @one) node_offset:1:6 to :1:9
+        \\    %6 = long(2)
+        \\    %7 = apply(@assign, %4, %6) node_offset:1:12 to :1:15
+        \\    %8 = ret_node(%4) node_offset:1:17 to :1:18
+        \\  }) (params=2,lbrace=1:1,rbrace=1:18) node_offset:1:1 to :1:19
+        \\  %9 = print(%1)
+        \\})
+    );
+    try testZir("{$[x;a:1;y;a:2;a:3];a}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = param_implicit(@y) token_offset:1:10 to :1:11
+        \\    %4 = local("a") token_offset:1:6 to :1:7
+        \\    %5 = apply(@assign, %4, @one) node_offset:1:6 to :1:9
+        \\    %6 = long(2)
+        \\    %7 = apply(@assign, %4, %6) node_offset:1:12 to :1:15
+        \\    %8 = long(3)
+        \\    %9 = apply(@assign, %4, %8) node_offset:1:16 to :1:19
+        \\    %10 = ret_node(%4) node_offset:1:21 to :1:22
+        \\  }) (params=2,lbrace=1:1,rbrace=1:22) node_offset:1:1 to :1:23
+        \\  %11 = print(%1)
+        \\})
+    );
 }
 
 test "print_zir: too many parameters" {
@@ -4526,24 +4576,6 @@ test "print_zir: conditionally declared local variable" {
         \\    %6 = ret_node(%4) node_offset:1:14 to :1:15
         \\  }) (params=1,lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
         \\  %7 = print(%1)
-        \\})
-    );
-}
-
-test "print_zir: conditionally declared local variable in all branches" {
-    if (true) return error.SkipZigTest;
-    // Declared in all branches
-    try testZir("{$[x;a:1;a:2];a}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
-        \\    %3 = local("a") token_offset:1:6 to :1:7
-        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
-        \\    %5 = long(2)
-        \\    %6 = apply(@assign, %3, %5) node_offset:1:10 to :1:13
-        \\    %7 = ret_node(%3) node_offset:1:15 to :1:16
-        \\  }) (params=1,lbrace=1:1,rbrace=1:16) node_offset:1:1 to :1:17
-        \\  %8 = print(%1)
         \\})
     );
 }
