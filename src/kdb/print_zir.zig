@@ -1550,48 +1550,12 @@ test "print_zir: table literal - length check" {
 }
 
 test "print_zir: lambda" {
-    try testZir("{}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = ret_implicit(@identity) token_offset:1:2 to :1:3
-        \\  }) (params=1,lbrace=1:1,rbrace=1:2) node_offset:1:1 to :1:3
-        \\  %3 = print(%1)
-        \\})
-    );
     try testZir("{[]}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = ret_implicit(@identity) token_offset:1:4 to :1:5
         \\  }) (params=1,lbrace=1:1,rbrace=1:4) node_offset:1:1 to :1:5
         \\  %3 = print(%1)
-        \\})
-    );
-    try warnZir("{[x]}",
-        \\test:1:3: warn: unused function parameter
-        \\{[x]}
-        \\  ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = ret_implicit(@identity) token_offset:1:5 to :1:6
-        \\  }) (params=1,lbrace=1:1,rbrace=1:5) node_offset:1:1 to :1:6
-        \\  %4 = print(%1)
-        \\})
-    );
-    try warnZir("{[x;y]}",
-        \\test:1:5: warn: unused function parameter
-        \\{[x;y]}
-        \\    ^
-        \\test:1:3: warn: unused function parameter
-        \\{[x;y]}
-        \\  ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = param_node("x") node_offset:1:3 to :1:4
-        \\    %3 = param_node("y") node_offset:1:5 to :1:6
-        \\    %4 = ret_implicit(@identity) token_offset:1:7 to :1:8
-        \\  }) (params=2,lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
-        \\  %5 = print(%1)
         \\})
     );
 
@@ -1689,15 +1653,6 @@ test "print_zir: lambda" {
         \\})
     );
 
-    try testZir("{x}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = param_implicit(@x) token_offset:1:2 to :1:3
-        \\    %3 = ret_node(%2) node_offset:1:2 to :1:3
-        \\  }) (params=1,lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
-        \\  %4 = print(%1)
-        \\})
-    );
     try testZir("{[]x}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -1730,22 +1685,6 @@ test "print_zir: lambda" {
         \\})
     );
 
-    try warnZir("{y}",
-        \\test:1:1: warn: unused function parameter 'x'
-        \\{y}
-        \\^
-        \\test:1:2: note: consider renaming 'y' to 'x'
-        \\{y}
-        \\ ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\    %3 = param_implicit(@y) token_offset:1:2 to :1:3
-        \\    %4 = ret_node(%3) node_offset:1:2 to :1:3
-        \\  }) (params=2,lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
-        \\  %5 = print(%1)
-        \\})
-    );
     try testZir("{[]y}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -1782,29 +1721,6 @@ test "print_zir: lambda" {
         \\})
     );
 
-    try warnZir("{z}",
-        \\test:1:1: warn: unused function parameter 'y'
-        \\{z}
-        \\^
-        \\test:1:2: note: consider renaming 'z' to 'x'
-        \\{z}
-        \\ ^
-        \\test:1:1: warn: unused function parameter 'x'
-        \\{z}
-        \\^
-        \\test:1:2: note: consider renaming 'z' to 'x'
-        \\{z}
-        \\ ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = param_implicit(@x) token_offset:1:1 to :1:2
-        \\    %3 = param_implicit(@y) token_offset:1:1 to :1:2
-        \\    %4 = param_implicit(@z) token_offset:1:2 to :1:3
-        \\    %5 = ret_node(%4) node_offset:1:2 to :1:3
-        \\  }) (params=3,lbrace=1:1,rbrace=1:3) node_offset:1:1 to :1:4
-        \\  %6 = print(%1)
-        \\})
-    );
     try testZir("{[]z}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -3147,68 +3063,9 @@ test "print_zir: lambda namespace global assign" {
 }
 
 test "print_zir: assign" {
-    try testZir("x:x:1",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:3 to :1:4
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:3 to :1:6
-        \\  %3 = apply(@assign, %1, %2) node_offset:1:1 to :1:6
-        \\})
-    );
-    try testZir("x:1",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:1 to :1:2
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:4
-        \\})
-    );
-    try testZir("(x):1",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:2 to :1:3
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:6
-        \\})
-    );
-
-    // TODO: Warn setting namespace directly could have unintended consequences.
-    try testZir(".ns:1",
-        \\%0 = file({
-        \\  %1 = init_identifier(".ns") token_offset:1:1 to :1:4
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:6
-        \\})
-    );
-    try testZir("(.ns):1",
-        \\%0 = file({
-        \\  %1 = init_identifier(".ns") token_offset:1:2 to :1:5
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:8
-        \\})
-    );
-
-    try testZir(".ns.x:1",
-        \\%0 = file({
-        \\  %1 = init_identifier(".ns.x") token_offset:1:1 to :1:6
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:8
-        \\})
-    );
-    try testZir("(.ns.x):1",
-        \\%0 = file({
-        \\  %1 = init_identifier(".ns.x") token_offset:1:2 to :1:7
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:10
-        \\})
-    );
-
-    try testZir(":[x;1]",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:3 to :1:4
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:7
-        \\})
-    );
     try testZir("(:)[x;1]",
         \\%0 = file({
         \\  %1 = init_identifier("x") token_offset:1:5 to :1:6
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:9
-        \\})
-    );
-    try testZir(":[(x);1]",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:4 to :1:5
         \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:9
         \\})
     );
@@ -3219,45 +3076,6 @@ test "print_zir: assign" {
         \\})
     );
 
-    try warnZir("{[]x:1}",
-        \\test:1:4: warn: unused local variable
-        \\{[]x:1}
-        \\   ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = local("x") token_offset:1:4 to :1:5
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:7
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:7
-        \\  }) (params=1,lbrace=1:1,rbrace=1:7) node_offset:1:1 to :1:8
-        \\  %5 = print(%1)
-        \\})
-    );
-    try warnZir("{[](x):1}",
-        \\test:1:5: warn: unused local variable
-        \\{[](x):1}
-        \\    ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = local("x") token_offset:1:5 to :1:6
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:9
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:9
-        \\  }) (params=1,lbrace=1:1,rbrace=1:9) node_offset:1:1 to :1:10
-        \\  %5 = print(%1)
-        \\})
-    );
-    try warnZir("{[]:[x;1]}",
-        \\test:1:6: warn: unused local variable
-        \\{[]:[x;1]}
-        \\     ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = local("x") token_offset:1:6 to :1:7
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:10
-        \\  }) (params=1,lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
-        \\  %5 = print(%1)
-        \\})
-    );
     try warnZir("{[](:)[x;1]}",
         \\test:1:8: warn: unused local variable
         \\{[](:)[x;1]}
@@ -3265,19 +3083,6 @@ test "print_zir: assign" {
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = local("x") token_offset:1:8 to :1:9
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
-        \\  }) (params=1,lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
-        \\  %5 = print(%1)
-        \\})
-    );
-    try warnZir("{[]:[(x);1]}",
-        \\test:1:7: warn: unused local variable
-        \\{[]:[(x);1]}
-        \\      ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = local("x") token_offset:1:7 to :1:8
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:12
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:12
         \\  }) (params=1,lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
@@ -3300,34 +3105,9 @@ test "print_zir: assign" {
 }
 
 test "print_zir: global assign" {
-    try testZir("x::1",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:1 to :1:2
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:5
-        \\})
-    );
-    try testZir("(x)::1",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:2 to :1:3
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:7
-        \\})
-    );
-
-    try testZir("::[x;1]",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:4 to :1:5
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:8
-        \\})
-    );
     try testZir("(::)[x;1]",
         \\%0 = file({
         \\  %1 = init_identifier("x") token_offset:1:6 to :1:7
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:10
-        \\})
-    );
-    try testZir("::[(x);1]",
-        \\%0 = file({
-        \\  %1 = init_identifier("x") token_offset:1:5 to :1:6
         \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:10
         \\})
     );
@@ -3337,50 +3117,10 @@ test "print_zir: global assign" {
         \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:12
         \\})
     );
-    try testZir("{[]x::1}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = init_identifier("x") token_offset:1:4 to :1:5
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:8
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:8
-        \\  }) (params=1,lbrace=1:1,rbrace=1:8) node_offset:1:1 to :1:9
-        \\  %5 = print(%1)
-        \\})
-    );
-    try testZir("{[](x)::1}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = init_identifier("x") token_offset:1:5 to :1:6
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:10
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:10
-        \\  }) (params=1,lbrace=1:1,rbrace=1:10) node_offset:1:1 to :1:11
-        \\  %5 = print(%1)
-        \\})
-    );
-    try testZir("{[]::[x;1]}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = init_identifier("x") token_offset:1:7 to :1:8
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:11
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:11
-        \\  }) (params=1,lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
-        \\  %5 = print(%1)
-        \\})
-    );
     try testZir("{[](::)[x;1]}",
         \\%0 = file({
         \\  %1 = lambda({
         \\    %2 = init_identifier("x") token_offset:1:9 to :1:10
-        \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:13
-        \\    %4 = ret_node(%3) node_offset:1:4 to :1:13
-        \\  }) (params=1,lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
-        \\  %5 = print(%1)
-        \\})
-    );
-    try testZir("{[]::[(x);1]}",
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = init_identifier("x") token_offset:1:8 to :1:9
         \\    %3 = apply(@assign, %2, @one) node_offset:1:4 to :1:13
         \\    %4 = ret_node(%3) node_offset:1:4 to :1:13
         \\  }) (params=1,lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
@@ -3418,12 +3158,6 @@ test "print_zir: colon" {
         \\test:1:2: error: expected 2 argument(s), found 1
         \\:[1]
         \\~^~~
-    );
-    try testZir("a:1",
-        \\%0 = file({
-        \\  %1 = init_identifier("a") token_offset:1:1 to :1:2
-        \\  %2 = apply(@assign, %1, @one) node_offset:1:1 to :1:4
-        \\})
     );
     try testZir(":[a;1]",
         \\%0 = file({
@@ -4093,19 +3827,107 @@ test "print_zir: while" {
 }
 
 test "print_zir: cond" {
-    if (true) return error.SkipZigTest;
+    try warnZir("{$[x;a:1;a]}",
+        \\test:1:10: warn: use of conditionally declared local variable 'a'
+        \\{$[x;a:1;a]}
+        \\         ^
+        \\test:1:6: note: declared here
+        \\{$[x;a:1;a]}
+        \\     ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = local("a") token_offset:1:6 to :1:7
+        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
+        \\    %5 = ret_node(%3) node_offset:1:2 to :1:12
+        \\  }) (params=1,lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %6 = print(%1)
+        \\})
+    );
+    try failZir("{$[x;a;a:1]}",
+        \\test:1:6: error: use of undeclared identifier 'a'
+        \\{$[x;a;a:1]}
+        \\     ^
+        \\test:1:8: note: identifier declared here
+        \\{$[x;a;a:1]}
+        \\       ^
+    );
 
-    try testZir("{$[x;a:1;a]}", "");
-    try testZir("{$[x;a;a:1]}", "");
+    try warnZir("{$[x;a:1;a;a]}",
+        \\test:1:10: warn: use of conditionally declared local variable 'a'
+        \\{$[x;a:1;a;a]}
+        \\         ^
+        \\test:1:6: note: declared here
+        \\{$[x;a:1;a;a]}
+        \\     ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = local("a") token_offset:1:6 to :1:7
+        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
+        \\    %5 = ret_node(%3) node_offset:1:2 to :1:14
+        \\  }) (params=1,lbrace=1:1,rbrace=1:14) node_offset:1:1 to :1:15
+        \\  %6 = print(%1)
+        \\})
+    );
+    try failZir("{$[x;a;a:1;a]}",
+        \\test:1:6: error: use of undeclared identifier 'a'
+        \\{$[x;a;a:1;a]}
+        \\     ^
+        \\test:1:8: note: identifier declared here
+        \\{$[x;a;a:1;a]}
+        \\       ^
+    );
+    try failZir("{$[x;a;a;a:1]}",
+        \\test:1:6: error: use of undeclared identifier 'a'
+        \\{$[x;a;a;a:1]}
+        \\     ^
+        \\test:1:10: note: identifier declared here
+        \\{$[x;a;a;a:1]}
+        \\         ^
+    );
 
-    try testZir("{$[x;a:1;a;a]}", "");
-    try testZir("{$[x;a;a:1;a]}", "");
-    try testZir("{$[x;a;a;a:1]}", "");
-
-    try testZir("{$[x;a:1;a;a;a]}", "");
-    try testZir("{$[x;a;a:1;a;a]}", "");
-    try testZir("{$[x;a;a;a:1;a]}", "");
-    try testZir("{$[x;a;a;a;a:1]}", "");
+    try warnZir("{$[x;a:1;a;a;a]}",
+        \\test:1:10: warn: use of conditionally declared local variable 'a'
+        \\{$[x;a:1;a;a;a]}
+        \\         ^
+        \\test:1:6: note: declared here
+        \\{$[x;a:1;a;a;a]}
+        \\     ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = local("a") token_offset:1:6 to :1:7
+        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
+        \\    %5 = ret_node(%3) node_offset:1:2 to :1:16
+        \\  }) (params=1,lbrace=1:1,rbrace=1:16) node_offset:1:1 to :1:17
+        \\  %6 = print(%1)
+        \\})
+    );
+    try failZir("{$[x;a;a:1;a;a]}",
+        \\test:1:6: error: use of undeclared identifier 'a'
+        \\{$[x;a;a:1;a;a]}
+        \\     ^
+        \\test:1:8: note: identifier declared here
+        \\{$[x;a;a:1;a;a]}
+        \\       ^
+    );
+    try failZir("{$[x;a;a;a:1;a]}",
+        \\test:1:6: error: use of undeclared identifier 'a'
+        \\{$[x;a;a;a:1;a]}
+        \\     ^
+        \\test:1:10: note: identifier declared here
+        \\{$[x;a;a;a:1;a]}
+        \\         ^
+    );
+    try failZir("{$[x;a;a;a;a:1]}",
+        \\test:1:6: error: use of undeclared identifier 'a'
+        \\{$[x;a;a;a;a:1]}
+        \\     ^
+        \\test:1:12: note: identifier declared here
+        \\{$[x;a;a;a;a:1]}
+        \\           ^
+    );
 }
 
 test "print_zir: too many parameters" {
@@ -4668,24 +4490,6 @@ test "print_zir: conditionally declared local variable" {
         \\    %8 = ret_node(%4) node_offset:1:16 to :1:17
         \\  }) (params=1,lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
         \\  %9 = print(%1)
-        \\})
-    );
-    // Each `$[...]` branch is its own conditional body.
-    try warnZir("{$[x;a:1;a]}",
-        \\test:1:10: warn: use of conditionally declared local variable 'a'
-        \\{$[x;a:1;a]}
-        \\         ^
-        \\test:1:6: note: declared here
-        \\{$[x;a:1;a]}
-        \\     ^
-        \\%0 = file({
-        \\  %1 = lambda({
-        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
-        \\    %3 = local("a") token_offset:1:6 to :1:7
-        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
-        \\    %5 = ret_node(%3) node_offset:1:2 to :1:12
-        \\  }) (params=1,lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
-        \\  %6 = print(%1)
         \\})
     );
     // Declared in a nested body, read in the enclosing one.

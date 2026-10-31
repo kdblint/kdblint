@@ -1538,36 +1538,8 @@ fn cond(gz: *GenZir, parent_scope: *Scope, full_call: Ast.full.Call) InnerError!
     const condition, scope = try expr(gz, scope, full_call.args[0]);
     _ = condition; // autofix
 
-    // q)$[a;a:1b;a]
-    // 'a
-    //   [0]  $[a;a:1b;a]
-    //          ^
-
-    // q)$[a;a;a:1b]
-    // 'a
-    //   [0]  $[a;a;a:1b]
-    //          ^
-
-    // q)$[1b;a:1b;a]
-    // 1b
-
-    // q)$[1b;a;a:1b]
-    // 'a
-    //   [0]  $[1b;a;a:1b]
-    //             ^
-
-    // q)$[0b;a:1b;a]
-    // 'a
-    //   [0]  $[0b;a:1b;a]
-    //                  ^
-
-    // q)$[0b;a;a:1b]
-    // 1b
-
-    // TODO: https://kdblint.atlassian.net/browse/KLS-310
-
     // Each branch is its own conditional body: a local assigned in one branch
-    // may be unassigned in another (see the transcripts above).
+    // may be unassigned in another (see the `cond` test in `print_zir.zig`).
     const args = full_call.args[1..];
     var inst: Zir.Inst.Ref = undefined;
     for (args) |arg| {
