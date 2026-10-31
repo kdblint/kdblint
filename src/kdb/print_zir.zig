@@ -622,12 +622,19 @@ fn testZirMode(mode: Ast.Mode, source: [:0]const u8, expected: []const u8) !void
     var zir = try AstGen.generate(io, gpa, &context);
     defer zir.deinit(gpa);
 
-    // Errors and TODO: warnings
+    // Errors
     if (zir.hasCompileErrors()) {
         std.debug.print("error\n", .{});
         try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
         return error.Unexpected;
     }
+
+    // TODO: Warnings
+    // if (zir.hasCompileWarnings()) {
+    //     std.debug.print("warning\n", .{});
+    //     try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
+    //     return error.Unexpected;
+    // }
 
     var output: Io.Writer.Allocating = .init(gpa);
     defer output.deinit();
@@ -809,7 +816,48 @@ fn noFailZirModeVersion(mode: Ast.Mode, version: Ast.Version, source: [:0]const 
     }
 }
 
-test "print" {
+/// Like `testZir`, but also asserts that no warnings were emitted.
+fn noWarnZir(source: [:0]const u8, expected: []const u8) !void {
+    try testZir(source, expected);
+
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const info = @typeInfo(Ast.Mode).@"enum";
+    inline for (info.field_values) |field_value| {
+        var tree: Ast = try .parse(io, gpa, source, .{
+            .mode = @fromBackingInt(@intCast(field_value)),
+            .version = .@"4.0",
+        });
+        defer tree.deinit(gpa);
+
+        var doc_scope: DocumentScope = .{};
+        defer doc_scope.deinit(gpa);
+        var context: DocumentScope.ScopeContext = .{
+            .gpa = gpa,
+            .tree = tree,
+            .doc_scope = &doc_scope,
+        };
+        defer context.deinit();
+
+        var zir = try AstGen.generate(io, gpa, &context);
+        defer zir.deinit(gpa);
+
+        if (zir.hasCompileWarnings()) {
+            try kdb.printZirErrorsToStderr(gpa, io, tree, zir, "test", .auto);
+            return error.UnexpectedWarning;
+        }
+    }
+}
+
+// TODO: \d .ns
+// TODO: Setting .q namespace can segfault builtin references
+
+// TODO: global undeclared identifier
+// TODO: local undeclared identifier
+
+// TODO: invalid assignment target
+
+test "print_zir: print" {
     try testZir("1",
         \\%0 = file({
         \\  %1 = print(@one)
@@ -836,7 +884,7 @@ test "print" {
     );
 }
 
-test "discard" {
+test "print_zir: discard" {
     try testZir("1;",
         \\%0 = file({
         \\  %1 = discard(@one)
@@ -862,7 +910,7 @@ test "discard" {
     );
 }
 
-test "empty" {
+test "print_zir: empty" {
     try testZir("{[x;y]x+y}[1;]",
         \\%0 = file({
         \\  %1 = lambda({
@@ -877,7 +925,7 @@ test "empty" {
     );
 }
 
-test "grouped expression" {
+test "print_zir: grouped expression" {
     try testZir("3*4+5",
         \\%0 = file({
         \\  %1 = long(5)
@@ -900,7 +948,7 @@ test "grouped expression" {
     );
 }
 
-test "empty list" {
+test "print_zir: empty list" {
     try testZir("()",
         \\%0 = file({
         \\  %1 = print(@empty_list)
@@ -922,7 +970,7 @@ test "empty list" {
     );
 }
 
-test "list" {
+test "print_zir: list" {
     try testZir("(1;2;3;4;5)",
         \\%0 = file({
         \\  %1 = long(5)
@@ -944,7 +992,7 @@ test "list" {
     );
 }
 
-test "table literal" {
+test "print_zir: table literal" {
     try testZir("([]())",
         \\%0 = file({
         \\  %1 = table("" = @empty_list) node_offset:1:1 to :1:7
@@ -1553,7 +1601,7 @@ test "table literal" {
     );
 }
 
-test "table literal - length check" {
+test "print_zir: table literal - length check" {
     try failZir("([a:3 3 3]())",
         \\test:1:5: error: expected column length 0, found 3
         \\([a:3 3 3]())
@@ -1594,7 +1642,7 @@ test "table literal - length check" {
     );
 }
 
-test "lambda" {
+test "print_zir: lambda" {
     try testZir("{}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -1828,7 +1876,7 @@ test "lambda" {
     );
 }
 
-test "lambda semicolon" {
+test "print_zir: lambda semicolon" {
     try testZir("{;}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2062,7 +2110,7 @@ test "lambda semicolon" {
     );
 }
 
-test "expr block" {
+test "print_zir: expr block" {
     try testZir("[]",
         \\%0 = file({
         \\  %1 = print(@identity)
@@ -2142,7 +2190,7 @@ test "expr block" {
     );
 }
 
-test "return" {
+test "print_zir: return" {
     try testZir(
         \\{[]
         \\  :1
@@ -2169,7 +2217,7 @@ test "return" {
     );
 }
 
-test "signal" {
+test "print_zir: signal" {
     try testZir("'`signal",
         \\%0 = file({
         \\  %1 = sym("signal") token_offset:1:2 to :1:9
@@ -2193,15 +2241,7 @@ test "signal" {
     );
 }
 
-// TODO: \d .ns
-// TODO: Setting .q namespace can segfault builtin references
-
-// TODO: global undeclared identifier
-// TODO: local undeclared identifier
-
-// TODO: invalid assignment target
-
-test "top-level assign" {
+test "print_zir: top-level assign" {
     try testZir("x:1",
         \\%0 = file({
         \\  %1 = init_identifier("x") token_offset:1:1 to :1:2
@@ -2257,7 +2297,7 @@ test "top-level assign" {
     );
 }
 
-test "top-level global assign" {
+test "print_zir: top-level global assign" {
     try testZir("x::1",
         \\%0 = file({
         \\  %1 = init_identifier("x") token_offset:1:1 to :1:2
@@ -2313,7 +2353,7 @@ test "top-level global assign" {
     );
 }
 
-test "top-level namespace assign" {
+test "print_zir: top-level namespace assign" {
     try testZir(".ns:1",
         \\%0 = file({
         \\  %1 = init_identifier(".ns") token_offset:1:1 to :1:4
@@ -2421,7 +2461,7 @@ test "top-level namespace assign" {
     );
 }
 
-test "top-level namespace global assign" {
+test "print_zir: top-level namespace global assign" {
     try testZir(".ns::1",
         \\%0 = file({
         \\  %1 = init_identifier(".ns") token_offset:1:1 to :1:4
@@ -2529,7 +2569,7 @@ test "top-level namespace global assign" {
     );
 }
 
-test "lambda assign" {
+test "print_zir: lambda assign" {
     try testZir("{[]x:1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2617,7 +2657,7 @@ test "lambda assign" {
     );
 }
 
-test "lambda global assign" {
+test "print_zir: lambda global assign" {
     try testZir("{[]x::1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2705,7 +2745,7 @@ test "lambda global assign" {
     );
 }
 
-test "lambda namespace assign" {
+test "print_zir: lambda namespace assign" {
     try testZir("{[].ns:1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -2877,7 +2917,7 @@ test "lambda namespace assign" {
     );
 }
 
-test "lambda namespace global assign" {
+test "print_zir: lambda namespace global assign" {
     try testZir("{[].ns::1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -3049,7 +3089,7 @@ test "lambda namespace global assign" {
     );
 }
 
-test "assign" {
+test "print_zir: assign" {
     try testZir("x:x:1",
         \\%0 = file({
         \\  %1 = init_identifier("x") token_offset:1:3 to :1:4
@@ -3184,7 +3224,7 @@ test "assign" {
     );
 }
 
-test "global assign" {
+test "print_zir: global assign" {
     try testZir("x::1",
         \\%0 = file({
         \\  %1 = init_identifier("x") token_offset:1:1 to :1:2
@@ -3284,11 +3324,11 @@ test "global assign" {
     );
 }
 
-test "view" {
+test "print_zir: view" {
     return error.SkipZigTest;
 }
 
-test "colon" {
+test "print_zir: colon" {
     try testZir(":",
         \\%0 = file({
         \\  %1 = print(@assign)
@@ -3436,203 +3476,203 @@ test "colon" {
     );
 }
 
-test "colon colon" {
+test "print_zir: colon colon" {
     return error.SkipZigTest;
 }
 
-test "plus" {
+test "print_zir: plus" {
     return error.SkipZigTest;
 }
 
-test "plus colon" {
+test "print_zir: plus colon" {
     return error.SkipZigTest;
 }
 
-test "minus" {
+test "print_zir: minus" {
     return error.SkipZigTest;
 }
 
-test "minus colon" {
+test "print_zir: minus colon" {
     return error.SkipZigTest;
 }
 
-test "asterisk" {
+test "print_zir: asterisk" {
     return error.SkipZigTest;
 }
 
-test "asterisk colon" {
+test "print_zir: asterisk colon" {
     return error.SkipZigTest;
 }
 
-test "percent" {
+test "print_zir: percent" {
     return error.SkipZigTest;
 }
 
-test "percent colon" {
+test "print_zir: percent colon" {
     return error.SkipZigTest;
 }
 
-test "ampersand" {
+test "print_zir: ampersand" {
     return error.SkipZigTest;
 }
 
-test "ampersand colon" {
+test "print_zir: ampersand colon" {
     return error.SkipZigTest;
 }
 
-test "pipe" {
+test "print_zir: pipe" {
     return error.SkipZigTest;
 }
 
-test "pipe colon" {
+test "print_zir: pipe colon" {
     return error.SkipZigTest;
 }
 
-test "caret" {
+test "print_zir: caret" {
     return error.SkipZigTest;
 }
 
-test "caret colon" {
+test "print_zir: caret colon" {
     return error.SkipZigTest;
 }
 
-test "equal" {
+test "print_zir: equal" {
     return error.SkipZigTest;
 }
 
-test "equal colon" {
+test "print_zir: equal colon" {
     return error.SkipZigTest;
 }
 
-test "angle bracket left" {
+test "print_zir: angle bracket left" {
     return error.SkipZigTest;
 }
 
-test "angle bracket left colon" {
+test "print_zir: angle bracket left colon" {
     return error.SkipZigTest;
 }
 
-test "angle bracket left equal" {
+test "print_zir: angle bracket left equal" {
     return error.SkipZigTest;
 }
 
-test "angle bracket left right" {
+test "print_zir: angle bracket left right" {
     return error.SkipZigTest;
 }
 
-test "angle bracket right" {
+test "print_zir: angle bracket right" {
     return error.SkipZigTest;
 }
 
-test "angle bracket right colon" {
+test "print_zir: angle bracket right colon" {
     return error.SkipZigTest;
 }
 
-test "angle bracket right equal" {
+test "print_zir: angle bracket right equal" {
     return error.SkipZigTest;
 }
 
-test "dollar" {
+test "print_zir: dollar" {
     return error.SkipZigTest;
 }
 
-test "dollar colon" {
+test "print_zir: dollar colon" {
     return error.SkipZigTest;
 }
 
-test "comma" {
+test "print_zir: comma" {
     return error.SkipZigTest;
 }
 
-test "comma colon" {
+test "print_zir: comma colon" {
     return error.SkipZigTest;
 }
 
-test "hash" {
+test "print_zir: hash" {
     return error.SkipZigTest;
 }
 
-test "hash colon" {
+test "print_zir: hash colon" {
     return error.SkipZigTest;
 }
 
-test "underscore" {
+test "print_zir: underscore" {
     return error.SkipZigTest;
 }
 
-test "underscore colon" {
+test "print_zir: underscore colon" {
     return error.SkipZigTest;
 }
 
-test "tilde" {
+test "print_zir: tilde" {
     return error.SkipZigTest;
 }
 
-test "tilde colon" {
+test "print_zir: tilde colon" {
     return error.SkipZigTest;
 }
 
-test "bang" {
+test "print_zir: bang" {
     return error.SkipZigTest;
 }
 
-test "bang colon" {
+test "print_zir: bang colon" {
     return error.SkipZigTest;
 }
 
-test "question mark" {
+test "print_zir: question mark" {
     return error.SkipZigTest;
 }
 
-test "question mark colon" {
+test "print_zir: question mark colon" {
     return error.SkipZigTest;
 }
 
-test "at" {
+test "print_zir: at" {
     return error.SkipZigTest;
 }
 
-test "at colon" {
+test "print_zir: at colon" {
     return error.SkipZigTest;
 }
 
-test "period" {
+test "print_zir: period" {
     return error.SkipZigTest;
 }
 
-test "period colon" {
+test "print_zir: period colon" {
     return error.SkipZigTest;
 }
 
-test "zero colon" {
+test "print_zir: zero colon" {
     return error.SkipZigTest;
 }
 
-test "zero colon colon" {
+test "print_zir: zero colon colon" {
     return error.SkipZigTest;
 }
 
-test "one colon" {
+test "print_zir: one colon" {
     return error.SkipZigTest;
 }
 
-test "one colon colon" {
+test "print_zir: one colon colon" {
     return error.SkipZigTest;
 }
 
-test "two colon" {
+test "print_zir: two colon" {
     return error.SkipZigTest;
 }
 
-test "apostrophe" {
+test "print_zir: apostrophe" {
     return error.SkipZigTest;
 }
 
-test "apostrophe colon" {
+test "print_zir: apostrophe colon" {
     return error.SkipZigTest;
 }
 
-test "slash" {
+test "print_zir: slash" {
     try testZir("a+/",
         \\%0 = file({
         \\  %1 = apply(@over, @add) node_offset:1:2 to :1:4
@@ -3676,19 +3716,19 @@ test "slash" {
     );
 }
 
-test "slash colon" {
+test "print_zir: slash colon" {
     return error.SkipZigTest;
 }
 
-test "backslash" {
+test "print_zir: backslash" {
     return error.SkipZigTest;
 }
 
-test "backslash colon" {
+test "print_zir: backslash colon" {
     return error.SkipZigTest;
 }
 
-test "call" {
+test "print_zir: call" {
     try failZir(":[]",
         \\test:1:2: error: expected 2 argument(s), found 1
         \\:[]
@@ -3778,7 +3818,7 @@ test "call" {
     );
 }
 
-test "apply unary" {
+test "print_zir: apply unary" {
     try testZir("f x",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:3 to :1:4
@@ -3789,7 +3829,7 @@ test "apply unary" {
     );
 }
 
-test "apply binary" {
+test "print_zir: apply binary" {
     try testZir("x+1",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:1 to :1:2
@@ -3828,7 +3868,7 @@ test "apply binary" {
     );
 }
 
-test "number literal" {
+test "print_zir: number literal" {
     if (true) return error.SkipZigTest;
     try testZir("10:00",
         \\%0 = file({
@@ -3837,7 +3877,7 @@ test "number literal" {
     );
 }
 
-test "number list literal" {
+test "print_zir: number list literal" {
     try testZir("1 2 3",
         \\%0 = file({
         \\  %1 = long(2)
@@ -3848,7 +3888,7 @@ test "number list literal" {
     );
 }
 
-test "string literal" {
+test "print_zir: string literal" {
     try testZir(
         \\"string123"
     ,
@@ -3859,7 +3899,7 @@ test "string literal" {
     );
 }
 
-test "symbol literal" {
+test "print_zir: symbol literal" {
     try testZir("`symbol123",
         \\%0 = file({
         \\  %1 = sym("symbol123") token_offset:1:1 to :1:11
@@ -3868,7 +3908,7 @@ test "symbol literal" {
     );
 }
 
-test "symbol list literal" {
+test "print_zir: symbol list literal" {
     try testZir("`abc`def",
         \\%0 = file({
         \\  %1 = sym_list("abc", "def") node_offset:1:1 to :1:9
@@ -3877,7 +3917,7 @@ test "symbol list literal" {
     );
 }
 
-test "identifier" {
+test "print_zir: identifier" {
     try testZir("a",
         \\%0 = file({
         \\  %1 = identifier("a") token_offset:1:1 to :1:2
@@ -3886,7 +3926,7 @@ test "identifier" {
     );
 }
 
-test "builtin" {
+test "print_zir: builtin" {
     try testZir("value x",
         \\%0 = file({
         \\  %1 = identifier("x") token_offset:1:7 to :1:8
@@ -3921,39 +3961,39 @@ test "builtin" {
     );
 }
 
-test "select" {
+test "print_zir: select" {
     return error.SkipZigTest;
 }
 
-test "exec" {
+test "print_zir: exec" {
     return error.SkipZigTest;
 }
 
-test "update" {
+test "print_zir: update" {
     return error.SkipZigTest;
 }
 
-test "delete rows" {
+test "print_zir: delete rows" {
     return error.SkipZigTest;
 }
 
-test "delete cols" {
+test "print_zir: delete cols" {
     return error.SkipZigTest;
 }
 
-test "do" {
+test "print_zir: do" {
     return error.SkipZigTest;
 }
 
-test "if" {
+test "print_zir: if" {
     return error.SkipZigTest;
 }
 
-test "while" {
+test "print_zir: while" {
     return error.SkipZigTest;
 }
 
-test "cond" {
+test "print_zir: cond" {
     if (true) return error.SkipZigTest;
 
     try testZir("{$[x;a:1;a]}", "");
@@ -3969,7 +4009,7 @@ test "cond" {
     try testZir("{$[x;a;a;a;a:1]}", "");
 }
 
-test "too many parameters" {
+test "print_zir: too many parameters" {
     try testZir("{[a;b;c;d;e;f;g;h]}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -3998,7 +4038,7 @@ test "too many parameters" {
     );
 }
 
-test "declared after use / use of undeclared identifier" {
+test "print_zir: declared after use / use of undeclared identifier" {
     try testZir("{[]a::a+1}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -4052,7 +4092,7 @@ test "declared after use / use of undeclared identifier" {
     );
 }
 
-test "unused function parameter" {
+test "print_zir: unused function parameter" {
     try warnZir("{[x]}",
         \\test:1:3: warn: unused function parameter
         \\{[x]}
@@ -4083,7 +4123,7 @@ test "unused function parameter" {
     );
 }
 
-test "unused implicit function parameter" {
+test "print_zir: unused implicit function parameter" {
     try testZir("{}",
         \\%0 = file({
         \\  %1 = lambda({
@@ -4205,7 +4245,7 @@ test "unused implicit function parameter" {
     );
 }
 
-test "unused local variable" {
+test "print_zir: unused local variable" {
     try warnZir(
         \\{[]
         \\  a:1;
@@ -4265,7 +4305,7 @@ test "unused local variable" {
     );
 }
 
-test "redeclaration of function parameter" {
+test "print_zir: redeclaration of function parameter" {
     try warnZir("{[a;a]}",
         \\test:1:5: warn: redeclaration of function parameter 'a'
         \\{[a;a]}
@@ -4301,7 +4341,7 @@ test "redeclaration of function parameter" {
     );
 }
 
-test "global used as local" {
+test "print_zir: global used as local" {
     try failZir("{[]a::1;a:1}",
         \\test:1:9: error: global variable 'a' used as local
         \\{[]a::1;a:1}
@@ -4334,7 +4374,7 @@ test "global used as local" {
     );
 }
 
-test "misleading global assign" {
+test "print_zir: misleading global assign" {
     try warnZir("{[]x::x:1}",
         \\test:1:5: warn: misleading global-assign of local variable 'x'
         \\{[]x::x:1}
@@ -4408,7 +4448,7 @@ test "misleading global assign" {
     );
 }
 
-test "unreachable code" {
+test "print_zir: unreachable code" {
     try warnZir(
         \\{[]
         \\  :1;
@@ -4460,6 +4500,123 @@ test "unreachable code" {
         \\  %1 = identifier("break") token_offset:1:2 to :1:7
         \\  %2 = signal(%1) node_offset:1:1 to :1:7
         \\  %3 = print(@one)
+        \\})
+    );
+}
+
+test "print_zir: conditionally declared local variable" {
+    // Read after the body: the local may never have been assigned.
+    try warnZir("{if[x;a:1];a}",
+        \\test:1:12: warn: use of conditionally declared local variable 'a'
+        \\{if[x;a:1];a}
+        \\           ^
+        \\test:1:7: note: declared here
+        \\{if[x;a:1];a}
+        \\      ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:5 to :1:6
+        \\    %3 = if(%2, @negative_one, @empty_list) node_offset:1:2 to :1:11
+        \\    %6 = ret_node(%4) node_offset:1:12 to :1:13
+        \\  }) (params=1,lbrace=1:1,rbrace=1:13) node_offset:1:1 to :1:14
+        \\  %7 = print(%1)
+        \\})
+    );
+    // Only used inside the body that declares it.
+    try noWarnZir("{if[x;a:1;a+1];2}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:5 to :1:6
+        \\    %3 = if(%2, @negative_one, @empty_list, @x) node_offset:1:2 to :1:15
+        \\    %7 = long(2)
+        \\    %8 = ret_node(%7) node_offset:1:16 to :1:17
+        \\  }) (params=1,lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
+        \\  %9 = print(%1)
+        \\})
+    );
+    // Unconditionally re-assigned before the read.
+    try noWarnZir("{if[x;a:1];a:2;a}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:5 to :1:6
+        \\    %3 = if(%2, @negative_one, @empty_list) node_offset:1:2 to :1:11
+        \\    %6 = long(2)
+        \\    %7 = apply(@assign, %4, %6) node_offset:1:12 to :1:15
+        \\    %8 = ret_node(%4) node_offset:1:16 to :1:17
+        \\  }) (params=1,lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
+        \\  %9 = print(%1)
+        \\})
+    );
+    // Each `$[...]` branch is its own conditional body.
+    try warnZir("{$[x;a:1;a]}",
+        \\test:1:10: warn: use of conditionally declared local variable 'a'
+        \\{$[x;a:1;a]}
+        \\         ^
+        \\test:1:6: note: declared here
+        \\{$[x;a:1;a]}
+        \\     ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = local("a") token_offset:1:6 to :1:7
+        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
+        \\    %5 = ret_node(%3) node_offset:1:2 to :1:12
+        \\  }) (params=1,lbrace=1:1,rbrace=1:12) node_offset:1:1 to :1:13
+        \\  %6 = print(%1)
+        \\})
+    );
+    // Declared in a nested body, read in the enclosing one.
+    try warnZir("{if[x;if[y;a:1];a];2}",
+        \\test:1:17: warn: use of conditionally declared local variable 'a'
+        \\{if[x;if[y;a:1];a];2}
+        \\                ^
+        \\test:1:12: note: declared here
+        \\{if[x;if[y;a:1];a];2}
+        \\           ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:5 to :1:6
+        \\    %3 = param_implicit(@y) token_offset:1:10 to :1:11
+        \\    %4 = if(%2, @empty_list) node_offset:1:2 to :1:19
+        \\    %8 = long(2)
+        \\    %9 = ret_node(%8) node_offset:1:20 to :1:21
+        \\  }) (params=2,lbrace=1:1,rbrace=1:21) node_offset:1:1 to :1:22
+        \\  %10 = print(%1)
+        \\})
+    );
+    // Reported once per declaration.
+    try warnZir("{if[x;a:1];a;a}",
+        \\test:1:12: warn: use of conditionally declared local variable 'a'
+        \\{if[x;a:1];a;a}
+        \\           ^
+        \\test:1:7: note: declared here
+        \\{if[x;a:1];a;a}
+        \\      ^
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:5 to :1:6
+        \\    %3 = if(%2, @negative_one, @empty_list) node_offset:1:2 to :1:11
+        \\    %6 = ret_node(%4) node_offset:1:14 to :1:15
+        \\  }) (params=1,lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %7 = print(%1)
+        \\})
+    );
+}
+
+test "print_zir: conditionally declared local variable in all branches" {
+    if (true) return error.SkipZigTest;
+    // Declared in all branches
+    try noWarnZir("{$[x;a:1;a:2];a}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_implicit(@x) token_offset:1:4 to :1:5
+        \\    %3 = local("a") token_offset:1:6 to :1:7
+        \\    %4 = apply(@assign, %3, @one) node_offset:1:6 to :1:9
+        \\    %5 = long(2)
+        \\    %6 = apply(@assign, %3, %5) node_offset:1:10 to :1:13
+        \\    %7 = ret_node(%3) node_offset:1:15 to :1:16
+        \\  }) (params=1,lbrace=1:1,rbrace=1:16) node_offset:1:1 to :1:17
+        \\  %8 = print(%1)
         \\})
     );
 }

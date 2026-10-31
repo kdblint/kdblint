@@ -56,6 +56,11 @@ scratch: std.ArrayList(u32) = .empty,
 ///    of ZIR.
 /// The key is the ref operand; the value is the ref instruction.
 ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty,
+/// Ids of the conditional bodies (`if`/`do`/`while` bodies and `$[...]`
+/// branches) currently being lowered, innermost last. See
+/// `Scope.LocalVal.cond_block`.
+active_cond_blocks: std.ArrayListUnmanaged(u32) = .empty,
+next_cond_block: u32 = 0,
 /// Identifier nodes of global assignments, in source order. Globals belong to
 /// the root scope, but `ScopeContext` shares its scratch lists across nested
 /// scopes with LIFO discipline, so pushing into the root scope while a lambda
@@ -314,6 +319,7 @@ fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.scratch.deinit(gpa);
     astgen.ref_table.deinit(gpa);
     astgen.pending_global_decls.deinit(gpa);
+    astgen.active_cond_blocks.deinit(gpa);
 }
 
 fn file(gz: *GenZir, parent_scope: *Scope) InnerError!Zir.Inst.Ref {
@@ -1261,6 +1267,11 @@ fn assign(
     }
 
     if (scope.findLocal(ident_name)) |lhs| {
+        // Re-assigning outside the declaring body makes the local conditional
+        // on the innermost body being lowered now, or unconditional if none.
+        if (lhs.cond_block != 0 and !astgen.isCondBlockActive(lhs.cond_block)) {
+            lhs.cond_block = astgen.active_cond_blocks.getLastOrNull() orelse 0;
+        }
         try astgen.scope.pushDeclaration(ident_token, .{ .ast_node = ident_node });
         return .{ try gz.addApply(src_node, op, &.{ lhs.inst, rhs }), scope };
     } else {
@@ -1555,33 +1566,51 @@ fn cond(gz: *GenZir, parent_scope: *Scope, full_call: Ast.full.Call) InnerError!
 
     // TODO: https://kdblint.atlassian.net/browse/KLS-310
 
-    const prev_scope = scope;
-
+    // Each branch is its own conditional body: a local assigned in one branch
+    // may be unassigned in another (see the transcripts above).
     const args = full_call.args[1..];
-    for (args[0 .. args.len - 1]) |arg| {
-        _, scope = try expr(gz, scope, arg);
+    var inst: Zir.Inst.Ref = undefined;
+    for (args) |arg| {
+        const branch_scope = scope;
+        const cond_block = try astgen.pushCondBlock();
+        defer astgen.popCondBlock(cond_block);
+        inst, scope = try expr(gz, scope, arg);
+        markCondDecls(branch_scope, scope, cond_block);
     }
-    const inst, scope = try expr(gz, scope, args[args.len - 1]);
-
-    var temp_scope = scope;
-    while (temp_scope != prev_scope) switch (temp_scope.tag) {
-        .local_val => {
-            const local_val = temp_scope.cast(Scope.LocalVal).?;
-            if (local_val.id_cat == .@"local variable") {
-                try astgen.appendErrorTokNotes(
-                    local_val.token_src,
-                    "conditionally declared {s}",
-                    .{@tagName(local_val.id_cat)},
-                    &.{},
-                    .warn,
-                );
-            }
-            temp_scope = local_val.parent;
-        },
-        else => temp_scope = temp_scope.parent().?,
-    };
 
     return .{ inst, scope };
+}
+
+fn pushCondBlock(astgen: *AstGen) Allocator.Error!u32 {
+    astgen.next_cond_block += 1;
+    try astgen.active_cond_blocks.append(astgen.gpa, astgen.next_cond_block);
+    return astgen.next_cond_block;
+}
+
+fn popCondBlock(astgen: *AstGen, block: u32) void {
+    const popped = astgen.active_cond_blocks.pop();
+    assert(popped.? == block);
+}
+
+fn isCondBlockActive(astgen: *AstGen, block: u32) bool {
+    return std.mem.findScalar(u32, astgen.active_cond_blocks.items, block) != null;
+}
+
+/// Marks every local variable declared between `outer_scope` and
+/// `inner_scope` as conditionally declared in `block`. Locals already marked
+/// by a nested body keep the narrower id.
+fn markCondDecls(outer_scope: *Scope, inner_scope: *Scope, block: u32) void {
+    var scope = inner_scope;
+    while (scope != outer_scope) switch (scope.tag) {
+        .local_val => {
+            const local_val = scope.cast(Scope.LocalVal).?;
+            if (local_val.id_cat == .@"local variable" and local_val.cond_block == 0) {
+                local_val.cond_block = block;
+            }
+            scope = local_val.parent;
+        },
+        else => scope = scope.parent().?,
+    };
 }
 
 fn doStatement(
@@ -1611,6 +1640,8 @@ fn doStatement(
     const condition, scope = try expr(gz, scope, full_call.args[0]);
 
     const prev_scope = scope;
+    const cond_block = try astgen.pushCondBlock();
+    defer astgen.popCondBlock(cond_block);
 
     var body_gz = gz.makeSubBlock(scope);
     defer body_gz.unstack();
@@ -1627,23 +1658,7 @@ fn doStatement(
         _, scope = try expr(&body_gz, scope, body_node);
     }
 
-    var temp_scope = scope;
-    while (temp_scope != prev_scope) switch (temp_scope.tag) {
-        .local_val => {
-            const local_val = temp_scope.cast(Scope.LocalVal).?;
-            if (local_val.id_cat == .@"local variable") {
-                try astgen.appendErrorTokNotes(
-                    local_val.token_src,
-                    "conditionally declared {s}",
-                    .{@tagName(local_val.id_cat)},
-                    &.{},
-                    .warn,
-                );
-            }
-            temp_scope = local_val.parent;
-        },
-        else => temp_scope = temp_scope.parent().?,
-    };
+    markCondDecls(prev_scope, scope, cond_block);
 
     try gz.setDo(inst, .{
         .condition = condition,
@@ -1680,6 +1695,8 @@ fn ifStatement(
     const condition, scope = try expr(gz, scope, full_call.args[0]);
 
     const prev_scope = scope;
+    const cond_block = try astgen.pushCondBlock();
+    defer astgen.popCondBlock(cond_block);
 
     var body_gz = gz.makeSubBlock(scope);
     defer body_gz.unstack();
@@ -1696,23 +1713,7 @@ fn ifStatement(
         _, scope = try expr(&body_gz, scope, body_node);
     }
 
-    var temp_scope = scope;
-    while (temp_scope != prev_scope) switch (temp_scope.tag) {
-        .local_val => {
-            const local_val = temp_scope.cast(Scope.LocalVal).?;
-            if (local_val.id_cat == .@"local variable") {
-                try astgen.appendErrorTokNotes(
-                    local_val.token_src,
-                    "conditionally declared {s}",
-                    .{@tagName(local_val.id_cat)},
-                    &.{},
-                    .warn,
-                );
-            }
-            temp_scope = local_val.parent;
-        },
-        else => temp_scope = temp_scope.parent().?,
-    };
+    markCondDecls(prev_scope, scope, cond_block);
 
     try gz.setIf(inst, .{
         .condition = condition,
@@ -1749,6 +1750,8 @@ fn whileStatement(
     const condition, scope = try expr(gz, scope, full_call.args[0]);
 
     const prev_scope = scope;
+    const cond_block = try astgen.pushCondBlock();
+    defer astgen.popCondBlock(cond_block);
 
     var body_gz = gz.makeSubBlock(scope);
     defer body_gz.unstack();
@@ -1765,23 +1768,7 @@ fn whileStatement(
         _, scope = try expr(&body_gz, scope, body_node);
     }
 
-    var temp_scope = scope;
-    while (temp_scope != prev_scope) switch (temp_scope.tag) {
-        .local_val => {
-            const local_val = temp_scope.cast(Scope.LocalVal).?;
-            if (local_val.id_cat == .@"local variable") {
-                try astgen.appendErrorTokNotes(
-                    local_val.token_src,
-                    "conditionally declared {s}",
-                    .{@tagName(local_val.id_cat)},
-                    &.{},
-                    .warn,
-                );
-            }
-            temp_scope = local_val.parent;
-        },
-        else => temp_scope = temp_scope.parent().?,
-    };
+    markCondDecls(prev_scope, scope, cond_block);
 
     try gz.setWhile(inst, .{
         .condition = condition,
@@ -2472,6 +2459,17 @@ fn identifier(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Resul
     if (scope.lambda()) |lambda_scope| if (lambda_scope.local_decls.get(ident_name)) |local_decl| {
         if (scope.findLocal(ident_name)) |local_val| {
             if (local_val.used == 0) local_val.used = ident_token;
+            if (local_val.cond_block != 0 and !astgen.isCondBlockActive(local_val.cond_block)) {
+                try astgen.appendErrorTokNotes(
+                    ident_token,
+                    "use of conditionally declared {s} '{s}'",
+                    .{ @tagName(local_val.id_cat), ident_bytes },
+                    &.{try astgen.errNoteTok(local_val.token_src, "declared here", .{})},
+                    .warn,
+                );
+                // Report once per declaration.
+                local_val.cond_block = 0;
+            }
             return .{ local_val.inst, scope };
         }
 
@@ -3020,6 +3018,11 @@ const Scope = struct {
         /// String table index.
         name: Zir.NullTerminatedString,
         id_cat: IdCat,
+        /// Non-zero if this local was first assigned inside a conditional
+        /// body (`if`/`do`/`while` body or `$[...]` branch): the id of that
+        /// body. A read outside that body warns, since the variable may
+        /// never have been assigned.
+        cond_block: u32 = 0,
     };
 
     /// Represents a global scope that has any number of declarations in it.
