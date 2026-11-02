@@ -2539,33 +2539,143 @@ fn dsl(gz: *GenZir, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     return .nyi;
 }
 
-fn select(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    _ = node; // autofix
-    _ = gz; // autofix
+/// Lowers a `select`/`exec`/`update` column or `by` key. `name:expr` here
+/// names the result column rather than assigning a variable, so only `expr`
+/// is lowered and `name` declares nothing.
+fn qsqlColumn(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const tree = gz.astgen.context.tree;
+    if (tree.nodeTag(node) == .apply_binary) {
+        const lhs, const maybe_rhs = tree.nodeData(node).node_and_opt_node;
+        const op_node: Ast.Node.Index = @fromBackingInt(@intCast(tree.nodeMainToken(node)));
+        if (tree.nodeTag(op_node) == .colon and tree.nodeTag(tree.unwrapGroupedExpr(lhs)) == .identifier) {
+            if (maybe_rhs.unwrap()) |rhs| return expr(gz, scope, rhs);
+        }
+    }
+    return expr(gz, scope, node);
+}
+
+fn select(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+
+    var scope = parent_scope;
+
+    const select_node = tree.fullSelect(node);
+
+    if (select_node.limit) |limit| {
+        if (limit.expr) |limit_expr| {
+            _, scope = try expr(gz, scope, limit_expr);
+        }
+    }
+
+    for (select_node.select) |select_expr| {
+        _, scope = try qsqlColumn(gz, scope, select_expr);
+    }
+
+    if (select_node.by) |by| {
+        for (by.exprs) |by_expr| {
+            _, scope = try qsqlColumn(gz, scope, by_expr);
+        }
+    }
+
+    if (select_node.where) |where| {
+        for (where.exprs) |where_expr| {
+            _, scope = try expr(gz, scope, where_expr);
+        }
+    }
+
+    _, scope = try expr(gz, scope, select_node.from);
+
     return .{ .nyi, scope };
 }
 
-fn exec(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    _ = node; // autofix
-    _ = gz; // autofix
+fn exec(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+
+    var scope = parent_scope;
+
+    const exec_node = tree.fullExec(node);
+
+    for (exec_node.select) |select_expr| {
+        _, scope = try qsqlColumn(gz, scope, select_expr);
+    }
+
+    if (exec_node.by) |by| {
+        for (by.exprs) |by_expr| {
+            _, scope = try qsqlColumn(gz, scope, by_expr);
+        }
+    }
+
+    if (exec_node.where) |where| {
+        for (where.exprs) |where_expr| {
+            _, scope = try expr(gz, scope, where_expr);
+        }
+    }
+
+    _, scope = try expr(gz, scope, exec_node.from);
+
     return .{ .nyi, scope };
 }
 
-fn update(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    _ = node; // autofix
-    _ = gz; // autofix
+fn update(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+
+    var scope = parent_scope;
+
+    const update_node = tree.fullUpdate(node);
+
+    for (update_node.select) |select_expr| {
+        _, scope = try qsqlColumn(gz, scope, select_expr);
+    }
+
+    if (update_node.by) |by| {
+        for (by.exprs) |by_expr| {
+            _, scope = try qsqlColumn(gz, scope, by_expr);
+        }
+    }
+
+    if (update_node.where) |where| {
+        for (where.exprs) |where_expr| {
+            _, scope = try expr(gz, scope, where_expr);
+        }
+    }
+
+    _, scope = try expr(gz, scope, update_node.from);
+
     return .{ .nyi, scope };
 }
 
-fn deleteRows(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    _ = node; // autofix
-    _ = gz; // autofix
+fn deleteRows(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+
+    var scope = parent_scope;
+
+    const delete_node = tree.fullDeleteRows(node);
+
+    if (delete_node.where) |where| {
+        for (where.exprs) |where_expr| {
+            _, scope = try expr(gz, scope, where_expr);
+        }
+    }
+
+    _, scope = try expr(gz, scope, delete_node.from);
+
     return .{ .nyi, scope };
 }
 
-fn deleteCols(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Result {
-    _ = node; // autofix
-    _ = gz; // autofix
+fn deleteCols(gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Result {
+    const astgen = gz.astgen;
+    const tree = astgen.context.tree;
+
+    var scope = parent_scope;
+
+    const delete_node = tree.fullDeleteCols(node);
+
+    _, scope = try expr(gz, scope, delete_node.from);
+
     return .{ .nyi, scope };
 }
 

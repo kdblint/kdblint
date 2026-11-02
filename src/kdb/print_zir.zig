@@ -4300,6 +4300,276 @@ test "print_zir: unused local variable" {
     );
 }
 
+test "print_zir: unused local variable consumed by qsql" {
+    // `select`: the table, a `where` operand, a column expression and a `by` key.
+    try testZir("{t:([]a:1 2);select from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = ret_node(@nyi) node_offset:1:14 to :1:27
+        \\  }) (params=1,lbrace=1:1,rbrace=1:27) node_offset:1:1 to :1:28
+        \\  %8 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;select from t where a=c}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = identifier("a") token_offset:1:38 to :1:39
+        \\    %10 = apply(@equals, %9, %7) node_offset:1:38 to :1:41
+        \\    %11 = ret_node(@nyi) node_offset:1:18 to :1:41
+        \\  }) (params=1,lbrace=1:1,rbrace=1:41) node_offset:1:1 to :1:42
+        \\  %12 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;select a+c from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = identifier("a") token_offset:1:25 to :1:26
+        \\    %10 = apply(@add, %9, %7) node_offset:1:25 to :1:28
+        \\    %11 = ret_node(@nyi) node_offset:1:18 to :1:35
+        \\  }) (params=1,lbrace=1:1,rbrace=1:35) node_offset:1:1 to :1:36
+        \\  %12 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;select by c from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = ret_node(@nyi) node_offset:1:18 to :1:36
+        \\  }) (params=1,lbrace=1:1,rbrace=1:36) node_offset:1:1 to :1:37
+        \\  %10 = print(%1)
+        \\})
+    );
+    // `name:expr` in a column list or `by` names a column; it declares no local.
+    try testZir("{t:([]a:1 2);c:1;select b:c from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = ret_node(@nyi) node_offset:1:18 to :1:35
+        \\  }) (params=1,lbrace=1:1,rbrace=1:35) node_offset:1:1 to :1:36
+        \\  %10 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;select a by b:c from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = identifier("a") token_offset:1:25 to :1:26
+        \\    %10 = ret_node(@nyi) node_offset:1:18 to :1:40
+        \\  }) (params=1,lbrace=1:1,rbrace=1:40) node_offset:1:1 to :1:41
+        \\  %11 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);select (b):a from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = identifier("a") token_offset:1:25 to :1:26
+        \\    %8 = ret_node(@nyi) node_offset:1:14 to :1:33
+        \\  }) (params=1,lbrace=1:1,rbrace=1:33) node_offset:1:1 to :1:34
+        \\  %9 = print(%1)
+        \\})
+    );
+    // `exec`.
+    try testZir("{t:([]a:1 2);exec a from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = identifier("a") token_offset:1:19 to :1:20
+        \\    %8 = ret_node(@nyi) node_offset:1:14 to :1:27
+        \\  }) (params=1,lbrace=1:1,rbrace=1:27) node_offset:1:1 to :1:28
+        \\  %9 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;exec a from t where a=c}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = identifier("a") token_offset:1:23 to :1:24
+        \\    %10 = identifier("a") token_offset:1:38 to :1:39
+        \\    %11 = apply(@equals, %10, %7) node_offset:1:38 to :1:41
+        \\    %12 = ret_node(@nyi) node_offset:1:18 to :1:41
+        \\  }) (params=1,lbrace=1:1,rbrace=1:41) node_offset:1:1 to :1:42
+        \\  %13 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;exec b:c from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = ret_node(@nyi) node_offset:1:18 to :1:33
+        \\  }) (params=1,lbrace=1:1,rbrace=1:33) node_offset:1:1 to :1:34
+        \\  %10 = print(%1)
+        \\})
+    );
+    // `update`: `a:2` is a column assignment, not a local declaration.
+    try testZir("{t:([]a:1 2);update a:2 from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = long(2)
+        \\    %8 = ret_node(@nyi) node_offset:1:14 to :1:31
+        \\  }) (params=1,lbrace=1:1,rbrace=1:31) node_offset:1:1 to :1:32
+        \\  %9 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;update a:c from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = ret_node(@nyi) node_offset:1:18 to :1:35
+        \\  }) (params=1,lbrace=1:1,rbrace=1:35) node_offset:1:1 to :1:36
+        \\  %10 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;update a:c by b:c from t where a=c}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = identifier("a") token_offset:1:49 to :1:50
+        \\    %10 = apply(@equals, %9, %7) node_offset:1:49 to :1:52
+        \\    %11 = ret_node(@nyi) node_offset:1:18 to :1:52
+        \\  }) (params=1,lbrace=1:1,rbrace=1:52) node_offset:1:1 to :1:53
+        \\  %12 = print(%1)
+        \\})
+    );
+    // `delete` rows and columns.
+    try testZir("{t:([]a:1 2);delete from t where a=1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = identifier("a") token_offset:1:34 to :1:35
+        \\    %8 = apply(@equals, %7, @one) node_offset:1:34 to :1:37
+        \\    %9 = ret_node(@nyi) node_offset:1:14 to :1:37
+        \\  }) (params=1,lbrace=1:1,rbrace=1:37) node_offset:1:1 to :1:38
+        \\  %10 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);c:1;delete from t where a=c}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = local("c") token_offset:1:14 to :1:15
+        \\    %8 = apply(@assign, %7, @one) node_offset:1:14 to :1:17
+        \\    %9 = identifier("a") token_offset:1:38 to :1:39
+        \\    %10 = apply(@equals, %9, %7) node_offset:1:38 to :1:41
+        \\    %11 = ret_node(@nyi) node_offset:1:18 to :1:41
+        \\  }) (params=1,lbrace=1:1,rbrace=1:41) node_offset:1:1 to :1:42
+        \\  %12 = print(%1)
+        \\})
+    );
+    try testZir("{t:([]a:1 2);delete a from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = long(2)
+        \\    %3 = long_list(@one, %2) node_offset:1:9 to :1:12
+        \\    %4 = table("a" = %3) node_offset:1:4 to :1:13
+        \\    %5 = local("t") token_offset:1:2 to :1:3
+        \\    %6 = apply(@assign, %5, %4) node_offset:1:2 to :1:13
+        \\    %7 = ret_node(@nyi) node_offset:1:14 to :1:29
+        \\  }) (params=1,lbrace=1:1,rbrace=1:29) node_offset:1:1 to :1:30
+        \\  %8 = print(%1)
+        \\})
+    );
+    // Columns are not known statically, so an identifier in a qSQL clause also
+    // counts as a use of a same-named local.
+    try testZir("{a:1;t:([]a:1 2);select a from t}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = local("a") token_offset:1:2 to :1:3
+        \\    %3 = apply(@assign, %2, @one) node_offset:1:2 to :1:5
+        \\    %4 = long(2)
+        \\    %5 = long_list(@one, %4) node_offset:1:13 to :1:16
+        \\    %6 = table("a" = %5) node_offset:1:8 to :1:17
+        \\    %7 = local("t") token_offset:1:6 to :1:7
+        \\    %8 = apply(@assign, %7, %6) node_offset:1:6 to :1:17
+        \\    %9 = ret_node(@nyi) node_offset:1:18 to :1:33
+        \\  }) (params=1,lbrace=1:1,rbrace=1:33) node_offset:1:1 to :1:34
+        \\  %10 = print(%1)
+        \\})
+    );
+}
+
 test "print_zir: redeclaration of function parameter" {
     try warnZir("{[a;a]}",
         \\test:1:5: warn: redeclaration of function parameter 'a'
