@@ -5,17 +5,33 @@ const Allocator = std.mem.Allocator;
 const DocumentStore = @import("DocumentStore.zig");
 const Uri = @import("Uri.zig");
 
+/// Receives a callback after each file the indexer has attempted to load.
+pub const Progress = struct {
+    context: *anyopaque,
+    /// `files_done` counts every `.q`/`.k` file visited so far, including
+    /// ones that failed to load.
+    reportFn: *const fn (context: *anyopaque, files_done: usize) void,
+
+    fn report(progress: Progress, files_done: usize) void {
+        progress.reportFn(progress.context, files_done);
+    }
+};
+
 /// Loads every `.q`/`.k` file under the given workspace folders into the
 /// document store as non-lsp-synced documents. Designed to run in the
-/// background: failures are logged and skipped, never propagated.
+/// background: failures are logged and skipped, never propagated. Returns
+/// the number of files visited.
 pub fn indexWorkspaceFolders(
     io: Io,
     gpa: Allocator,
     document_store: *DocumentStore,
     folder_uris: []const Uri,
-) void {
+    progress: ?Progress,
+) usize {
     var seen: std.AutoHashMap(Io.File.INode, void) = .init(gpa);
     defer seen.deinit();
+
+    var files_done: usize = 0;
 
     for (folder_uris) |folder_uri| {
         const path = folder_uri.toFsPath(gpa) catch |err| {
@@ -24,10 +40,11 @@ pub fn indexWorkspaceFolders(
         };
         defer gpa.free(path);
 
-        indexDir(io, gpa, document_store, &seen, path) catch |err| {
+        indexDir(io, gpa, document_store, &seen, path, progress, &files_done) catch |err| {
             std.log.warn("failed to index workspace folder {s}: {t}", .{ folder_uri.raw, err });
         };
     }
+    return files_done;
 }
 
 fn indexDir(
@@ -36,6 +53,8 @@ fn indexDir(
     document_store: *DocumentStore,
     seen: *std.AutoHashMap(Io.File.INode, void),
     dir_path: []const u8,
+    progress: ?Progress,
+    files_done: *usize,
 ) !void {
     var dir = try Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
     defer dir.close(io);
@@ -51,7 +70,7 @@ fn indexDir(
             .directory => {
                 const child_path = try std.fs.path.join(gpa, &.{ dir_path, entry.name });
                 defer gpa.free(child_path);
-                indexDir(io, gpa, document_store, seen, child_path) catch |err| {
+                indexDir(io, gpa, document_store, seen, child_path, progress, files_done) catch |err| {
                     std.log.warn("failed to index directory {s}: {t}", .{ child_path, err });
                 };
             },
@@ -70,6 +89,8 @@ fn indexDir(
                 document_store.loadDocumentFromDisk(uri, .never) catch |err| {
                     std.log.warn("failed to index file {s}: {t}", .{ file_path, err });
                 };
+                files_done.* += 1;
+                if (progress) |p| p.report(files_done.*);
             },
             else => {},
         }
@@ -101,7 +122,25 @@ test indexWorkspaceFolders {
     var store: DocumentStore = .{ .io = io, .gpa = gpa };
     defer store.deinit();
 
-    indexWorkspaceFolders(io, gpa, &store, &.{folder_uri});
+    const Counter = struct {
+        reports: usize = 0,
+        last_files_done: usize = 0,
+
+        fn report(context: *anyopaque, files_done: usize) void {
+            const counter: *@This() = @ptrCast(@alignCast(context));
+            counter.reports += 1;
+            counter.last_files_done = files_done;
+        }
+    };
+    var counter: Counter = .{};
+
+    const files_done = indexWorkspaceFolders(io, gpa, &store, &.{folder_uri}, .{
+        .context = &counter,
+        .reportFn = Counter.report,
+    });
+    try std.testing.expectEqual(3, files_done);
+    try std.testing.expectEqual(3, counter.reports);
+    try std.testing.expectEqual(3, counter.last_files_done);
 
     const handles = try store.collectHandles(gpa);
     defer gpa.free(handles);

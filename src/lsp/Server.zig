@@ -41,6 +41,7 @@ const ClientCapabilities = struct {
     supports_publish_diagnostics: bool = false,
     supports_semantic_tokens_overlapping: bool = false,
     supports_hierarchical_document_symbols: bool = false,
+    supports_work_done_progress: bool = false,
     supports_watched_files_dynamic_registration: bool = false,
 };
 
@@ -153,6 +154,10 @@ fn initialize(
         }
     }
 
+    if (request.capabilities.window) |window| {
+        server.client_capabilities.supports_work_done_progress = window.workDoneProgress orelse false;
+    }
+
     if (request.capabilities.workspace) |workspace_capabilities| {
         if (workspace_capabilities.didChangeWatchedFiles) |watched_files| {
             server.client_capabilities.supports_watched_files_dynamic_registration = watched_files.dynamicRegistration orelse false;
@@ -230,8 +235,96 @@ fn addWorkspaceFolder(server: *Server, uri_text: []const u8) void {
 }
 
 fn indexWorkspaceFoldersTask(server: *Server, folder_uris: []const Uri) void {
-    workspace.indexWorkspaceFolders(server.io, server.gpa, &server.document_store, folder_uris);
+    var progress: WorkspaceIndexProgress = .{ .server = server };
+    progress.begin();
+    const files_done = workspace.indexWorkspaceFolders(
+        server.io,
+        server.gpa,
+        &server.document_store,
+        folder_uris,
+        progress.reporter(),
+    );
+    progress.end(files_done);
 }
+
+const workspace_index_progress_token = "kdblint-workspace-index";
+const workspace_index_progress_response_id = "create-workspace-index-progress";
+
+/// Reports workspace indexing to the client as a `$/progress` sequence so the
+/// editor can show that the server is still loading. The progress object is
+/// created up front in `initialized`, on the main message loop, before the
+/// indexing task is started; `begin`/`report`/`end` then run on the task.
+const WorkspaceIndexProgress = struct {
+    server: *Server,
+    /// `$/progress` reports are throttled to every `report_interval` files.
+    last_reported: usize = 0,
+
+    const report_interval = 25;
+
+    fn ProgressParams(comptime Value: type) type {
+        return struct {
+            token: types.ProgressToken,
+            value: Value,
+        };
+    }
+
+    fn create(server: *Server) void {
+        if (!server.client_capabilities.supports_work_done_progress) return;
+        const json = server.sendToClientRequest(
+            .{ .string = workspace_index_progress_response_id },
+            "window/workDoneProgress/create",
+            types.window.work_done_progress.CreateParams{
+                .token = .{ .string = workspace_index_progress_token },
+            },
+        ) catch |err| {
+            std.log.warn("failed to create workspace index progress: {t}", .{err});
+            return;
+        };
+        server.gpa.free(json);
+    }
+
+    fn reporter(progress: *WorkspaceIndexProgress) workspace.Progress {
+        return .{ .context = progress, .reportFn = reportCallback };
+    }
+
+    fn begin(progress: *WorkspaceIndexProgress) void {
+        progress.notify(types.window.work_done_progress.Begin{
+            .title = "kdblint: indexing workspace",
+            .cancellable = false,
+        });
+    }
+
+    fn reportCallback(context: *anyopaque, files_done: usize) void {
+        const progress: *WorkspaceIndexProgress = @ptrCast(@alignCast(context));
+        if (files_done - progress.last_reported < report_interval) return;
+        progress.last_reported = files_done;
+
+        var buffer: [64]u8 = undefined;
+        progress.notify(types.window.work_done_progress.Report{
+            .message = std.fmt.bufPrint(&buffer, "{d} files", .{files_done}) catch unreachable,
+        });
+    }
+
+    fn end(progress: *WorkspaceIndexProgress, files_done: usize) void {
+        var buffer: [64]u8 = undefined;
+        progress.notify(types.window.work_done_progress.End{
+            .message = std.fmt.bufPrint(&buffer, "{d} files indexed", .{files_done}) catch unreachable,
+        });
+    }
+
+    fn notify(progress: *WorkspaceIndexProgress, value: anytype) void {
+        const server = progress.server;
+        if (!server.client_capabilities.supports_work_done_progress) return;
+        const json = server.sendToClientNotification("$/progress", ProgressParams(@TypeOf(value)){
+            .token = .{ .string = workspace_index_progress_token },
+            .value = value,
+        }) catch |err| {
+            std.log.warn("failed to send workspace index progress: {t}", .{err});
+            return;
+        };
+        server.gpa.free(json);
+    }
+};
 
 fn initialized(
     server: *Server,
@@ -244,6 +337,7 @@ fn initialized(
         std.log.warn("failed to register file watchers: {t}", .{err});
     };
 
+    WorkspaceIndexProgress.create(server);
     server.wait_group.async(server.io, indexWorkspaceFoldersTask, .{ server, server.workspace_folders.items });
 }
 
@@ -891,6 +985,10 @@ fn handleResponse(_: *Server, response: lsp.JsonRPCMessage.Response) !void {
 
     if (std.mem.eql(u8, id, watched_files_response_id)) {
         std.log.debug("registered for watched-file notifications", .{});
+        return;
+    }
+    if (std.mem.eql(u8, id, workspace_index_progress_response_id)) {
+        std.log.debug("client created the workspace index progress", .{});
         return;
     }
 
