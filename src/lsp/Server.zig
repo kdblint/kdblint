@@ -200,7 +200,7 @@ fn initialize(
                 .semantic_tokens_options = .{
                     .legend = .{
                         .tokenTypes = std.meta.fieldNames(semantic_tokens.TokenType),
-                        .tokenModifiers = &.{},
+                        .tokenModifiers = std.meta.fieldNames(semantic_tokens.TokenModifier),
                     },
                     .full = .{ .bool = true },
                 },
@@ -419,6 +419,8 @@ fn @"textDocument/semanticTokens/full"(
 
     return try semantic_tokens.writeSemanticTokens(
         arena,
+        server.io,
+        server.gpa,
         handle,
         server.offset_encoding,
         server.client_capabilities.supports_semantic_tokens_overlapping,
