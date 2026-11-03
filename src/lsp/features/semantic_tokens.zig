@@ -106,6 +106,20 @@ const AssignKind = enum { plain, compound };
 /// Target identifier node of every plain assignment -> the assigned value.
 const AssignValues = std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index);
 
+/// Everything needed to follow assignments within one document.
+const FileContext = struct {
+    handle: *DocumentStore.Handle,
+    tree: Ast,
+    doc_scope: *const DocumentScope,
+    assign_values: *const AssignValues,
+};
+
+/// Identifies a declaration chain across documents.
+const ChainKey = struct {
+    handle: *DocumentStore.Handle,
+    first: DocumentScope.Declaration.Index,
+};
+
 const Builder = struct {
     arena: Allocator,
     io: Io,
@@ -127,11 +141,14 @@ const Builder = struct {
     /// Name token of every assignment target.
     assign_targets: std.AutoHashMapUnmanaged(Ast.TokenIndex, AssignKind) = .empty,
     assign_values: AssignValues = .empty,
-    /// Per-name result of `workspaceAssignsLambda`; a global is typically
-    /// referenced many times in a file.
+    /// Per-name result of `workspaceDeclaresFunction` for the current
+    /// file's own references; a global is typically referenced many times.
     workspace_lambda_cache: std.StringHashMapUnmanaged(bool) = .empty,
     /// Lazily built `AssignValues` of each other document consulted.
     other_assign_values: std.AutoHashMapUnmanaged(*DocumentStore.Handle, AssignValues) = .empty,
+    /// Declaration chains whose `chainIsFunction` evaluation is underway.
+    /// Re-entering one means the aliases form a cycle (`a:b;b:a`).
+    chains_in_progress: std.AutoHashMapUnmanaged(ChainKey, void) = .empty,
     token_buffer: std.ArrayList(u32) = .empty,
     previous_source_index: usize = 0,
     source_index: usize = 0,
@@ -356,10 +373,10 @@ const Builder = struct {
         const start: u32 = @intCast(tree.tokenLoc(token).start);
 
         if (doc_scope.resolveName(doc_scope.innermostScopeAtIndex(start), name)) |resolved| {
-            if (resolved.scope != .root) return b.localClass(token, resolved.chain);
+            if (resolved.scope != .root) return try b.localClass(token, resolved.chain);
         }
         if (doc_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name })) |chain| {
-            const kind: TokenType = if (b.chainAssignsLambda(chain)) .function else .variable;
+            const kind: TokenType = if (try b.chainIsFunction(b.currentFile(), chain)) .function else .variable;
             return b.withDeclarationModifiers(token, chain, Class.with(.{ .type = kind }, .static));
         }
 
@@ -371,7 +388,7 @@ const Builder = struct {
         // scope of any other file is the same global. This outranks the
         // column heuristic: a function from another file called inside a
         // q-sql clause is still a function.
-        if (try b.workspaceAssignsLambda(name)) return Class.with(.{ .type = .function }, .static);
+        if (try b.workspaceDeclaresFunction(name, b.handle)) return Class.with(.{ .type = .function }, .static);
         if (b.in_column_context[token]) return .{ .type = .property };
         const global = Class.with(.{ .type = .variable }, .static);
         for (library_namespaces) |prefix| {
@@ -380,7 +397,7 @@ const Builder = struct {
         return global;
     }
 
-    fn localClass(b: *Builder, token: Ast.TokenIndex, chain: DocumentScope.DeclarationChain) Class {
+    fn localClass(b: *Builder, token: Ast.TokenIndex, chain: DocumentScope.DeclarationChain) !Class {
         const is_parameter = switch (b.declaration(chain.first)) {
             .function_parameter => true,
             // An implicit parameter is declared at its first use, a local at
@@ -389,7 +406,7 @@ const Builder = struct {
         };
         const kind: TokenType = if (is_parameter)
             .parameter
-        else if (b.chainAssignsLambda(chain))
+        else if (try b.chainIsFunction(b.currentFile(), chain))
             .function
         else
             .variable;
@@ -424,29 +441,97 @@ const Builder = struct {
         return class;
     }
 
-    fn chainAssignsLambda(b: *Builder, chain: DocumentScope.DeclarationChain) bool {
-        return declarationChainAssignsLambda(b.tree, b.doc_scope, &b.assign_values, chain);
+    fn currentFile(b: *Builder) FileContext {
+        return .{
+            .handle = b.handle,
+            .tree = b.tree,
+            .doc_scope = b.doc_scope,
+            .assign_values = &b.assign_values,
+        };
     }
 
-    /// Whether the root scope of any other file assigns `name` a lambda.
-    fn workspaceAssignsLambda(b: *Builder, name: []const u8) !bool {
-        const gop = try b.workspace_lambda_cache.getOrPut(b.arena, name);
-        if (gop.found_existing) return gop.value_ptr.*;
-        // The cache is not touched again until this returns, so the entry
-        // pointer stays valid.
-        gop.value_ptr.* = false;
+    fn fileContext(b: *Builder, handle: *DocumentStore.Handle) !FileContext {
+        if (handle == b.handle) return b.currentFile();
+        return .{
+            .handle = handle,
+            .tree = handle.tree,
+            .doc_scope = try handle.getDocumentScope(b.io, b.gpa),
+            .assign_values = try b.otherAssignValues(handle),
+        };
+    }
 
-        for (b.other_handles) |other| {
-            if (other == b.handle) continue;
-            const other_scope = try other.getDocumentScope(b.io, b.gpa);
-            const chain = other_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name }) orelse continue;
-            const assign_values = try b.otherAssignValues(other);
-            if (declarationChainAssignsLambda(other.tree, other_scope, assign_values, chain)) {
-                gop.value_ptr.* = true;
-                return true;
-            }
+    /// Whether any declaration in `chain` is a plain assignment of a
+    /// function value (see `valueIsFunction`).
+    fn chainIsFunction(b: *Builder, file: FileContext, chain: DocumentScope.DeclarationChain) !bool {
+        const key: ChainKey = .{ .handle = file.handle, .first = chain.first };
+        const gop = try b.chains_in_progress.getOrPut(b.arena, key);
+        if (gop.found_existing) return false;
+        defer assert(b.chains_in_progress.remove(key));
+
+        var it = file.doc_scope.iterateDeclarationChain(chain.first);
+        while (it.next()) |decl_index| {
+            const ident_node = switch (file.doc_scope.declarations.get(@backingInt(decl_index))) {
+                .ast_node => |n| n,
+                .function_parameter => continue,
+            };
+            const value = file.assign_values.get(ident_node) orelse continue;
+            if (try b.valueIsFunction(file, value)) return true;
         }
         return false;
+    }
+
+    /// Whether the expression `value` evaluates to a function: a lambda or
+    /// builtin, a chained assignment of one (`a:b:{x}`), or the name of
+    /// one (`g:f`). Projections and compositions are not recognized since
+    /// that would need arity inference.
+    fn valueIsFunction(b: *Builder, file: FileContext, value: Ast.Node.Index) Allocator.Error!bool {
+        const node = file.tree.unwrapGroupedExpr(value);
+        switch (file.tree.nodeTag(node)) {
+            .lambda, .builtin => return true,
+            .identifier => return try b.nameIsFunction(file, node),
+            else => {
+                const assignment = hover.assignmentAt(file.tree, node) orelse return false;
+                return try b.valueIsFunction(file, assignment.value);
+            },
+        }
+    }
+
+    /// Whether the identifier `node` in `file` refers to a function, using
+    /// the same rule as `classifyIdentifier`: a name declared in `file` is
+    /// decided by that file, any other name by the rest of the workspace.
+    fn nameIsFunction(b: *Builder, file: FileContext, node: Ast.Node.Index) Allocator.Error!bool {
+        const token = file.tree.nodeMainToken(node);
+        const name = file.tree.tokenSlice(token);
+        const start: u32 = @intCast(file.tree.tokenLoc(token).start);
+
+        if (file.doc_scope.resolveName(file.doc_scope.innermostScopeAtIndex(start), name)) |resolved| {
+            if (resolved.scope != .root) return try b.chainIsFunction(file, resolved.chain);
+        }
+        if (file.doc_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name })) |chain| {
+            return try b.chainIsFunction(file, chain);
+        }
+        return try b.workspaceDeclaresFunction(name, file.handle);
+    }
+
+    /// Whether the root scope of any file other than `except` declares
+    /// `name` as a function.
+    fn workspaceDeclaresFunction(b: *Builder, name: []const u8, except: *DocumentStore.Handle) Allocator.Error!bool {
+        if (b.workspace_lambda_cache.get(name)) |cached| return cached;
+
+        const result = for (b.other_handles) |other| {
+            if (other == except) continue;
+            const other_scope = try other.getDocumentScope(b.io, b.gpa);
+            const chain = other_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name }) orelse continue;
+            if (try b.chainIsFunction(try b.fileContext(other), chain)) break true;
+        } else false;
+
+        // A result computed while resolving an alias may have been cut short
+        // by the cycle check, and `except` varies, so only cache answers for
+        // the current file's own references.
+        if (b.chains_in_progress.count() == 0 and except == b.handle) {
+            try b.workspace_lambda_cache.put(b.arena, name, result);
+        }
+        return result;
     }
 
     fn otherAssignValues(b: *Builder, other: *DocumentStore.Handle) !*const AssignValues {
@@ -492,26 +577,6 @@ fn indexAssignValues(arena: Allocator, tree: Ast, assign_values: *AssignValues) 
         const assignment = hover.assignmentAt(tree, node) orelse continue;
         try assign_values.put(arena, assignment.target, assignment.value);
     }
-}
-
-/// Whether any declaration in `chain` is a plain assignment whose value is
-/// a lambda literal.
-fn declarationChainAssignsLambda(
-    tree: Ast,
-    doc_scope: *const DocumentScope,
-    assign_values: *const AssignValues,
-    chain: DocumentScope.DeclarationChain,
-) bool {
-    var it = doc_scope.iterateDeclarationChain(chain.first);
-    while (it.next()) |decl_index| {
-        const ident_node = switch (doc_scope.declarations.get(@backingInt(decl_index))) {
-            .ast_node => |n| n,
-            .function_parameter => continue,
-        };
-        const value = assign_values.get(ident_node) orelse continue;
-        if (tree.nodeTag(tree.unwrapGroupedExpr(value)) == .lambda) return true;
-    }
-    return false;
 }
 
 /// Decodes the LSP delta encoding into one `type[.modifier...] text` line per
@@ -828,6 +893,144 @@ test "local declaration outranks another file's lambda" {
         \\operator :
         \\number 1
         \\variable.static f
+        \\
+    );
+}
+
+test "chained assignment of a lambda" {
+    try expectTokens("a:b:{x}",
+        \\function.declaration.static a
+        \\operator :
+        \\function.declaration.static b
+        \\operator :
+        \\parameter x
+        \\
+    );
+}
+
+test "alias of a function" {
+    try expectTokens("f:{x};g:f;g 1",
+        \\function.declaration.static f
+        \\operator :
+        \\parameter x
+        \\function.declaration.static g
+        \\operator :
+        \\function.static f
+        \\function.static g
+        \\number 1
+        \\
+    );
+}
+
+test "alias of a builtin" {
+    try expectTokens("cnt:count",
+        \\function.declaration.static cnt
+        \\operator :
+        \\function.defaultLibrary count
+        \\
+    );
+}
+
+test "alias of a function from another file" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "g:f" },
+        .{ .uri = "file:///lib.q", .source = "f:{x}" },
+    },
+        \\function.declaration.static g
+        \\operator :
+        \\function.static f
+        \\
+    );
+}
+
+test "alias declared in another file" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "g 1" },
+        .{ .uri = "file:///lib.q", .source = "f:{x};g:f" },
+    },
+        \\function.static g
+        \\number 1
+        \\
+    );
+}
+
+test "alias chain spanning files" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "h:g" },
+        .{ .uri = "file:///a.q", .source = "g:f" },
+        .{ .uri = "file:///b.q", .source = "f:{x}" },
+    },
+        \\function.declaration.static h
+        \\operator :
+        \\function.static g
+        \\
+    );
+}
+
+test "local alias of a function" {
+    try expectTokens("f:{x};{g:f;g 1}",
+        \\function.declaration.static f
+        \\operator :
+        \\parameter x
+        \\function.declaration g
+        \\operator :
+        \\function.static f
+        \\function g
+        \\number 1
+        \\
+    );
+}
+
+test "alias cycle is not a function" {
+    try expectTokens("a:b;b:a",
+        \\variable.declaration.static a
+        \\operator :
+        \\variable.static b
+        \\variable.declaration.static b
+        \\operator :
+        \\variable.static a
+        \\
+    );
+}
+
+test "alias cycle across files is not a function" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "a:b" },
+        .{ .uri = "file:///lib.q", .source = "b:a" },
+    },
+        \\variable.declaration.static a
+        \\operator :
+        \\variable.static b
+        \\
+    );
+}
+
+test "alias cycle containing a lambda" {
+    try expectTokens("a:b;a:{x};b:a",
+        \\function.declaration.static a
+        \\operator :
+        \\function.static b
+        \\function.modification.static a
+        \\operator :
+        \\parameter x
+        \\function.declaration.static b
+        \\operator :
+        \\function.static a
+        \\
+    );
+}
+
+test "projection is not recognized as a function" {
+    try expectTokens("f:{x+y};g:f[1]",
+        \\function.declaration.static f
+        \\operator :
+        \\parameter x
+        \\operator +
+        \\parameter y
+        \\variable.declaration.static g
+        \\operator :
+        \\function.static f
+        \\number 1
         \\
     );
 }
