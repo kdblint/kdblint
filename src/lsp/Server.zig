@@ -11,6 +11,7 @@ const build_options = @import("build_options");
 const DiagnosticsCollection = @import("DiagnosticsCollection.zig");
 const DocumentStore = @import("DocumentStore.zig");
 const diagnostics_gen = @import("features/diagnostics.zig");
+const document_symbol = @import("features/document_symbol.zig");
 const goto = @import("features/goto.zig");
 const hover_feature = @import("features/hover.zig");
 const references = @import("features/references.zig");
@@ -39,6 +40,7 @@ workspace_folders: std.ArrayListUnmanaged(Uri) = .empty,
 const ClientCapabilities = struct {
     supports_publish_diagnostics: bool = false,
     supports_semantic_tokens_overlapping: bool = false,
+    supports_hierarchical_document_symbols: bool = false,
     supports_watched_files_dynamic_registration: bool = false,
 };
 
@@ -146,6 +148,9 @@ fn initialize(
         if (text_document.semanticTokens) |semanticTokens| {
             server.client_capabilities.supports_semantic_tokens_overlapping = semanticTokens.overlappingTokenSupport orelse false;
         }
+        if (text_document.documentSymbol) |documentSymbol| {
+            server.client_capabilities.supports_hierarchical_document_symbols = documentSymbol.hierarchicalDocumentSymbolSupport orelse false;
+        }
     }
 
     if (request.capabilities.workspace) |workspace_capabilities| {
@@ -203,6 +208,7 @@ fn initialize(
             .definitionProvider = .{ .bool = true },
             .referencesProvider = .{ .bool = true },
             .hoverProvider = .{ .bool = true },
+            .documentSymbolProvider = .{ .bool = true },
         },
     };
 }
@@ -477,6 +483,24 @@ fn @"textDocument/hover"(
     );
 }
 
+fn @"textDocument/documentSymbol"(
+    server: *Server,
+    arena: Allocator,
+    request: types.DocumentSymbol.Params,
+) !?types.DocumentSymbol.Result {
+    const document_uri = Uri.parse(arena, request.textDocument.uri) catch return error.InvalidParams;
+    const handle = server.document_store.getHandle(document_uri) orelse return null;
+
+    return try document_symbol.documentSymbols(
+        arena,
+        server.io,
+        server.gpa,
+        handle,
+        server.offset_encoding,
+        server.client_capabilities.supports_hierarchical_document_symbols,
+    );
+}
+
 fn generateDiagnostics(server: *Server, handle: *DocumentStore.Handle) void {
     if (!server.client_capabilities.supports_publish_diagnostics) return;
     const do = struct {
@@ -497,6 +521,7 @@ const HandledRequestParams = union(enum) {
     @"textDocument/definition": types.Definition.Params,
     @"textDocument/references": types.reference.Params,
     @"textDocument/hover": types.Hover.Params,
+    @"textDocument/documentSymbol": types.DocumentSymbol.Params,
     other: lsp.MethodWithParams,
 };
 
@@ -523,6 +548,7 @@ fn isBlockingMessage(message: Message) bool {
             .@"textDocument/definition",
             .@"textDocument/references",
             .@"textDocument/hover",
+            .@"textDocument/documentSymbol",
             => false,
             .other => false,
         },
@@ -687,6 +713,7 @@ pub fn sendRequestSync(
         .@"textDocument/definition" => try server.@"textDocument/definition"(arena, params),
         .@"textDocument/references" => try server.@"textDocument/references"(arena, params),
         .@"textDocument/hover" => try server.@"textDocument/hover"(arena, params),
+        .@"textDocument/documentSymbol" => try server.@"textDocument/documentSymbol"(arena, params),
         .other => return null,
     };
 }
@@ -773,20 +800,20 @@ fn processMessageReportError(
         switch (message) {
             .request => |request| {
                 const json_message = server.sendToClientResponseError(request.id, .{
-                    .code = @enumFromInt(switch (err) {
+                    .code = @fromBackingInt(@intCast(switch (err) {
                         error.Canceled => unreachable, // checked above
-                        error.OutOfMemory => @intFromEnum(types.ErrorCodes.InternalError),
-                        error.ParseError => @intFromEnum(types.ErrorCodes.ParseError),
-                        error.InvalidRequest => @intFromEnum(types.ErrorCodes.InvalidRequest),
-                        error.MethodNotFound => @intFromEnum(types.ErrorCodes.MethodNotFound),
-                        error.InvalidParams => @intFromEnum(types.ErrorCodes.InvalidParams),
-                        error.InternalError => @intFromEnum(types.ErrorCodes.InternalError),
-                        error.ServerNotInitialized => @intFromEnum(types.ErrorCodes.ServerNotInitialized),
-                        error.RequestFailed => @intFromEnum(types.LSPErrorCodes.RequestFailed),
-                        error.ServerCancelled => @intFromEnum(types.LSPErrorCodes.ServerCancelled),
-                        error.ContentModified => @intFromEnum(types.LSPErrorCodes.ContentModified),
-                        error.RequestCancelled => @intFromEnum(types.LSPErrorCodes.RequestCancelled),
-                    }),
+                        error.OutOfMemory => @backingInt(types.ErrorCodes.InternalError),
+                        error.ParseError => @backingInt(types.ErrorCodes.ParseError),
+                        error.InvalidRequest => @backingInt(types.ErrorCodes.InvalidRequest),
+                        error.MethodNotFound => @backingInt(types.ErrorCodes.MethodNotFound),
+                        error.InvalidParams => @backingInt(types.ErrorCodes.InvalidParams),
+                        error.InternalError => @backingInt(types.ErrorCodes.InternalError),
+                        error.ServerNotInitialized => @backingInt(types.ErrorCodes.ServerNotInitialized),
+                        error.RequestFailed => @backingInt(types.LSPErrorCodes.RequestFailed),
+                        error.ServerCancelled => @backingInt(types.LSPErrorCodes.ServerCancelled),
+                        error.ContentModified => @backingInt(types.LSPErrorCodes.ContentModified),
+                        error.RequestCancelled => @backingInt(types.LSPErrorCodes.RequestCancelled),
+                    })),
                     .message = @errorName(err),
                 }) catch return;
                 server.gpa.free(json_message);

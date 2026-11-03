@@ -137,38 +137,53 @@ fn lastDecl(doc_scope: *const DocumentScope, chain: DocumentScope.DeclarationCha
     return doc_scope.declarations.get(@intFromEnum(last));
 }
 
+/// An assignment statement: `target:value`, `target::value`, or the
+/// functional forms `:[target;value]` / `::[target;value]`.
+pub const Assignment = struct {
+    /// The `.identifier` node being assigned to (grouping parentheses removed).
+    target: Ast.Node.Index,
+    value: Ast.Node.Index,
+};
+
+/// Returns the assignment that `node` represents, or null if `node` is not a
+/// plain (non-compound) assignment.
+pub fn assignmentAt(tree: Ast, node: Ast.Node.Index) ?Assignment {
+    switch (tree.nodeTag(node)) {
+        .apply_binary => {
+            const op: Ast.Node.Index = @fromBackingInt(@intCast(tree.nodeMainToken(node)));
+            switch (tree.nodeTag(op)) {
+                .colon, .colon_colon => {},
+                else => return null,
+            }
+            const lhs, const rhs = tree.nodeData(node).node_and_opt_node;
+            const target = tree.unwrapGroupedExpr(lhs);
+            if (tree.nodeTag(target) != .identifier) return null;
+            return .{ .target = target, .value = rhs.unwrap() orelse return null };
+        },
+        .call => {
+            const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
+            if (nodes.len != 3) return null;
+            switch (tree.nodeTag(tree.unwrapGroupedExpr(nodes[0]))) {
+                .colon, .colon_colon => {},
+                else => return null,
+            }
+            const target = tree.unwrapGroupedExpr(nodes[1]);
+            if (tree.nodeTag(target) != .identifier) return null;
+            return .{ .target = target, .value = nodes[2] };
+        },
+        else => return null,
+    }
+}
+
 /// Finds the value assigned to `ident_node` in `tree`, i.e. the right-hand side
-/// of an assignment whose target is that identifier node. Handles both the
-/// infix form (`name:expr`) and the functional form (`:[name;expr]`). Returns
-/// null if no such assignment exists (e.g. for an implicit parameter).
+/// of an assignment whose target is that identifier node. Returns null if no
+/// such assignment exists (e.g. for an implicit parameter).
 pub fn findAssignedValue(tree: Ast, ident_node: Ast.Node.Index) ?Ast.Node.Index {
     const count: u32 = @intCast(tree.nodes.len);
     var i: u32 = 0;
     while (i < count) : (i += 1) {
-        const node: Ast.Node.Index = @enumFromInt(i);
-        switch (tree.nodeTag(node)) {
-            .apply_binary => {
-                const op: Ast.Node.Index = @enumFromInt(tree.nodeMainToken(node));
-                switch (tree.nodeTag(op)) {
-                    .colon, .colon_colon => {},
-                    else => continue,
-                }
-                const lhs, const rhs = tree.nodeData(node).node_and_opt_node;
-                if (tree.unwrapGroupedExpr(lhs) != ident_node) continue;
-                return rhs.unwrap();
-            },
-            .call => {
-                const nodes = tree.extraDataSlice(tree.nodeData(node).extra_range, Ast.Node.Index);
-                if (nodes.len != 3) continue;
-                switch (tree.nodeTag(tree.unwrapGroupedExpr(nodes[0]))) {
-                    .colon, .colon_colon => {},
-                    else => continue,
-                }
-                if (tree.unwrapGroupedExpr(nodes[1]) != ident_node) continue;
-                return nodes[2];
-            },
-            else => {},
-        }
+        const assignment = assignmentAt(tree, @fromBackingInt(@intCast(i))) orelse continue;
+        if (assignment.target == ident_node) return assignment.value;
     }
     return null;
 }
