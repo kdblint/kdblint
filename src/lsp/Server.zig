@@ -40,6 +40,7 @@ workspace_folders: std.ArrayListUnmanaged(Uri) = .empty,
 const ClientCapabilities = struct {
     supports_publish_diagnostics: bool = false,
     supports_semantic_tokens_overlapping: bool = false,
+    supports_semantic_tokens_refresh: bool = false,
     supports_hierarchical_document_symbols: bool = false,
     supports_work_done_progress: bool = false,
     supports_watched_files_dynamic_registration: bool = false,
@@ -162,6 +163,9 @@ fn initialize(
         if (workspace_capabilities.didChangeWatchedFiles) |watched_files| {
             server.client_capabilities.supports_watched_files_dynamic_registration = watched_files.dynamicRegistration orelse false;
         }
+        if (workspace_capabilities.semanticTokens) |semantic_tokens_capabilities| {
+            server.client_capabilities.supports_semantic_tokens_refresh = semantic_tokens_capabilities.refreshSupport orelse false;
+        }
     }
 
     if (request.workspaceFolders) |folders| {
@@ -245,6 +249,24 @@ fn indexWorkspaceFoldersTask(server: *Server, folder_uris: []const Uri) void {
         progress.reporter(),
     );
     progress.end(files_done);
+    // Semantic tokens classify names declared in other files, so documents
+    // highlighted before indexing finished may now be stale.
+    server.requestSemanticTokensRefresh();
+}
+
+const semantic_tokens_refresh_response_id = "refresh-semantic-tokens";
+
+fn requestSemanticTokensRefresh(server: *Server) void {
+    if (!server.client_capabilities.supports_semantic_tokens_refresh) return;
+    const json = server.sendToClientRequest(
+        .{ .string = semantic_tokens_refresh_response_id },
+        "workspace/semanticTokens/refresh",
+        {},
+    ) catch |err| {
+        std.log.warn("failed to request semantic tokens refresh: {t}", .{err});
+        return;
+    };
+    server.gpa.free(json);
 }
 
 const workspace_index_progress_token = "kdblint-workspace-index";
@@ -515,6 +537,7 @@ fn @"textDocument/semanticTokens/full"(
         arena,
         server.io,
         server.gpa,
+        &server.document_store,
         handle,
         server.offset_encoding,
         server.client_capabilities.supports_semantic_tokens_overlapping,
@@ -989,6 +1012,10 @@ fn handleResponse(_: *Server, response: lsp.JsonRPCMessage.Response) !void {
     }
     if (std.mem.eql(u8, id, workspace_index_progress_response_id)) {
         std.log.debug("client created the workspace index progress", .{});
+        return;
+    }
+    if (std.mem.eql(u8, id, semantic_tokens_refresh_response_id)) {
+        std.log.debug("client refreshed semantic tokens", .{});
         return;
     }
 

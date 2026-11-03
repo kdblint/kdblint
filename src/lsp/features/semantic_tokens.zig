@@ -64,6 +64,7 @@ pub fn writeSemanticTokens(
     arena: Allocator,
     io: Io,
     gpa: Allocator,
+    document_store: *DocumentStore,
     handle: *DocumentStore.Handle,
     encoding: offsets.Encoding,
     overlapping_token_support: bool,
@@ -73,6 +74,10 @@ pub fn writeSemanticTokens(
 
     var builder: Builder = .{
         .arena = arena,
+        .io = io,
+        .gpa = gpa,
+        .handle = handle,
+        .other_handles = try document_store.collectHandles(arena),
         .tree = tree,
         .doc_scope = doc_scope,
         .encoding = encoding,
@@ -98,8 +103,17 @@ const Override = union(enum) {
 
 const AssignKind = enum { plain, compound };
 
+/// Target identifier node of every plain assignment -> the assigned value.
+const AssignValues = std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index);
+
 const Builder = struct {
     arena: Allocator,
+    io: Io,
+    gpa: Allocator,
+    handle: *DocumentStore.Handle,
+    /// Every document in the store, including `handle`. Names undeclared in
+    /// the current file are looked up in the root scope of each of these.
+    other_handles: []*DocumentStore.Handle,
     tree: Ast,
     doc_scope: *const DocumentScope,
     encoding: offsets.Encoding,
@@ -112,19 +126,23 @@ const Builder = struct {
     in_column_context: []bool,
     /// Name token of every assignment target.
     assign_targets: std.AutoHashMapUnmanaged(Ast.TokenIndex, AssignKind) = .empty,
-    /// Target identifier node of every plain assignment -> the assigned value.
-    assign_values: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .empty,
+    assign_values: AssignValues = .empty,
+    /// Per-name result of `workspaceAssignsLambda`; a global is typically
+    /// referenced many times in a file.
+    workspace_lambda_cache: std.StringHashMapUnmanaged(bool) = .empty,
+    /// Lazily built `AssignValues` of each other document consulted.
+    other_assign_values: std.AutoHashMapUnmanaged(*DocumentStore.Handle, AssignValues) = .empty,
     token_buffer: std.ArrayList(u32) = .empty,
     previous_source_index: usize = 0,
     source_index: usize = 0,
 
     fn indexAssignments(b: *Builder) Allocator.Error!void {
         const tree = b.tree;
+        try indexAssignValues(b.arena, tree, &b.assign_values);
         for (0..tree.nodes.len) |i| {
             const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
             if (hover.assignmentAt(tree, node)) |assignment| {
                 try b.assign_targets.put(b.arena, tree.nodeMainToken(assignment.target), .plain);
-                try b.assign_values.put(b.arena, assignment.target, assignment.value);
             } else if (tree.isCompoundAssignment(node)) {
                 const lhs = tree.unwrapGroupedExpr(tree.nodeData(node).node_and_opt_node[0]);
                 if (tree.nodeTag(lhs) != .identifier) continue;
@@ -245,15 +263,15 @@ const Builder = struct {
             if (b.overrides[token]) |override| switch (override) {
                 .class => |class| try b.add(token, class),
                 .skip => {},
-            } else if (b.classifyByTag(token)) |class| {
+            } else if (try b.classifyByTag(token)) |class| {
                 try b.add(token, class);
             }
         }
     }
 
-    fn classifyByTag(b: *Builder, token: Ast.TokenIndex) ?Class {
+    fn classifyByTag(b: *Builder, token: Ast.TokenIndex) !?Class {
         return switch (b.tree.tokenTag(token)) {
-            .identifier => b.classifyIdentifier(token),
+            .identifier => try b.classifyIdentifier(token),
             .prefix_builtin, .infix_builtin => Class.with(.{ .type = .function }, .defaultLibrary),
             .number_literal => .{ .type = .number },
             .string_literal => .{ .type = .string },
@@ -331,7 +349,7 @@ const Builder = struct {
         };
     }
 
-    fn classifyIdentifier(b: *Builder, token: Ast.TokenIndex) Class {
+    fn classifyIdentifier(b: *Builder, token: Ast.TokenIndex) !Class {
         const tree = b.tree;
         const doc_scope = b.doc_scope;
         const name = tree.tokenSlice(token);
@@ -349,6 +367,11 @@ const Builder = struct {
         for (control_words) |word| {
             if (std.mem.eql(u8, name, word)) return .{ .type = .keyword };
         }
+        // In q, load order defines globals, so a name declared at the root
+        // scope of any other file is the same global. This outranks the
+        // column heuristic: a function from another file called inside a
+        // q-sql clause is still a function.
+        if (try b.workspaceAssignsLambda(name)) return Class.with(.{ .type = .function }, .static);
         if (b.in_column_context[token]) return .{ .type = .property };
         const global = Class.with(.{ .type = .variable }, .static);
         for (library_namespaces) |prefix| {
@@ -402,16 +425,37 @@ const Builder = struct {
     }
 
     fn chainAssignsLambda(b: *Builder, chain: DocumentScope.DeclarationChain) bool {
-        var it = b.doc_scope.iterateDeclarationChain(chain.first);
-        while (it.next()) |decl_index| {
-            const ident_node = switch (b.declaration(decl_index)) {
-                .ast_node => |n| n,
-                .function_parameter => continue,
-            };
-            const value = b.assign_values.get(ident_node) orelse continue;
-            if (b.tree.nodeTag(b.tree.unwrapGroupedExpr(value)) == .lambda) return true;
+        return declarationChainAssignsLambda(b.tree, b.doc_scope, &b.assign_values, chain);
+    }
+
+    /// Whether the root scope of any other file assigns `name` a lambda.
+    fn workspaceAssignsLambda(b: *Builder, name: []const u8) !bool {
+        const gop = try b.workspace_lambda_cache.getOrPut(b.arena, name);
+        if (gop.found_existing) return gop.value_ptr.*;
+        // The cache is not touched again until this returns, so the entry
+        // pointer stays valid.
+        gop.value_ptr.* = false;
+
+        for (b.other_handles) |other| {
+            if (other == b.handle) continue;
+            const other_scope = try other.getDocumentScope(b.io, b.gpa);
+            const chain = other_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name }) orelse continue;
+            const assign_values = try b.otherAssignValues(other);
+            if (declarationChainAssignsLambda(other.tree, other_scope, assign_values, chain)) {
+                gop.value_ptr.* = true;
+                return true;
+            }
         }
         return false;
+    }
+
+    fn otherAssignValues(b: *Builder, other: *DocumentStore.Handle) !*const AssignValues {
+        const gop = try b.other_assign_values.getOrPut(b.arena, other);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .empty;
+            try indexAssignValues(b.arena, other.tree, gop.value_ptr);
+        }
+        return gop.value_ptr;
     }
 
     fn declaration(b: *const Builder, index: DocumentScope.Declaration.Index) DocumentScope.Declaration {
@@ -441,6 +485,34 @@ const Builder = struct {
         b.source_index = loc.end;
     }
 };
+
+fn indexAssignValues(arena: Allocator, tree: Ast, assign_values: *AssignValues) Allocator.Error!void {
+    for (0..tree.nodes.len) |i| {
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
+        const assignment = hover.assignmentAt(tree, node) orelse continue;
+        try assign_values.put(arena, assignment.target, assignment.value);
+    }
+}
+
+/// Whether any declaration in `chain` is a plain assignment whose value is
+/// a lambda literal.
+fn declarationChainAssignsLambda(
+    tree: Ast,
+    doc_scope: *const DocumentScope,
+    assign_values: *const AssignValues,
+    chain: DocumentScope.DeclarationChain,
+) bool {
+    var it = doc_scope.iterateDeclarationChain(chain.first);
+    while (it.next()) |decl_index| {
+        const ident_node = switch (doc_scope.declarations.get(@backingInt(decl_index))) {
+            .ast_node => |n| n,
+            .function_parameter => continue,
+        };
+        const value = assign_values.get(ident_node) orelse continue;
+        if (tree.nodeTag(tree.unwrapGroupedExpr(value)) == .lambda) return true;
+    }
+    return false;
+}
 
 /// Decodes the LSP delta encoding into one `type[.modifier...] text` line per
 /// token.
@@ -472,20 +544,25 @@ fn renderTokens(arena: Allocator, source: []const u8, data: []const u32) ![]cons
 }
 
 fn expectTokens(source: [:0]const u8, expected: []const u8) !void {
+    try expectTokensMulti(&.{.{ .uri = "file:///test.q", .source = source }}, expected);
+}
+
+/// Checks the tokens of `files[0]` with the rest of `files` loaded in the
+/// same document store.
+fn expectTokensMulti(files: []const goto.TestFile, expected: []const u8) !void {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
     var store: DocumentStore = .{ .io = io, .gpa = gpa };
     defer store.deinit();
-    const files = [_]goto.TestFile{.{ .uri = "file:///test.q", .source = source }};
-    const handle = try goto.testStoreWithFiles(&store, &files);
+    const handle = try goto.testStoreWithFiles(&store, files);
 
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const result = try writeSemanticTokens(arena, io, gpa, handle, .@"utf-8", false);
-    try std.testing.expectEqualStrings(expected, try renderTokens(arena, source, result.data));
+    const result = try writeSemanticTokens(arena, io, gpa, &store, handle, .@"utf-8", false);
+    try std.testing.expectEqualStrings(expected, try renderTokens(arena, files[0].source, result.data));
 }
 
 test "global variable declaration" {
@@ -699,6 +776,58 @@ test "multi-line source" {
         \\variable.static a
         \\operator +
         \\number 1
+        \\
+    );
+}
+
+test "function declared in another file" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "f[1]" },
+        .{ .uri = "file:///lib.q", .source = "f:{x+1}" },
+    },
+        \\function.static f
+        \\number 1
+        \\
+    );
+}
+
+test "variable declared in another file" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "v+1" },
+        .{ .uri = "file:///lib.q", .source = "v:42" },
+    },
+        \\variable.static v
+        \\operator +
+        \\number 1
+        \\
+    );
+}
+
+test "function from another file inside a q-sql clause" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "select a from t where f[b]" },
+        .{ .uri = "file:///lib.q", .source = "f:{x>0}" },
+    },
+        \\keyword select
+        \\property a
+        \\keyword from
+        \\variable.static t
+        \\keyword where
+        \\function.static f
+        \\property b
+        \\
+    );
+}
+
+test "local declaration outranks another file's lambda" {
+    try expectTokensMulti(&.{
+        .{ .uri = "file:///main.q", .source = "f:1;f" },
+        .{ .uri = "file:///lib.q", .source = "f:{x}" },
+    },
+        \\variable.declaration.static f
+        \\operator :
+        \\number 1
+        \\variable.static f
         \\
     );
 }
