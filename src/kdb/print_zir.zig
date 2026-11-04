@@ -1604,6 +1604,82 @@ test "print_zir: lambda" {
         \\})
     );
 
+    // Indexed assignment amends an existing variable rather than declaring one:
+    // the local if one is in scope, otherwise the global. Identifiers used in the
+    // index count as used.
+    try testZir("{[x]a[x]:1}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = identifier("a") token_offset:1:5 to :1:6
+        \\    %4 = apply(@assign, %3, @one) node_offset:1:5 to :1:11
+        \\    %5 = ret_node(%4) node_offset:1:5 to :1:11
+        \\  }) (params=1,lbrace=1:1,rbrace=1:11) node_offset:1:1 to :1:12
+        \\  %6 = print(%1)
+        \\})
+    );
+    try testZir("{[x;y]a[x]::y}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = identifier("a") token_offset:1:7 to :1:8
+        \\    %5 = apply(@assign, %4, %3) node_offset:1:7 to :1:14
+        \\    %6 = ret_node(%5) node_offset:1:7 to :1:14
+        \\  }) (params=2,lbrace=1:1,rbrace=1:14) node_offset:1:1 to :1:15
+        \\  %7 = print(%1)
+        \\})
+    );
+    try testZir("{[x;y].ns.a[x]:y}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = identifier(".ns.a") token_offset:1:7 to :1:12
+        \\    %5 = apply(@assign, %4, %3) node_offset:1:7 to :1:17
+        \\    %6 = ret_node(%5) node_offset:1:7 to :1:17
+        \\  }) (params=2,lbrace=1:1,rbrace=1:17) node_offset:1:1 to :1:18
+        \\  %7 = print(%1)
+        \\})
+    );
+    try testZir("{[x;y]a:y;a[x]:1;a}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = local("a") token_offset:1:7 to :1:8
+        \\    %5 = apply(@assign, %4, %3) node_offset:1:7 to :1:10
+        \\    %6 = apply(@assign, %4, @one) node_offset:1:11 to :1:17
+        \\    %7 = ret_node(%4) node_offset:1:18 to :1:19
+        \\  }) (params=2,lbrace=1:1,rbrace=1:19) node_offset:1:1 to :1:20
+        \\  %8 = print(%1)
+        \\})
+    );
+    try testZir("{[x;y]a:y;a[x]::1;a}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = local("a") token_offset:1:7 to :1:8
+        \\    %5 = apply(@assign, %4, %3) node_offset:1:7 to :1:10
+        \\    %6 = apply(@assign, %4, @one) node_offset:1:11 to :1:18
+        \\    %7 = ret_node(%4) node_offset:1:19 to :1:20
+        \\  }) (params=2,lbrace=1:1,rbrace=1:20) node_offset:1:1 to :1:21
+        \\  %8 = print(%1)
+        \\})
+    );
+    try testZir("{[x;y]x[y]:1;x}",
+        \\%0 = file({
+        \\  %1 = lambda({
+        \\    %2 = param_node("x") node_offset:1:3 to :1:4
+        \\    %3 = param_node("y") node_offset:1:5 to :1:6
+        \\    %4 = apply(@assign, %2, @one) node_offset:1:7 to :1:13
+        \\    %5 = ret_node(%2) node_offset:1:14 to :1:15
+        \\  }) (params=2,lbrace=1:1,rbrace=1:15) node_offset:1:1 to :1:16
+        \\  %6 = print(%1)
+        \\})
+    );
+
     try testZir("{2}",
         \\%0 = file({
         \\  %1 = lambda({

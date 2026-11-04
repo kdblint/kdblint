@@ -1873,19 +1873,19 @@ fn applyBinary(gz: *GenZir, parent_scope: *Scope, src_node: Ast.Node.Index) Inne
                     rhs,
                     t == .colon_colon,
                 ),
-                // TODO: Needs more work - result location?
                 .call => {
                     const full_call = tree.fullCall(ident_node);
                     switch (tree.nodeTag(full_call.func)) {
-                        .identifier => return assign(
-                            gz,
-                            scope,
-                            src_node,
-                            op_node,
-                            full_call.func,
-                            rhs,
-                            t == .colon_colon,
-                        ),
+                        .identifier => {
+                            const rhs_ref, scope = try expr(gz, scope, rhs);
+                            var it = std.mem.reverseIterator(full_call.args);
+                            while (it.next()) |arg_node| {
+                                _, scope = try expr(gz, scope, arg_node);
+                            }
+                            const op, scope = try expr(gz, scope, op_node);
+                            const lhs_ref, scope = try expr(gz, scope, full_call.func);
+                            return .{ try gz.addApply(src_node, op, &.{ lhs_ref, rhs_ref }), scope };
+                        },
                         else => return astgen.failNode(src_node, "{}", .{tree.nodeTag(full_call.func)}),
                     }
                 },
