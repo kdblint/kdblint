@@ -31,10 +31,16 @@ offset_encoding: offsets.Encoding = .@"utf-16",
 status: Status = .uninitialized,
 
 wait_group: std.Io.Group = .init,
+/// Background workspace indexing. Kept apart from `wait_group` so that
+/// blocking messages (`didOpen`, `didChange`, client responses, ...) do not
+/// wait for the whole workspace to load. Only `didChangeWorkspaceFolders`
+/// and teardown await it, because they free documents the indexer touches.
+index_group: std.Io.Group = .init,
 client_capabilities: ClientCapabilities = .{},
 /// Canonicalized URIs of the client's workspace folders. Owned by `gpa`.
 /// Only mutated by `initialize` and blocking notification handlers, which
-/// never run concurrently with `wait_group` tasks.
+/// never run concurrently with `wait_group` tasks. The indexer works on its
+/// own copy, see `startWorkspaceIndex`.
 workspace_folders: std.ArrayListUnmanaged(Uri) = .empty,
 
 const ClientCapabilities = struct {
@@ -70,6 +76,7 @@ pub fn create(io: Io, gpa: Allocator, transport: *lsp.Transport) !*Server {
 
 pub fn destroy(server: *Server) void {
     server.wait_group.cancel(server.io);
+    server.index_group.cancel(server.io);
     server.document_store.deinit();
     server.diagnostics_collection.deinit();
     for (server.workspace_folders.items) |uri| uri.deinit(server.gpa);
@@ -86,6 +93,7 @@ pub fn keepRunning(server: Server) bool {
 
 pub fn loop(server: *Server) !void {
     defer server.wait_group.cancel(server.io);
+    defer server.index_group.cancel(server.io);
     while (server.keepRunning()) {
         const json_message = try server.transport.readJsonMessage(server.io, server.gpa);
         defer server.gpa.free(json_message);
@@ -238,7 +246,38 @@ fn addWorkspaceFolder(server: *Server, uri_text: []const u8) void {
     server.workspace_folders.append(server.gpa, uri) catch uri.deinit(server.gpa);
 }
 
+/// Indexes `folder_uris` on `index_group`. The task gets its own copy of
+/// the URIs because `workspace_folders` may be mutated while it runs.
+fn startWorkspaceIndex(server: *Server, folder_uris: []const Uri) void {
+    const gpa = server.gpa;
+    const owned = gpa.alloc(Uri, folder_uris.len) catch {
+        std.log.warn("out of memory; skipping workspace index", .{});
+        return;
+    };
+    var count: usize = 0;
+    for (folder_uris) |uri| {
+        owned[count] = uri.dupe(gpa) catch break;
+        count += 1;
+    }
+    if (count != folder_uris.len) {
+        std.log.warn("out of memory; indexing only {d} of {d} workspace folders", .{ count, folder_uris.len });
+    }
+
+    // `concurrent` guarantees the task does not run inline on the message
+    // loop thread, which is the whole point of indexing in the background.
+    server.index_group.concurrent(server.io, indexWorkspaceFoldersTask, .{ server, owned[0..count] }) catch |err| {
+        std.log.warn("cannot index workspace concurrently ({t}); indexing inline", .{err});
+        server.index_group.async(server.io, indexWorkspaceFoldersTask, .{ server, owned[0..count] });
+    };
+}
+
+/// Owns `folder_uris` and frees them when done.
 fn indexWorkspaceFoldersTask(server: *Server, folder_uris: []const Uri) void {
+    defer {
+        for (folder_uris) |uri| uri.deinit(server.gpa);
+        server.gpa.free(folder_uris);
+    }
+
     var progress: WorkspaceIndexProgress = .{ .server = server };
     progress.begin();
     const files_done = workspace.indexWorkspaceFolders(
@@ -360,7 +399,7 @@ fn initialized(
     };
 
     WorkspaceIndexProgress.create(server);
-    server.wait_group.async(server.io, indexWorkspaceFoldersTask, .{ server, server.workspace_folders.items });
+    server.startWorkspaceIndex(server.workspace_folders.items);
 }
 
 const watched_files_response_id = "register-didChangeWatchedFiles";
@@ -491,6 +530,11 @@ fn @"workspace/didChangeWorkspaceFolders"(
     arena: Allocator,
     notification: types.workspace.folders.DidChangeParams,
 ) !void {
+    // Removing a folder frees its documents, so an in-flight index must not
+    // be adding to them at the same time.
+    server.index_group.await(server.io) catch {};
+    server.index_group = .init;
+
     for (notification.event.removed) |folder| {
         const uri = Uri.parse(arena, folder.uri) catch continue;
         for (server.workspace_folders.items, 0..) |existing, i| {
@@ -508,10 +552,7 @@ fn @"workspace/didChangeWorkspaceFolders"(
         server.addWorkspaceFolder(folder.uri);
     }
     if (server.workspace_folders.items.len > first_added) {
-        server.wait_group.async(server.io, indexWorkspaceFoldersTask, .{
-            server,
-            server.workspace_folders.items[first_added..],
-        });
+        server.startWorkspaceIndex(server.workspace_folders.items[first_added..]);
     }
 }
 

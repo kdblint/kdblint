@@ -40,8 +40,10 @@ pub fn indexWorkspaceFolders(
         };
         defer gpa.free(path);
 
-        indexDir(io, gpa, document_store, &seen, path, progress, &files_done) catch |err| {
-            std.log.warn("failed to index workspace folder {s}: {t}", .{ folder_uri.raw, err });
+        indexDir(io, gpa, document_store, &seen, path, progress, &files_done) catch |err| switch (err) {
+            // The server is shutting down or the folders changed; stop quietly.
+            error.Canceled => return files_done,
+            else => std.log.warn("failed to index workspace folder {s}: {t}", .{ folder_uri.raw, err }),
         };
     }
     return files_done;
@@ -71,6 +73,8 @@ fn indexDir(
                 const child_path = try std.fs.path.join(gpa, &.{ dir_path, entry.name });
                 defer gpa.free(child_path);
                 indexDir(io, gpa, document_store, seen, child_path, progress, files_done) catch |err| {
+                    // A recursive call cannot switch on its own inferred error set.
+                    if (err == error.Canceled) return error.Canceled;
                     std.log.warn("failed to index directory {s}: {t}", .{ child_path, err });
                 };
             },
@@ -86,8 +90,9 @@ fn indexDir(
 
                 // `.never`: documents already open in the editor or already
                 // indexed are left untouched.
-                document_store.loadDocumentFromDisk(uri, .never) catch |err| {
-                    std.log.warn("failed to index file {s}: {t}", .{ file_path, err });
+                document_store.loadDocumentFromDisk(uri, .never) catch |err| switch (err) {
+                    error.Canceled => return err,
+                    else => std.log.warn("failed to index file {s}: {t}", .{ file_path, err }),
                 };
                 files_done.* += 1;
                 if (progress) |p| p.report(files_done.*);
