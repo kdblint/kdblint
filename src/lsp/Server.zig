@@ -15,6 +15,7 @@ const document_symbol = @import("features/document_symbol.zig");
 const goto = @import("features/goto.zig");
 const hover_feature = @import("features/hover.zig");
 const references = @import("features/references.zig");
+const document_highlight = @import("features/document_highlight.zig");
 const semantic_tokens = @import("features/semantic_tokens.zig");
 const workspace = @import("workspace.zig");
 const diff = @import("diff.zig");
@@ -224,6 +225,7 @@ fn initialize(
             },
             .definitionProvider = .{ .bool = true },
             .referencesProvider = .{ .bool = true },
+            .documentHighlightProvider = .{ .bool = true },
             .hoverProvider = .{ .bool = true },
             .documentSymbolProvider = .{ .bool = true },
         },
@@ -624,6 +626,25 @@ fn @"textDocument/references"(
     );
 }
 
+fn @"textDocument/documentHighlight"(
+    server: *Server,
+    arena: Allocator,
+    request: types.DocumentHighlight.Params,
+) !?[]const types.DocumentHighlight {
+    const document_uri = Uri.parse(arena, request.textDocument.uri) catch return error.InvalidParams;
+    const handle = server.document_store.getHandle(document_uri) orelse return null;
+
+    return try document_highlight.documentHighlight(
+        arena,
+        server.io,
+        server.gpa,
+        &server.document_store,
+        handle,
+        request.position,
+        server.offset_encoding,
+    );
+}
+
 fn @"textDocument/hover"(
     server: *Server,
     arena: Allocator,
@@ -680,6 +701,7 @@ const HandledRequestParams = union(enum) {
     @"textDocument/semanticTokens/full": types.semantic_tokens.Params,
     @"textDocument/definition": types.Definition.Params,
     @"textDocument/references": types.reference.Params,
+    @"textDocument/documentHighlight": types.DocumentHighlight.Params,
     @"textDocument/hover": types.Hover.Params,
     @"textDocument/documentSymbol": types.DocumentSymbol.Params,
     other: lsp.MethodWithParams,
@@ -707,6 +729,7 @@ fn isBlockingMessage(message: Message) bool {
             .@"textDocument/semanticTokens/full",
             .@"textDocument/definition",
             .@"textDocument/references",
+            .@"textDocument/documentHighlight",
             .@"textDocument/hover",
             .@"textDocument/documentSymbol",
             => false,
@@ -872,6 +895,7 @@ pub fn sendRequestSync(
         .@"textDocument/semanticTokens/full" => try server.@"textDocument/semanticTokens/full"(arena, params),
         .@"textDocument/definition" => try server.@"textDocument/definition"(arena, params),
         .@"textDocument/references" => try server.@"textDocument/references"(arena, params),
+        .@"textDocument/documentHighlight" => try server.@"textDocument/documentHighlight"(arena, params),
         .@"textDocument/hover" => try server.@"textDocument/hover"(arena, params),
         .@"textDocument/documentSymbol" => try server.@"textDocument/documentSymbol"(arena, params),
         .other => return null,

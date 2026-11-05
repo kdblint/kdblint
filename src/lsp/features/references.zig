@@ -13,6 +13,22 @@ const DocumentStore = @import("../DocumentStore.zig");
 const Uri = @import("../Uri.zig");
 const goto = @import("goto.zig");
 
+/// A token that refers to the identifier under the cursor.
+pub const Reference = struct {
+    handle: *DocumentStore.Handle,
+    token: Ast.TokenIndex,
+    /// Whether `token` is the name token of one of the identifier's
+    /// declarations.
+    is_declaration: bool,
+};
+
+pub const SearchScope = enum {
+    /// Only scan the document the cursor is in (document highlight).
+    current_file,
+    /// Scan every document in the store (find references).
+    workspace,
+};
+
 /// Known limitations, shared with goto definition (and extended across
 /// files for workspace globals):
 /// - q-sql and table-literal column identifiers are plain identifier tokens
@@ -29,8 +45,37 @@ pub fn findReferences(
     include_declaration: bool,
     encoding: offsets.Encoding,
 ) !?[]const types.Location {
+    const source_index = offsets.positionToIndex(handle.tree.source, position, encoding);
+    const refs = try collectReferences(arena, io, gpa, document_store, handle, source_index, .workspace) orelse return null;
+
+    var locations: std.ArrayList(types.Location) = try .initCapacity(arena, refs.len);
+    for (refs) |ref| {
+        if (!include_declaration and ref.is_declaration) continue;
+        locations.appendAssumeCapacity(.{
+            .uri = ref.handle.uri.raw,
+            .range = tokenRange(ref.handle, ref.token, encoding),
+        });
+    }
+    return locations.items;
+}
+
+/// Collects the tokens that refer to the identifier at `source_index` in
+/// `handle`. Tokens in `handle` come first, in source order, followed by the
+/// other documents when `search` is `.workspace`.
+///
+/// Returns null when there is no identifier at `source_index`, or when the
+/// identifier is a workspace global that no document declares (builtins and
+/// undeclared names).
+pub fn collectReferences(
+    arena: Allocator,
+    io: Io,
+    gpa: Allocator,
+    document_store: *DocumentStore,
+    handle: *DocumentStore.Handle,
+    source_index: usize,
+    search: SearchScope,
+) !?[]const Reference {
     const tree = handle.tree;
-    const source_index = offsets.positionToIndex(tree.source, position, encoding);
     const ident_token = goto.identifierTokenAtIndex(tree, source_index) orelse return null;
     const name = tree.tokenSlice(ident_token);
 
@@ -40,13 +85,13 @@ pub fn findReferences(
         name,
     );
 
-    var locations: std.ArrayList(types.Location) = .empty;
+    var refs: std.ArrayList(Reference) = .empty;
 
     if (resolved) |target| {
         if (target.scope != .root) {
             // A local or function parameter never crosses file boundaries.
-            try scanFileForLocal(arena, &locations, handle, doc_scope, target, name, include_declaration, encoding);
-            return locations.items;
+            try scanFileForLocal(arena, &refs, handle, doc_scope, target, name);
+            return refs.items;
         }
     }
 
@@ -60,30 +105,28 @@ pub fn findReferences(
     } else false;
     if (!any_declaration) return null;
 
-    try scanFileForGlobal(arena, &locations, io, gpa, handle, name, include_declaration, encoding);
-    for (handles) |other| {
-        if (other == handle) continue;
-        try scanFileForGlobal(arena, &locations, io, gpa, other, name, include_declaration, encoding);
+    try scanFileForGlobal(arena, &refs, io, gpa, handle, name);
+    if (search == .workspace) {
+        for (handles) |other| {
+            if (other == handle) continue;
+            try scanFileForGlobal(arena, &refs, io, gpa, other, name);
+        }
     }
-    return locations.items;
+    return refs.items;
 }
 
 /// Collects tokens in `handle` that resolve to the same declaration chain as
 /// `target` (a local or function parameter).
 fn scanFileForLocal(
     arena: Allocator,
-    locations: *std.ArrayList(types.Location),
+    refs: *std.ArrayList(Reference),
     handle: *DocumentStore.Handle,
     doc_scope: *const DocumentScope,
     target: DocumentScope.ResolvedDeclaration,
     name: []const u8,
-    include_declaration: bool,
-    encoding: offsets.Encoding,
 ) !void {
     var decl_tokens: std.ArrayList(Ast.TokenIndex) = .empty;
-    if (!include_declaration) {
-        try collectChainNameTokens(arena, &decl_tokens, handle.tree, doc_scope, target.chain);
-    }
+    try collectChainNameTokens(arena, &decl_tokens, handle.tree, doc_scope, target.chain);
 
     const tree = handle.tree;
     const locs = tree.tokens.items(.loc);
@@ -91,7 +134,6 @@ fn scanFileForLocal(
         const token: Ast.TokenIndex = @intCast(i);
         if (tree.tokenTag(token) != .identifier) continue;
         if (!std.mem.eql(u8, tree.tokenSlice(token), name)) continue;
-        if (std.mem.findScalar(Ast.TokenIndex, decl_tokens.items, token) != null) continue;
 
         const resolved = doc_scope.resolveName(
             doc_scope.innermostScopeAtIndex(@intCast(locs[token].start)),
@@ -99,7 +141,11 @@ fn scanFileForLocal(
         ) orelse continue;
         if (resolved.chain.first != target.chain.first) continue;
 
-        try appendTokenLocation(arena, locations, handle, token, encoding);
+        try refs.append(arena, .{
+            .handle = handle,
+            .token = token,
+            .is_declaration = std.mem.findScalar(Ast.TokenIndex, decl_tokens.items, token) != null,
+        });
     }
 }
 
@@ -108,21 +154,17 @@ fn scanFileForLocal(
 /// declaration or nothing at all (the global is defined in another file).
 fn scanFileForGlobal(
     arena: Allocator,
-    locations: *std.ArrayList(types.Location),
+    refs: *std.ArrayList(Reference),
     io: Io,
     gpa: Allocator,
     handle: *DocumentStore.Handle,
     name: []const u8,
-    include_declaration: bool,
-    encoding: offsets.Encoding,
 ) !void {
     const doc_scope = try handle.getDocumentScope(io, gpa);
 
     var decl_tokens: std.ArrayList(Ast.TokenIndex) = .empty;
-    if (!include_declaration) {
-        if (doc_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name })) |chain| {
-            try collectChainNameTokens(arena, &decl_tokens, handle.tree, doc_scope, chain);
-        }
+    if (doc_scope.getScopeDeclarationChain(.{ .scope = .root, .name = name })) |chain| {
+        try collectChainNameTokens(arena, &decl_tokens, handle.tree, doc_scope, chain);
     }
 
     const tree = handle.tree;
@@ -131,7 +173,6 @@ fn scanFileForGlobal(
         const token: Ast.TokenIndex = @intCast(i);
         if (tree.tokenTag(token) != .identifier) continue;
         if (!std.mem.eql(u8, tree.tokenSlice(token), name)) continue;
-        if (std.mem.findScalar(Ast.TokenIndex, decl_tokens.items, token) != null) continue;
 
         // Locals or parameters shadowing the global are excluded.
         if (doc_scope.resolveName(
@@ -141,7 +182,11 @@ fn scanFileForGlobal(
             if (resolved.scope != .root) continue;
         }
 
-        try appendTokenLocation(arena, locations, handle, token, encoding);
+        try refs.append(arena, .{
+            .handle = handle,
+            .token = token,
+            .is_declaration = std.mem.findScalar(Ast.TokenIndex, decl_tokens.items, token) != null,
+        });
     }
 }
 
@@ -159,22 +204,13 @@ fn collectChainNameTokens(
     }
 }
 
-fn appendTokenLocation(
-    arena: Allocator,
-    locations: *std.ArrayList(types.Location),
-    handle: *DocumentStore.Handle,
-    token: Ast.TokenIndex,
-    encoding: offsets.Encoding,
-) !void {
+pub fn tokenRange(handle: *DocumentStore.Handle, token: Ast.TokenIndex, encoding: offsets.Encoding) types.Range {
     const loc = handle.tree.tokenLoc(token);
-    try locations.append(arena, .{
-        .uri = handle.uri.raw,
-        .range = offsets.locToRange(
-            handle.tree.source,
-            .{ .start = loc.start, .end = loc.end },
-            encoding,
-        ),
-    });
+    return offsets.locToRange(
+        handle.tree.source,
+        .{ .start = loc.start, .end = loc.end },
+        encoding,
+    );
 }
 
 fn testFindReferencesMulti(
