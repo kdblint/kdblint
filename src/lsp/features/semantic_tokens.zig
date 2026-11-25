@@ -743,6 +743,16 @@ test "builtins and literals" {
     );
 }
 
+test "symbol list with a leading underscore" {
+    try expectTokens("`a`_b;`sym_1`sym_2",
+        \\enumMember `a
+        \\enumMember `_b
+        \\enumMember `sym_1
+        \\enumMember `sym_2
+        \\
+    );
+}
+
 test "control words" {
     try expectTokens("if[1;2]",
         \\keyword if

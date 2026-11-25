@@ -6496,6 +6496,10 @@ test "render number_literal.q" {
     try testRender("number_list_literal.q");
 }
 
+test "render symbol_list_literal.q" {
+    try testRender("symbol_list_literal.q");
+}
+
 test "render call.q" {
     try testRender("call_0.q");
     try testRender("call_1.q");

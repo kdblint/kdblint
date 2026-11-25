@@ -879,6 +879,16 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     ':' => continue :state .file_handle,
                     'a'...'z', 'A'...'Z', '0'...'9', '.' => continue :state .symbol_literal,
+                    // q only allows a leading underscore when the symbol
+                    // continues a symbol list (`a`_b); a lone `_b is drop.
+                    // The previous symbol is adjacent unless whitespace
+                    // (which also ends any comment) precedes the backtick.
+                    '_' => if (self.mode == .q and self.prev_tag == .symbol_literal) {
+                        switch (self.buffer[result.loc.start - 1]) {
+                            ' ', '\t', '\n' => {},
+                            else => continue :state .symbol_literal,
+                        }
+                    },
                     else => {},
                 }
             },
@@ -1612,6 +1622,35 @@ test "symbols" {
         "`_symbol_with_leading_underscore",
         &.{ .symbol_literal, .underscore, .identifier },
     );
+
+    // A leading underscore is part of the symbol only when it continues a
+    // symbol list in q.
+    try testTokenizeContentMode(.q, "`a`_b", &.{ .symbol_literal, .symbol_literal }, &.{ "`a", "`_b" });
+    try testTokenizeContentMode(.q, "``_b", &.{ .symbol_literal, .symbol_literal }, &.{ "`", "`_b" });
+    try testTokenizeContentMode(.q, "`a`__b", &.{ .symbol_literal, .symbol_literal }, &.{ "`a", "`__b" });
+    try testTokenizeContentMode(.q, "`a`_", &.{ .symbol_literal, .symbol_literal }, &.{ "`a", "`_" });
+    try testTokenizeContentMode(.q, "`:a/b`_c", &.{ .symbol_literal, .symbol_literal }, &.{ "`:a/b", "`_c" });
+    try testTokenizeContentMode(.q, "`a`_:c", &.{ .symbol_literal, .symbol_literal }, &.{ "`a", "`_:c" });
+    try testTokenizeContentMode(
+        .q,
+        "`a`_b_c`_d`e",
+        &.{ .symbol_literal, .symbol_literal, .symbol_literal, .symbol_literal },
+        &.{ "`a", "`_b_c", "`_d", "`e" },
+    );
+    try testTokenizeMode(.q, "`a `_b", &.{ .symbol_literal, .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "`a\t`_b", &.{ .symbol_literal, .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "`a\n`_b", &.{ .symbol_literal, .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "`a\r\n`_b", &.{ .symbol_literal, .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "`a;`_b", &.{ .symbol_literal, .semicolon, .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "a`_b", &.{ .identifier, .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.q, "(`a)`_b", &.{
+        .l_paren, .symbol_literal, .r_paren, .symbol_literal, .underscore, .identifier,
+    });
+    try testTokenizeMode(.q, "`_b`_c", &.{
+        .symbol_literal, .underscore, .identifier, .symbol_literal, .underscore, .identifier,
+    });
+    try testTokenizeMode(.k, "`a`_b", &.{ .symbol_literal, .symbol_literal, .underscore, .identifier });
+    try testTokenizeMode(.k, "``_b", &.{ .symbol_literal, .symbol_literal, .underscore, .identifier });
 
     try testTokenize("``", &.{ .symbol_literal, .symbol_literal });
     try testTokenize("`a`a", &.{ .symbol_literal, .symbol_literal });

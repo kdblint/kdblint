@@ -3824,6 +3824,21 @@ test "print_zir: symbol list literal" {
         \\  %2 = print(%1)
         \\})
     );
+    // In q a leading underscore continues the list; in k it is drop.
+    try testZirMode(.q, "`a`_b",
+        \\%0 = file({
+        \\  %1 = sym_list("a", "_b") node_offset:1:1 to :1:6
+        \\  %2 = print(%1)
+        \\})
+    );
+    try testZirMode(.k, "`a`_b",
+        \\%0 = file({
+        \\  %1 = identifier("b") token_offset:1:5 to :1:6
+        \\  %2 = sym_list("a", "") node_offset:1:1 to :1:4
+        \\  %3 = apply(@drop, %2, %1) node_offset:1:1 to :1:6
+        \\  %4 = print(%3)
+        \\})
+    );
 }
 
 test "print_zir: identifier" {
